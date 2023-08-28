@@ -127,3 +127,22 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+
+#dont track pickle files by default
+*.pickle
+
+images
+# ignorre agent's logs
+agents/*/logs/
+*tensorboard-logs*
+
+# ignore swap files
+*.swp
+.vscode/launch.json
+logs/*
+runs/*
+agents/*/runs/*
+replay_buffer.csv
+agents/*/saved_models/*
