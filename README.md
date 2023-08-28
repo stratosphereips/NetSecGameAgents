@@ -1,14 +1,5 @@
-# Awesome Code Template
-
-This repository is a template with basic elements that every repository at Stratosphere should follow.
-
-## Features
-
-Write about what makes your [tool|code|data|repo] special.
-
-## Usage
-
-Write about how others can use your [tool|code|data|repo].
+# NetSecGameAgents
+Repository for vairous agents used in the NetworkSecurityGame
 
 # About
 
