@@ -93,7 +93,7 @@ Q4 = """Provide the best next action in the correct JSON format. Action: """
 
 
 @retry(stop=stop_after_attempt(3))
-def openai_query(msg_list, max_tokens=60, model="gpt-3.5-turbo"):
+def openai_query(msg_list, max_tokens, model):
     """Send messages to OpenAI API and return the response."""
     llm_response = openai.ChatCompletion.create(
         model=model, messages=msg_list, max_tokens=max_tokens, temperature=0.0

@@ -273,7 +273,7 @@ def print_current_state(state: GameState, reward: int = 0, previous_state=None):
     print_known_data(state.known_data, previous_state)
     print("+======================================================================================================================\n")
 
-def play(env, agent):
+def play(env, agent, args):
     episode_counter = 0
     stop = False
     while not stop:
@@ -281,7 +281,7 @@ def play(env, agent):
         previous_state = None
         # Get the target from the env
         target_host = list(env._goal_conditions["known_data"].keys())[0]
-        assistant = LLMAssistant("gpt-4", target_host)
+        assistant = LLMAssistant(args.llm, target_host)
         while not observation.done and not stop:
             # Be sure the agent can do the move before giving to the env.
             print_current_state(observation.state, observation.reward, previous_state)
@@ -312,7 +312,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
     parser.add_argument("--rb_log_directory", help="directory to store the logs", default="env/logs/replays", action='store', required=False)
-    
+    parser.add_argument("--llm", choices=["gpt-4", "gpt-3.5-turbo"], type=str, default="gpt-3.5-turbo") 
     args = parser.parse_args()
     
     print(colored("\n\nWelcome to the Network Security Game!\n", 'light_cyan'))
@@ -334,7 +334,7 @@ def main() -> None:
     random.seed(env.seed)
     logger.info('Creating the agent')
     agent = InteractiveLLMAgent(env)
-    play(env, agent)
+    play(env, agent, args)
 
 if __name__ == '__main__':
     main()
