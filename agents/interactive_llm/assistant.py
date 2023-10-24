@@ -126,7 +126,14 @@ class LLMAssistant:
         ]
         known_nets = [str(net) for net in list(state.known_networks)]
 
-        prompt = "Current status:\n"
+        prompt = "Previous actions:\n"
+        if len(self.memories) > 0:
+            for memory in self.memories:
+                prompt += f"You took action {memory[0]} with parameters {memory[1]}\n"
+        else:
+            prompt += ""
+
+        prompt += "Current status:\n"
         prompt += f"Controlled hosts are {' and '.join(contr_hosts)}\n"
         #    logger.info("Controlled hosts are %s", ' and '.join(contr_hosts))
 
