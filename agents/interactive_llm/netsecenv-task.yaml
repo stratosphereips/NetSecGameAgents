@@ -74,8 +74,8 @@ env:
   random_seed: 'random'
   # Or you can fix the seed
   # random_seed: 42
-  scenario: 'scenario1_tiny'
-  max_steps: 15
+  scenario: 'scenario1_small'
+  max_steps: 30
   goal_reward: 100
   detection_reward: -50
   step_reward: -1
