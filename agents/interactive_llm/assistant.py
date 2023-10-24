@@ -185,10 +185,10 @@ class LLMAssistant:
         try:
             regex = r"\{+[^}]+\}\}"
             matches = re.findall(regex, llm_response)
-            print("Matches:", matches)
+            # print("Matches:", matches)
             if len(matches) > 0:
                 response = matches[0]
-                print("Parsed Response:", response)
+                # print("Parsed Response:", response)
 
                 response_ = eval(response)
                 action_str = response_["action"]
