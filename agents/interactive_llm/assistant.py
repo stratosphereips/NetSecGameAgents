@@ -207,7 +207,9 @@ class LLMAssistant:
             return llm_response
 
     def get_action_from_obs(self, observation):
-        #  Stage 1
+        """
+        Use the simple agent architecture for the assistant
+        """
         status_prompt = self.create_status_from_state(observation.state)
         messages = [
             {"role": "system", "content": self.instructions},
@@ -219,29 +221,46 @@ class LLMAssistant:
             },
             {"role": "user", "content": "Action: "},
         ]
+        self.logger.info(f"Text sent to the LLM: {messages}")
 
-        # logger.info(f'Text sent to the LLM: {messages}')
+        response = openai_query(messages, max_tokens=1024, model=self.model)
+        self.logger.info(f"Response from LLM: {response}")
+        action_str = self.parse_response(response)
 
-        # messages = [
-        #    {"role": "user", "content": self.instructions},
-        #    {"role": "user", "content": status_prompt},
-        #    {"role": "user", "content": Q1},
-        # ]
+        return action_str
+
+    def get_action_from_obs_react(self, observation):
+        """
+        Use the ReAct architecture for the assistant
+        """
+        # TODO: If used, adjust the memory
+        #  Stage 1
+        status_prompt = self.create_status_from_state(observation.state)
+
+        messages = [
+            {"role": "user", "content": self.instructions},
+            {"role": "user", "content": status_prompt},
+            {"role": "user", "content": Q1},
+        ]
+        self.logger.info(f"Text sent to the LLM: {messages}")
+
         response = openai_query(messages, max_tokens=1024, model=self.model)
         self.logger.info(f"(Stage 1) Response from LLM: {response}")
-        # memory_prompt = self.create_mem_prompt(self.memories[-self.memory_len :])
 
-        # messages = [
-        #    {"role": "user", "content": self.instructions},
-        #    {"role": "user", "content": status_prompt},
-        #    {"role": "user", "content": COT_PROMPT2},
-        #    {"role": "user", "content": response},
-        #    {"role": "user", "content": memory_prompt},
-        #    {"role": "user", "content": Q4},
-        # ]
+        # Stage 2
+        memory_prompt = self.create_mem_prompt(self.memories[-self.memory_len :])
 
-        # response = openai_query(messages, max_tokens=80, model=self.model)
-        # self.logger.info(f"(Stage 2) Response from LLM: {response}")
+        messages = [
+            {"role": "user", "content": self.instructions},
+            {"role": "user", "content": status_prompt},
+            {"role": "user", "content": COT_PROMPT2},
+            {"role": "user", "content": response},
+            {"role": "user", "content": memory_prompt},
+            {"role": "user", "content": Q4},
+        ]
+
+        response = openai_query(messages, max_tokens=80, model=self.model)
+        self.logger.info(f"(Stage 2) Response from LLM: {response}")
         action_str = self.parse_response(response)
 
         return action_str
