@@ -296,6 +296,7 @@ def play(env, agent, args):
             if action == "help":
                 response, llm_action = assistant.get_action_from_obs(observation)
                 print(colored(f"Assistant: {response}.", "red"))
+                print(colored(f"Assistant: Enter 'apply' if you agree with my proposal.", "red"))
                 action_to_apply = llm_action
             elif action == "apply":
                 if action_to_apply is not None:
