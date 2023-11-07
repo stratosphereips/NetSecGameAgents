@@ -1,6 +1,7 @@
 # Author: Ondrej Lukas, ondrej.lukas@aic.cvut.cz
 # Author: Maria Rigaki, maria.rigaki@aic.fel.cvut.cz
 # This agent allows to manually play the Network Security Game assisted by an LLM.
+from collections import deque
 import sys
 import argparse
 import logging
@@ -36,7 +37,9 @@ class InteractiveLLMAgent:
         # Get Action type to play
         action_type = get_action_type_from_stdin()
         if action_type == "help":
-            return "help" 
+            return "help"
+        elif action_type == "apply":
+            return "apply"
         elif action_type:
             #get parameters of actions
             params = get_action_params_from_stdin(action_type, observation.state)
@@ -161,6 +164,9 @@ def get_selection_from_user(actiontypes: ActionType, prompt) -> Action | str:
         elif user_input.lower() == 'help':
             selected_option = "help"
             input_alive = False
+        elif user_input.lower() == 'apply':
+            selected_option = "apply"
+            input_alive = False
         else:
             try:
                 selected_idx = int(user_input)
@@ -282,13 +288,22 @@ def play(env, agent, args):
         # Get the target from the env
         target_host = list(env._goal_conditions["known_data"].keys())[0]
         assistant = LLMAssistant(args.llm, target_host)
+        action_to_apply = None
         while not observation.done and not stop:
             # Be sure the agent can do the move before giving to the env.
             print_current_state(observation.state, observation.reward, previous_state)
             action = agent.move(observation)
             if action == "help":
-                response = assistant.get_action_from_obs(observation)
+                response, llm_action = assistant.get_action_from_obs(observation)
                 print(colored(f"Assistant: {response}.", "red"))
+                action_to_apply = llm_action
+            elif action == "apply":
+                if action_to_apply is not None:
+                    previous_state = observation.state
+                    observation = env.step(action_to_apply)
+                    episode_counter += 1
+                else:
+                    print(colored("Nothing to apply. Please enter a command.", "red"))
             elif action == "error":
                 print(colored("Incorrect action parameters, please try again.", "red"))
             elif action:

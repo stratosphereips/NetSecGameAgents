@@ -13,7 +13,8 @@ sys.path.append(
     path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 )
 
-from env.game_components import ActionType
+from env.game_components import ActionType, Action, IP, Data, Network, Service
+
 
 config = dotenv_values(".env")
 openai.api_key = config["OPENAI_API_KEY"]
@@ -181,7 +182,7 @@ class LLMAssistant:
                 prompt += f'You have taken action {{"action":"{memory[0]}" with "parameters":"{memory[1]}"}} in the past.\n'
         return prompt
 
-    def parse_response(self, llm_response):
+    def parse_response(self, llm_response, state):
         try:
             regex = r"\{+[^}]+\}\}"
             matches = re.findall(regex, llm_response)
@@ -194,17 +195,99 @@ class LLMAssistant:
                 action_str = response_["action"]
                 action_params = response_["parameters"]
                 self.memories.append((action_str, action_params))
-
+                
+                _, action = self.create_action_from_response(response_, state)
                 if action_str == "ScanServices":
                     action_str = "FindServices"
-                action_str = (
-                    f"You can take action {action_str} with parameters {action_params}"
-                )
+                action_str = (f"You can take action {action_str} with parameters {action_params}")
             else:
                 action_str = llm_response
-            return action_str
+            return action_str, action
         except:
-            return llm_response
+            return llm_response, None
+
+    def validate_action_in_state(self, llm_response, state):
+        """Check the LLM response and validate it against the current state."""
+        contr_hosts = [str(host) for host in state.controlled_hosts]
+        known_hosts = [str(host) for host in state.known_hosts if host.ip not in contr_hosts]
+        known_nets = [str(net) for net in list(state.known_networks)]
+
+        valid = False
+        try:
+            action_str = llm_response["action"]
+            action_params = llm_response["parameters"]
+            if isinstance(action_params, str):
+                action_params = eval(action_params)
+            match action_str:
+                case 'ScanNetwork':
+                    if action_params["target_network"] in known_nets:
+                        valid = True       
+                case 'ScanServices':
+                    if action_params["target_host"] in known_hosts or action_params["target_host"] in contr_hosts:
+                        valid = True
+                case 'ExploitService':
+                    ip_addr = action_params["target_host"]
+                    if ip_addr in known_hosts:
+                        valid = True
+                        # for service in state.known_services[IP(ip_addr)]:
+                        #     if service.name == action_params["target_service"]:
+                        #         valid = True
+                case 'FindData':
+                    if action_params["target_host"] in contr_hosts:
+                        valid = True
+                case 'ExfiltrateData':
+                    for ip_data in state.known_data:
+                        ip_addr = action_params["source_host"]
+                        if ip_data == IP(ip_addr) and ip_addr in contr_hosts:
+                            valid = True
+                case _:
+                    valid = False
+            return valid
+        except:
+            self.logger.info("Exception during validation of %s", llm_response)
+            return False
+
+    def create_action_from_response(self, llm_response, state):
+        """Build the action object from the llm response"""
+        try:
+            # Validate action based on current states
+            valid = self.validate_action_in_state(llm_response, state)
+            action = None
+            action_str = llm_response["action"]
+            action_params = llm_response["parameters"]
+            if isinstance(action_params, str):
+                action_params = eval(action_params)
+            if valid:
+                match action_str:
+                    case 'ScanNetwork':
+                        target_net, mask = action_params["target_network"].split('/')
+                        action  = Action(ActionType.ScanNetwork, {"target_network":Network(target_net, int(mask))})
+                    case 'ScanServices':
+                        action  = Action(ActionType.FindServices, {"target_host":IP(action_params["target_host"])})
+                    case 'ExploitService':
+                        target_ip = action_params["target_host"]
+                        target_service = action_params["target_service"]
+                        if len(list(state.known_services[IP(target_ip)])) > 0:
+                            for serv in state.known_services[IP(target_ip)]:
+                                if serv.name == target_service:
+                                    parameters = {"target_host":IP(target_ip), "target_service":Service(serv.name, serv.type, serv.version, serv.is_local)}
+                                    action = Action(ActionType.ExploitService, parameters)
+                    case 'FindData':
+                        action = Action(ActionType.FindData, {"target_host":IP(action_params["target_host"])})
+                    case 'ExfiltrateData':
+                        data_owner, data_id = action_params["data"]
+                        action = Action(ActionType.ExfiltrateData, {"target_host":IP(action_params["target_host"]), "data":Data(data_owner, data_id), "source_host":IP(action_params["source_host"])})
+                    case _:
+                        return False, action
+
+        except SyntaxError:
+            self.logger.error(f"Cannol parse the response from the LLM: {llm_response}")
+            valid = False
+
+        
+        #actions_took_in_episode.append(action)
+        return valid, action
+
 
     def get_action_from_obs(self, observation):
         """
@@ -225,9 +308,10 @@ class LLMAssistant:
 
         response = openai_query(messages, max_tokens=1024, model=self.model)
         self.logger.info(f"Response from LLM: {response}")
-        action_str = self.parse_response(response)
+        action_str, action = self.parse_response(response, observation.state)
+        self.logger.info(f"Parsed action from LLM: {action}")
 
-        return action_str
+        return action_str, action
 
     def get_action_from_obs_react(self, observation):
         """
