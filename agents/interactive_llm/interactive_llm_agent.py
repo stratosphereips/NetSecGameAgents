@@ -1,7 +1,6 @@
 # Author: Ondrej Lukas, ondrej.lukas@aic.cvut.cz
 # Author: Maria Rigaki, maria.rigaki@aic.fel.cvut.cz
 # This agent allows to manually play the Network Security Game assisted by an LLM.
-from collections import deque
 import sys
 import argparse
 import logging
