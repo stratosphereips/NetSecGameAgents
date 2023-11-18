@@ -17,6 +17,8 @@ from tenacity import retry, stop_after_attempt
 import argparse
 import jinja2
 import copy
+import json
+import re
 
 from dotenv import dotenv_values
 # Set the logging
@@ -444,13 +446,16 @@ if __name__ == "__main__":
             logger.info("LLM (step 2): %s", response)
 
             try:
-                if response.startswith("Action: "):
-                    response = response[8:]
-                elif not response.startswith("{"):
-                    idx = response.find("{")
-                    if idx > 0:
-                        response = response[idx:]
-                response = eval(response)
+                regex = r"\{+[^}]+\}\}"
+                matches = re.findall(regex, response)
+                print("Matches:", matches)
+                if len(matches) > 0:
+                    response = matches[0]
+                    print("Parsed Response:", response)
+
+                # response = eval(response)
+                response = json.loads(response)
+
                 # Validate action based on current states
                 is_valid, action = create_action_from_response(
                     response, observation.state
