@@ -389,19 +389,7 @@ if __name__ == "__main__":
 
             # Step 2
             memory_prompt = create_mem_prompt(memories[-args.memory_buffer :])
-            # messages = [
-            #     {"role": "user", "content": instructions},
-            #     {"role": "user", "content": status_prompt},
-            #     {"role": "user", "content": COT_PROMPT2},
-            #     {"role": "user", "content": response},
-            #     {"role": "user", "content": memory_prompt},
-            #     {"role": "user", "content": Q2}
-            # ]
 
-            # response = openai_query(messages, max_tokens=1024, model=args.llm)
-            # logger.info("LLM (step 2): %s", response)
-
-            # Step 3
             messages = [
                 {"role": "user", "content": instructions},
                 {"role": "user", "content": status_prompt},
@@ -419,8 +407,8 @@ if __name__ == "__main__":
             # Query the LLM
             response = openai_query(messages, max_tokens=80, model=args.llm)
 
-            print(f"LLM (step 3): {response}")
-            logger.info("LLM (step 3): %s", response)
+            print(f"LLM (step 2): {response}")
+            logger.info("LLM (step 2): %s", response)
 
             try:
                 if response.startswith("Action: "):
