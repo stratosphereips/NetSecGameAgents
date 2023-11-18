@@ -4,7 +4,10 @@ Authors:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
 """
 import sys
 from os import path
-sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
+
+sys.path.append(
+    path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
+)
 
 
 from env.network_security_game import NetworkSecurityEnvironment
@@ -22,7 +25,7 @@ config = dotenv_values(".env")
 openai.api_key = config["OPENAI_API_KEY"]
 
 # local_services = ['bash', 'powershell', 'remote desktop service', 'windows login', 'can_attack_start_here']
-local_services = ['can_attack_start_here']
+local_services = ["can_attack_start_here"]
 
 # Set the logging
 import logging
@@ -35,7 +38,7 @@ ACTION_MAPPER = {
     "ScanServices": ActionType.FindServices,
     "FindData": ActionType.FindData,
     "ExfiltrateData": ActionType.ExfiltrateData,
-    "ExploitService": ActionType.ExploitService
+    "ExploitService": ActionType.ExploitService,
 }
 
 COT_PROMPT = """
@@ -94,7 +97,9 @@ Q4 = """Provide the best next action in the correct JSON format. Action: """
 def validate_action_in_state(llm_response, state):
     """Check the LLM response and validate it against the current state."""
     contr_hosts = [str(host) for host in state.controlled_hosts]
-    known_hosts = [str(host) for host in state.known_hosts if host.ip not in contr_hosts]
+    known_hosts = [
+        str(host) for host in state.known_hosts if host.ip not in contr_hosts
+    ]
     known_nets = [str(net) for net in list(state.known_networks)]
 
     valid = False
@@ -104,23 +109,26 @@ def validate_action_in_state(llm_response, state):
         if isinstance(action_params, str):
             action_params = eval(action_params)
         match action_str:
-            case 'ScanNetwork':
+            case "ScanNetwork":
                 if action_params["target_network"] in known_nets:
-                    valid = True 
-            case 'ScanServices':
-                if action_params["target_host"] in known_hosts or action_params["target_host"] in contr_hosts:
                     valid = True
-            case 'ExploitService':
+            case "ScanServices":
+                if (
+                    action_params["target_host"] in known_hosts
+                    or action_params["target_host"] in contr_hosts
+                ):
+                    valid = True
+            case "ExploitService":
                 ip_addr = action_params["target_host"]
                 if ip_addr in known_hosts:
                     valid = True
                     # for service in state.known_services[IP(ip_addr)]:
                     #     if service.name == action_params["target_service"]:
                     #         valid = True
-            case 'FindData':
+            case "FindData":
                 if action_params["target_host"] in contr_hosts:
                     valid = True
-            case 'ExfiltrateData':
+            case "ExfiltrateData":
                 for ip_data in state.known_data:
                     ip_addr = action_params["source_host"]
                     if ip_data == IP(ip_addr) and ip_addr in contr_hosts:
@@ -132,20 +140,23 @@ def validate_action_in_state(llm_response, state):
         logger.info("Exception during validation of %s", llm_response)
         return False
 
+
 def create_status_from_state(state):
     """Create a status prompt using the current state and the sae memories."""
     contr_hosts = [host.ip for host in state.controlled_hosts]
-    known_hosts = [str(host) for host in state.known_hosts if host.ip not in contr_hosts]
+    known_hosts = [
+        str(host) for host in state.known_hosts if host.ip not in contr_hosts
+    ]
     known_nets = [str(net) for net in list(state.known_networks)]
 
     prompt = "Current status:\n"
     prompt += f"Controlled hosts are {' and '.join(contr_hosts)}\n"
-    logger.info("Controlled hosts are %s", ' and '.join(contr_hosts))
+    logger.info("Controlled hosts are %s", " and ".join(contr_hosts))
 
     prompt += f"Known networks are {' and '.join(known_nets)}\n"
-    logger.info("Known networks are %s", ' and '.join(known_nets))
+    logger.info("Known networks are %s", " and ".join(known_nets))
     prompt += f"Known hosts are {' and '.join(known_hosts)}\n"
-    logger.info("Known hosts are %s", ' and '.join(known_hosts))
+    logger.info("Known hosts are %s", " and ".join(known_hosts))
 
     if len(state.known_services.keys()) == 0:
         prompt += "Known services are none\n"
@@ -171,7 +182,6 @@ def create_status_from_state(state):
         logger.info(f"Known data: None")
     for ip_data in state.known_data:
         if len(state.known_data[ip_data]) > 0:
-
             host_data = ""
             for known_data in list(state.known_data[ip_data]):
                 host_data += f"({known_data.owner}, {known_data.id}) and "
@@ -179,6 +189,7 @@ def create_status_from_state(state):
             logger.info(f"Known data: {ip_data, state.known_data[ip_data]}")
 
     return prompt
+
 
 def create_action_from_response(llm_response, state):
     """Build the action object from the llm response"""
@@ -192,28 +203,52 @@ def create_action_from_response(llm_response, state):
             action_params = eval(action_params)
         if valid:
             match action_str:
-                case 'ScanNetwork':
-                    target_net, mask = action_params["target_network"].split('/')
-                    action  = Action(ActionType.ScanNetwork, {"target_network":Network(target_net, int(mask))})
-                case 'ScanServices':
-                    action  = Action(ActionType.FindServices, {"target_host":IP(action_params["target_host"])})
-                case 'ExploitService':
+                case "ScanNetwork":
+                    target_net, mask = action_params["target_network"].split("/")
+                    action = Action(
+                        ActionType.ScanNetwork,
+                        {"target_network": Network(target_net, int(mask))},
+                    )
+                case "ScanServices":
+                    action = Action(
+                        ActionType.FindServices,
+                        {"target_host": IP(action_params["target_host"])},
+                    )
+                case "ExploitService":
                     target_ip = action_params["target_host"]
                     target_service = action_params["target_service"].lower()
                     if len(list(state.known_services[IP(target_ip)])) > 0:
                         for serv in state.known_services[IP(target_ip)]:
                             if serv.name == target_service:
-                                parameters = {"target_host":IP(target_ip), "target_service":Service(serv.name, serv.type, serv.version, serv.is_local)}
+                                parameters = {
+                                    "target_host": IP(target_ip),
+                                    "target_service": Service(
+                                        serv.name,
+                                        serv.type,
+                                        serv.version,
+                                        serv.is_local,
+                                    ),
+                                }
                                 action = Action(ActionType.ExploitService, parameters)
-                case 'FindData':
-                    action = Action(ActionType.FindData, {"target_host":IP(action_params["target_host"])})
-                case 'ExfiltrateData':
+                case "FindData":
+                    action = Action(
+                        ActionType.FindData,
+                        {"target_host": IP(action_params["target_host"])},
+                    )
+                case "ExfiltrateData":
                     try:
                         data_owner, data_id = action_params["data"]
                     except:
                         data_owner, data_id = eval(action_params["data"])
 
-                    action = Action(ActionType.ExfiltrateData, {"target_host":IP(action_params["target_host"]), "data":Data(data_owner, data_id), "source_host":IP(action_params["source_host"])})
+                    action = Action(
+                        ActionType.ExfiltrateData,
+                        {
+                            "target_host": IP(action_params["target_host"]),
+                            "data": Data(data_owner, data_id),
+                            "source_host": IP(action_params["source_host"]),
+                        },
+                    )
                 case _:
                     return False, action
 
@@ -222,6 +257,7 @@ def create_action_from_response(llm_response, state):
         valid = False
 
     return valid, action
+
 
 def create_mem_prompt(memory_list):
     """Summarize a list of memories into a few sentences."""
@@ -249,23 +285,46 @@ def summary_prompt(memory_list):
 def openai_query(msg_list, max_tokens=60, model="gpt-3.5-turbo"):
     """Send messages to OpenAI API and return the response."""
     llm_response = openai.ChatCompletion.create(
-        model=model,
-        messages=msg_list,
-        max_tokens=max_tokens,
-        temperature=0.0
+        model=model, messages=msg_list, max_tokens=max_tokens, temperature=0.0
     )
     return llm_response["choices"][0]["message"]["content"]
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
-    parser.add_argument("--llm", type=str, choices=["gpt-4", "gpt-3.5-turbo", "gpt-3.5-turbo-16k"], default="gpt-3.5-turbo", help="LLM used with OpenAI API")
-    parser.add_argument("--test_episodes", help="Number of test episodes to run", default=30, action='store', required=False, type=int)
-    parser.add_argument("--memory_buffer", help="Number of actions to remember and pass to the LLM", default=5, action='store', required=False, type=int)
+    parser.add_argument(
+        "--task_config_file",
+        help="Reads the task definition from a configuration file",
+        default=path.join(path.dirname(__file__), "netsecenv-task.yaml"),
+        action="store",
+        required=False,
+    )
+    parser.add_argument(
+        "--llm",
+        type=str,
+        choices=["gpt-4", "gpt-3.5-turbo", "gpt-3.5-turbo-16k"],
+        default="gpt-3.5-turbo",
+        help="LLM used with OpenAI API",
+    )
+    parser.add_argument(
+        "--test_episodes",
+        help="Number of test episodes to run",
+        default=30,
+        action="store",
+        required=False,
+        type=int,
+    )
+    parser.add_argument(
+        "--memory_buffer",
+        help="Number of actions to remember and pass to the LLM",
+        default=5,
+        action="store",
+        required=False,
+        type=int,
+    )
     args = parser.parse_args()
 
-    logger = logging.getLogger('llm_qa')
+    logger = logging.getLogger("llm_qa")
 
     env = NetworkSecurityEnvironment(args.task_config_file)
     # Setup tensorboard
@@ -281,7 +340,7 @@ if __name__ == "__main__":
     num_win_steps = []
     num_detected_steps = []
     num_actions_repeated = []
-    reward_memory = ''
+    reward_memory = ""
     # We are still not using this, but we keep track
     is_detected = False
 
@@ -291,8 +350,8 @@ if __name__ == "__main__":
     for episode in range(1, args.test_episodes + 1):
         actions_took_in_episode = []
 
-        logger.info(f'Running episode {episode}')
-        print(f'Running episode {episode}')
+        logger.info(f"Running episode {episode}")
+        print(f"Running episode {episode}")
 
         # Initialize the game
         observation = env.reset()
@@ -311,7 +370,9 @@ if __name__ == "__main__":
         template = jinja_environment.from_string(INSTRUCTIONS_TEMPLATE)
         target_host = list(goal["known_data"].keys())[0]
         data = goal["known_data"][target_host].pop()
-        instructions = template.render(user=data.owner, data=data.id, target_host=target_host)
+        instructions = template.render(
+            user=data.owner, data=data.id, target_host=target_host
+        )
 
         for i in range(num_iterations):
             good_action = False
@@ -321,13 +382,13 @@ if __name__ == "__main__":
             messages = [
                 {"role": "user", "content": instructions},
                 {"role": "user", "content": status_prompt},
-                {"role": "user", "content": Q1}
+                {"role": "user", "content": Q1},
             ]
             response = openai_query(messages, max_tokens=1024, model=args.llm)
             logger.info("LLM (step 1): %s", response)
 
             # Step 2
-            memory_prompt = create_mem_prompt(memories[-args.memory_buffer:])
+            memory_prompt = create_mem_prompt(memories[-args.memory_buffer :])
             # messages = [
             #     {"role": "user", "content": instructions},
             #     {"role": "user", "content": status_prompt},
@@ -347,12 +408,12 @@ if __name__ == "__main__":
                 {"role": "user", "content": COT_PROMPT2},
                 {"role": "user", "content": response},
                 {"role": "user", "content": memory_prompt},
-                {"role": "user", "content": Q4}
+                {"role": "user", "content": Q4},
             ]
 
             # Store the first prompt in tensorboard
             if not save_first_prompt:
-                writer.add_text('prompt_2', f'{messages}')
+                writer.add_text("prompt_2", f"{messages}")
                 save_first_prompt = True
 
             # Query the LLM
@@ -370,7 +431,9 @@ if __name__ == "__main__":
                         response = response[idx:]
                 response = eval(response)
                 # Validate action based on current states
-                is_valid, action = create_action_from_response(response, observation.state)
+                is_valid, action = create_action_from_response(
+                    response, observation.state
+                )
             except:
                 print("Eval failed")
                 is_valid = False
@@ -385,11 +448,13 @@ if __name__ == "__main__":
                     current_state = observation.state
 
             logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
-            if observation.done or i == (num_iterations-1): # if it is the last iteration gather statistics
-                if i < (num_iterations-1):
+            if observation.done or i == (
+                num_iterations - 1
+            ):  # if it is the last iteration gather statistics
+                if i < (num_iterations - 1):
                     reason = observation.info
                 else:
-                    reason= {'end_reason' : 'max_iterations'}
+                    reason = {"end_reason": "max_iterations"}
 
                 win = 0
                 # is_detected if boolean
@@ -397,42 +462,64 @@ if __name__ == "__main__":
                 steps = env.timestamp
                 epi_last_reward = observation.reward
                 num_actions_repeated += [repeated_actions]
-                if 'goal_reached' in reason['end_reason']:
+                if "goal_reached" in reason["end_reason"]:
                     wins += 1
                     num_win_steps += [steps]
-                    type_of_end = 'win'
-                elif 'detected' in reason['end_reason']:
+                    type_of_end = "win"
+                elif "detected" in reason["end_reason"]:
                     detected += 1
                     num_detected_steps += [steps]
-                    type_of_end = 'detection'
-                elif 'max_iterations' in reason['end_reason']:
+                    type_of_end = "detection"
+                elif "max_iterations" in reason["end_reason"]:
                     reach_max_steps += 1
-                    type_of_end = 'max_iterations'
+                    type_of_end = "max_iterations"
                     total_reward = -env._max_steps
                     steps = env._max_steps
                 else:
                     reach_max_steps += 1
-                    type_of_end = 'max_steps'
+                    type_of_end = "max_steps"
                 returns += [total_reward]
                 num_steps += [steps]
 
-                logger.info(f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}")
-                print(f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}")
+                logger.info(
+                    f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
+                )
+                print(
+                    f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
+                )
                 break
 
             try:
                 if not is_valid:
-                    memories.append((response["action"], response["parameters"], "This action was not valid based on your status."))
+                    memories.append(
+                        (
+                            response["action"],
+                            response["parameters"],
+                            "This action was not valid based on your status.",
+                        )
+                    )
                 else:
                     # This is based on the assumption that more valid actions in the state are better/more helpful.
                     # But we could a manual evaluation based on the prior knowledge and weight the different components.
                     # For example: finding new data is better than discovering hosts (?)
                     if good_action:
-                        memories.append((response["action"], response["parameters"], "This action was helpful."))
+                        memories.append(
+                            (
+                                response["action"],
+                                response["parameters"],
+                                "This action was helpful.",
+                            )
+                        )
                     else:
-                        memories.append((response["action"], response["parameters"], "This action was not helpful."))
+                        memories.append(
+                            (
+                                response["action"],
+                                response["parameters"],
+                                "This action was not helpful.",
+                            )
+                        )
 
-                    # If the action was repeated count it        
+                    # If the action was repeated count it
                     if action in actions_took_in_episode:
                         repeated_actions += 1
 
@@ -443,9 +530,9 @@ if __name__ == "__main__":
                 memories.append(f"Response '{response}' was badly formatted.")
 
     # After all episodes are done. Compute statistics
-    test_win_rate = (wins/(args.test_episodes))*100
-    test_detection_rate = (detected/(args.test_episodes))*100
-    test_max_steps_rate = (reach_max_steps/(args.test_episodes))*100
+    test_win_rate = (wins / (args.test_episodes)) * 100
+    test_detection_rate = (detected / (args.test_episodes)) * 100
+    test_max_steps_rate = (reach_max_steps / (args.test_episodes)) * 100
     test_average_returns = np.mean(returns)
     test_std_returns = np.std(returns)
     test_average_episode_steps = np.mean(num_steps)
@@ -455,23 +542,25 @@ if __name__ == "__main__":
     test_average_detected_steps = np.mean(num_detected_steps)
     test_std_detected_steps = np.std(num_detected_steps)
     test_average_repeated_steps = np.mean(num_actions_repeated)
-    test_std_repeated_steps = np.std(num_actions_repeated) 
+    test_std_repeated_steps = np.std(num_actions_repeated)
     # Store in tensorboard
-    tensorboard_dict = {"charts/test_avg_win_rate": test_win_rate,
-                        "charts/test_avg_detection_rate": test_detection_rate,
-                        "charts/test_avg_max_steps_rate": test_max_steps_rate,
-                        "charts/test_avg_returns": test_average_returns,
-                        "charts/test_std_returns": test_std_returns,
-                        "charts/test_avg_episode_steps": test_average_episode_steps,
-                        "charts/test_std_episode_steps": test_std_episode_steps,
-                        "charts/test_avg_win_steps": test_average_win_steps,
-                        "charts/test_std_win_steps": test_std_win_steps,
-                        "charts/test_avg_detected_steps": test_average_detected_steps,
-                        "charts/test_std_detected_steps": test_std_detected_steps,
-                        "charts/test_avg_repeated_steps": test_average_repeated_steps,
-                        "charts/test_std_repeated_steps": test_std_repeated_steps}
+    tensorboard_dict = {
+        "charts/test_avg_win_rate": test_win_rate,
+        "charts/test_avg_detection_rate": test_detection_rate,
+        "charts/test_avg_max_steps_rate": test_max_steps_rate,
+        "charts/test_avg_returns": test_average_returns,
+        "charts/test_std_returns": test_std_returns,
+        "charts/test_avg_episode_steps": test_average_episode_steps,
+        "charts/test_std_episode_steps": test_std_episode_steps,
+        "charts/test_avg_win_steps": test_average_win_steps,
+        "charts/test_std_win_steps": test_std_win_steps,
+        "charts/test_avg_detected_steps": test_average_detected_steps,
+        "charts/test_std_detected_steps": test_std_detected_steps,
+        "charts/test_avg_repeated_steps": test_average_repeated_steps,
+        "charts/test_std_repeated_steps": test_std_repeated_steps,
+    }
 
-    text = f'''Final test after {args.test_episodes} episodes
+    text = f"""Final test after {args.test_episodes} episodes
         Wins={wins},
         Detections={detected},
         winrate={test_win_rate:.3f}%,
@@ -481,11 +570,17 @@ if __name__ == "__main__":
         average_episode_steps={test_average_episode_steps:.3f} +- {test_std_episode_steps:.3f},
         average_win_steps={test_average_win_steps:.3f} +- {test_std_win_steps:.3f},
         average_detected_steps={test_average_detected_steps:.3f} +- {test_std_detected_steps:.3f}
-        average_repeated_steps={test_average_repeated_steps:.3f} += {test_std_repeated_steps:.3f}'''
+        average_repeated_steps={test_average_repeated_steps:.3f} += {test_std_repeated_steps:.3f}"""
 
     # Text that is going to be added to the tensorboard. Put any description you want
 
-    experiment_description = "LLM QA agent. " + f"Model: {args.llm}" + f"Conf: {args.task_config_file}" + f"Max steps: {env._max_steps}" + f"Seed: {env._seed}"
+    experiment_description = (
+        "LLM QA agent. "
+        + f"Model: {args.llm}"
+        + f"Conf: {args.task_config_file}"
+        + f"Max steps: {env._max_steps}"
+        + f"Seed: {env._seed}"
+    )
 
     writer.add_text("Description", experiment_description)
     writer.add_hparams(vars(args), tensorboard_dict)
