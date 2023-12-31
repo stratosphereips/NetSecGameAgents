@@ -7,13 +7,16 @@ import random
 from termcolor import colored
 from os import path
 import os
+import socket
+import json
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
-
 
 from env.network_security_game import NetworkSecurityEnvironment
 from env.game_components import Network, IP
 from env.game_components import ActionType, Action, GameState, Observation
+
+logger = logging.getLogger('Interactive-agent')
 
 
 class InteractiveAgent:
@@ -23,8 +26,8 @@ class InteractiveAgent:
 
     """
 
-    def __init__(self, env)->None:
-        self._env = env
+    def __init__(self)->None:
+        pass
 
     def move(self, observation: Observation)->Action:
         """
@@ -38,7 +41,7 @@ class InteractiveAgent:
         action_type = get_action_type_from_stdin()
         if action_type:
             #get parameters of actions
-            params = get_action_params_from_stdin(action_type, observation.state)
+            params = get_action_params_from_stdin(action_type, observation['state'])
             if params:
                 action = Action(action_type, params)
                 print(f"Playing {action}")
@@ -162,10 +165,12 @@ def get_selection_from_user(actiontypes: ActionType, prompt) -> ActionType:
                 print(colored(f"Please insert a number in range {min(option_dict.keys())}-{max(option_dict.keys())}!", 'red'))
     return selected_option
 
-def print_current_state(state: GameState, reward: int = None, previous_state=None):
+def print_current_state(new_state: GameState, reward: int = None, previous_state=None):
     """
     Prints GameState to stdout in formatted way
     """
+    state = GameState.from_json(new_state)
+
     def print_known_services(known_services, previous_state):
         if len(known_services) == 0:
             print(f"| {colored('SERVICES',None,attrs=['bold'])}: N/A")
@@ -174,7 +179,7 @@ def print_current_state(state: GameState, reward: int = None, previous_state=Non
             services = {}
             if previous_state:
                 for k in sorted(known_services.keys()):
-                    if k in previous_state.known_services:
+                    if k in previous_state['known_services']:
                         services[k] = [str(s) for s in sorted(known_services[k])]
                     else:
                         services[colored(k, 'yellow')] = [colored(str(s),'yellow') for s in sorted(known_services[k])]
@@ -201,7 +206,7 @@ def print_current_state(state: GameState, reward: int = None, previous_state=Non
             data = {}
             if previous_state:
                 for k in sorted(known_data.keys()):
-                    if k in previous_state.known_data:
+                    if k in previous_state['known_data']:
                         data[k] = [str(d) for d in sorted(known_data[k])]
                     else:
                         data[colored(k, 'yellow')] = [colored(str(d),'yellow') for d in sorted(known_data[k])]
@@ -222,10 +227,13 @@ def print_current_state(state: GameState, reward: int = None, previous_state=Non
 
     print(f"\n+============================================= {colored('CURRENT STATE','light_blue',attrs=['bold'])} (reward={reward}) ===============================================")
     if previous_state:
+        logger.info(f'Prev state: {previous_state}')
         previous_nets =[]
         new_nets = []
         for net in state.known_networks:
-            if net in previous_state.known_networks:
+            logger.info(f'net: {net}')
+            logger.info(f'known_nets: {state.known_networks}')
+            if net in previous_state['known_networks']:
                 previous_nets.append(net)
             else:
                 new_nets.append(net)
@@ -238,7 +246,7 @@ def print_current_state(state: GameState, reward: int = None, previous_state=Non
         previous_hosts =[]
         new_hosts = []
         for host in state.known_hosts:
-            if host in previous_state.known_hosts:
+            if host in previous_state['known_hosts']:
                 previous_hosts.append(host)
             else:
                 new_hosts.append(host)
@@ -251,7 +259,7 @@ def print_current_state(state: GameState, reward: int = None, previous_state=Non
         previous_hosts =[]
         new_hosts = []
         for host in state.controlled_hosts:
-            if host in previous_state.controlled_hosts:
+            if host in previous_state['controlled_hosts']:
                 previous_hosts.append(host)
             else:
                 new_hosts.append(host)
@@ -265,58 +273,191 @@ def print_current_state(state: GameState, reward: int = None, previous_state=Non
     print_known_data(state.known_data, previous_state)
     print("+======================================================================================================================\n")
 
-def play(env, agent, num_episodes=None):
-    episode_counter = 0
-    stop = False
-    while not stop:
-        observation = env.reset()
-        previous_state = None
-        while not observation.done and not stop:
-            # Be sure the agent can do the move before giving to the env.
-            print_current_state(observation.state, observation.reward, previous_state)
-            action = agent.move(observation)
-            if action:
-                previous_state = observation.state
-                observation = env.step(action)
-            else:
-                observation = Observation(None,None,True, "User-terminated")
-        episode_counter +=1
-        print(colored(f"\nEpisode over! Reason {observation.info}", 'light_cyan'))
-        if input(colored("\nDo you want to play again? Y/n: ", 'light_cyan')) in ["Y", 'y']:
-            print("\n################################################ STARTING NEW EPISODE ################################################\n")
+def receive_data(client_socket):
+    """
+    Receive data from server
+    """
+    # Receive data from the server
+    data = client_socket.recv(1024).decode()
+    logger.info(f"Data received from env: {data}")
+    data_dict = json.loads(data)
+    return data_dict
+
+def register(client_socket):
+    """
+    Register in the game with a nickname
+    """
+    try:
+        status, observation, message = step(client_socket, '')
+
+        if 'Insert your nick' in message:
+            # Send the nick
+            print(colored(message, 'light_cyan'))
+            player_name = input(colored("Answer: ", 'light_cyan'))
+        
+            while not player_name or len(player_name)==0:
+                print(colored("Incorrect input.", "red"))
+                player_name = input(colored("Answer: ", 'light_cyan'))
+            
+            message_dict = {'PutNick': player_name}
+            message_str = json.dumps(message_dict)
+            
+            #client_socket.sendall(message_str.encode())
+            status, observation, message = step(client_socket, message_str)
+            return status, observation, message
         else:
-            stop = True
+            return False, False, False
+    except Exception as e:
+        logger.error(f'Exception in register(): {e}')
+
+def choose_side(client_socket, message):
+    """
+    Choose your side
+    """
+    try:
+
+        if 'Which side are' in message:
+            # Choose side
+            print(colored(message, 'light_cyan'))
+            side = input(colored("Answer: ", 'light_cyan'))
+            while not side or len(side)==0:
+                print(colored("Incorrect input.", "red"))
+                side = input(colored("Answer: ", 'light_cyan'))
+            message_dict = {'ChooseSide': side}
+            message_str = json.dumps(message_dict)
+            
+            #client_socket.sendall(message_str.encode())
+            status, observation, message = step(client_socket, message_str)
+            return status, observation, message
+        else:
+            return False, False, False
+    except Exception as e:
+        logger.error(f'Exception in choose_side(): {e}')
+
+def step(client_socket, action):
+    """
+    Send an action and receive a response
+    """
+    try:
+        logger.info(f'Doing step')
+        logger.info(f'Sending: {action}')
+
+        if type(action) == Action:
+            action = action.as_json()
+
+        client_socket.sendall(action.encode())
+        data_dict = receive_data(client_socket)
+        logger.info(f'Received: {data_dict}')
+        try:
+            status = data_dict['status']
+        except KeyError:
+            status = {}
+        try:
+            observation = data_dict['observation']
+        except KeyError:
+            observation = {}
+        try:
+            message = data_dict['message']
+        except KeyError:
+            message = ''
+        return status, observation, message
+    except Exception as e:
+        logger.error(f'Exception in step(): {e}')
+
+def play(host, port, agent, num_episodes=None):
+    """
+    Play the game
+    """
+    try:
+        # Open connection to the game server
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Connect to the server
+        client_socket.connect((host, port))
+
+        # Register
+        status, observation, message = register(client_socket)
+
+        if status:
+            # Choose side
+            status, observation, message = choose_side(client_socket, message)
+            # This status, observation and message are the ones that start the game
+        else:
+            logger.info(f'Could not register in the server.')
+            return False
+        
+        if not status:
+            return False
+
+        episode_counter = 0
+        stop = False
+
+        while not stop:
+            # Receive data from the server
+            #data = client_socket.recv(1024).decode()
+            #logger.info(f"Data received from env: {data}")
+            #data_dict = json.loads(data)
+
+            
+            print(colored(message, 'light_cyan'))
+            observation_dict = json.loads(observation)
+            if observation_dict['end'] == 'False':
+                observation_dict['end'] = False
+            elif observation_dict['end'] == 'True':
+                observation_dict['end'] = True
+            else:
+                observation_dict['end'] = True
+            
+            # Convert the state in observation from json string to dict
+            #observation_dict['state'] = json.loads(observation_dict['state'])
+            logger.info(f'Interpreted: \n\tObservation:{observation_dict}')
+            #logger.info(f'Interpreted: \n\tState:{observation_dict["state"]}')
+            #logger.info(f'Interpreted: \n\tState:{type(observation_dict["state"])}')
+
+            previous_state = None
+            while not observation_dict['end'] and not stop:
+                # Be sure the agent can do the move before giving to the env.
+                print_current_state(observation_dict['state'], observation_dict['reward'], previous_state)
+                action = agent.move(observation_dict)
+                if action:
+                    previous_state = json.loads(observation_dict['state'])
+                    status, observation, message = step(client_socket, action)
+                else:
+                    observation = Observation(None,None,True, "User-terminated")
+            episode_counter +=1
+            print(colored(f"\nEpisode over! Reason {observation_dict['info']}", 'light_cyan'))
+            if input(colored("\nDo you want to play again? Y/n: ", 'light_cyan')) in ["Y", 'y']:
+                print("\n################################################ STARTING NEW EPISODE ################################################\n")
+            else:
+                stop = True
+    finally:
+        # Close the socket
+        client_socket.close()
+
+    # Send data to the server
+    # client_socket.sendall(message.encode())
+
 
 def main() -> None:
     """
     Function to run the run the interactive agent
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
+    #parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
     parser.add_argument("--rb_log_directory", help="directory to store the logs", default="env/logs/replays", action='store', required=False)
+    parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
+    parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
     
     args = parser.parse_args()
     
-    print(colored("\n\nWelcome to the Network Security Game!\n", 'light_cyan'))
-    player_name = input(colored("Insert your name please: ", 'light_cyan'))
-    
-    while not player_name or len(player_name)==0:
-        print(colored("Incorrect input, you have to provide player's name!", "red"))
-        player_name = input("Insert your name please: ")
-
-
-    logging.basicConfig(filename=f'interactive_agent_{player_name}.log', filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=logging.CRITICAL)
-    logger = logging.getLogger('Interactive-agent')
-
-    #Make sure the folder for replays exists
+    # Make sure the folder for replays exists
     if not os.path.exists(args.rb_log_directory):
         os.makedirs(args.rb_log_directory)
-    # Create the env
-    env = NetworkSecurityEnvironment(args.task_config_file)
-    random.seed(env.seed)
+
+    logging.basicConfig(filename=f'interactive_agent.log', filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
     logger.info('Creating the agent')
-    agent = InteractiveAgent(env)
-    play(env, agent, None)
+
+    agent = InteractiveAgent()
+    play(args.host, args.port, agent, None)
 
 if __name__ == '__main__':
     main()
