@@ -16,6 +16,12 @@ from env.game_components import Network, IP
 from env.game_components import ActionType, Action, GameState, Observation
 
 from assistant import LLMAssistant
+from enum import Enum
+
+class InputType(Enum):
+    HOST = 1
+    NETWORK = 2
+    DATA = 3
 
 class InteractiveLLMAgent:
     """
@@ -62,16 +68,23 @@ def get_action_type_from_stdin() -> Action | str:
     action_type = get_selection_from_user(ActionType, f"Select an action to play [0-{len(ActionType)-1}] or 'help' to get LLM assistance: ")
     return action_type
 
-def sanitize_user_input(input_string, action_type):
+def sanitize_user_input(input_string: str, action_type: ActionType, input_type: InputType):
     stripped = input_string.strip()
     if len(stripped) > 0:
         match action_type:
             case ActionType.ScanNetwork:
-                splitted = stripped.split("/")
-                if len(splitted) == 2:
-                    return splitted
+                if input_type == InputType.NETWORK:
+                    splitted = stripped.split("/")
+                    if len(splitted) == 2:
+                        return splitted
+                    else:
+                        return False
                 else:
-                    return False
+                    splitted = stripped.split(" ")
+                if len(splitted) == 1:
+                    return splitted[0]
+                else:
+                    return False    
             case _:
                 splitted = stripped.split(" ")
                 if len(splitted) == 1:
@@ -89,60 +102,84 @@ def get_action_params_from_stdin(action_type: ActionType, current: GameState)->d
     params = {}
     match action_type:
         case ActionType.ScanNetwork:
+            user_input_host_src = input(f"Provide SOURCE host for selected action {action_type}: ")
+            valid_input_src_host = sanitize_user_input(user_input_host_src, action_type, InputType.HOST)
+            while not valid_input_src_host:
+                print(colored("Incorrect input, desired format of host: X.X.X.X", "red"))
+                user_input_host_src = input(f"Provide SOURCE host for selected action {action_type}: ")
+                valid_input_src_host = sanitize_user_input(user_input_host_src, action_type, InputType.HOST)
+            src_host = IP(valid_input_src_host)
             user_input = input(f"Provide network for selected action {action_type}: ")
-            valid_input = sanitize_user_input(user_input, action_type)
+            valid_input = sanitize_user_input(user_input, action_type, InputType.NETWORK)
             while not valid_input:
                 print(colored("Incorrect input, desired format of network: X.X.X.X/mask", "red"))
-                user_input = input(f"Provide network for selected action {action_type}: ")
-                valid_input = sanitize_user_input(user_input, action_type)
+                user_input = input(f"Provide TARGET network for selected action {action_type}: ")
+                valid_input = sanitize_user_input(user_input, action_type, "network")
 
-            params = {"target_network": Network(valid_input[0], valid_input[1])}
+            params = {"target_network": Network(valid_input[0], valid_input[1]), "source_host":src_host}
         
         case ActionType.ExploitService:
-            user_input_host = input(f"Provide target host for selected action {action_type}: ")
-            valid_input = sanitize_user_input(user_input_host, action_type)
+            user_input_host_src = input(f"Provide SOURCE host for selected action {action_type}: ")
+            valid_input_src_host = sanitize_user_input(user_input_host_src, action_type, InputType.HOST)
+            while not valid_input_src_host:
+                print(colored("Incorrect input, desired format of host: X.X.X.X", "red"))
+                user_input_host_src = input(f"Provide SOURCE host for selected action {action_type}: ")
+                valid_input_src_host = sanitize_user_input(user_input_host_src, action_type, InputType.HOST)
+            src_host = IP(valid_input_src_host)
+
+            user_input_host = input(f"Provide TARGET host for selected action {action_type}: ")
+            valid_input = sanitize_user_input(user_input_host, action_type, InputType.HOST)
             while not valid_input:
                 print(colored("Incorrect input, desired format of host: X.X.X.X", "red"))
-                user_input_host = input(f"Provide target host for selected action {action_type}: ")
-                valid_input = sanitize_user_input(user_input_host, action_type)
+                user_input_host = input(f"Provide TARGET host for selected action {action_type}: ")
+                valid_input = sanitize_user_input(user_input_host, action_type, InputType.HOST)
             trg_host = IP(valid_input)
             if trg_host in current.known_services:
                 print(f"Known services in {trg_host}")
                 service = get_selection_from_user(current.known_services[trg_host], f"Select service to exploit [0-{len(current.known_services[trg_host])-1}]: ")
-                params = {"target_host": trg_host, "target_service":service}
+                params = {"target_host": trg_host, "target_service":service, "source_host":src_host}
             else:
                 print(f"Host {trg_host} does not have known services yet.")
         
         case ActionType.ExfiltrateData:
             user_input_host_src = input(f"Provide SOURCE host for selected action {action_type}: ")
-            valid_input_src_host = sanitize_user_input(user_input_host_src, action_type)
+            valid_input_src_host = sanitize_user_input(user_input_host_src, action_type, InputType.HOST)
             while not valid_input_src_host:
                 print(colored("Incorrect input, desired format of host: X.X.X.X", "red"))
                 user_input_host_src = input(f"Provide SOURCE host for selected action {action_type}: ")
-                valid_input_src_host = sanitize_user_input(user_input_host_src, action_type)
+                valid_input_src_host = sanitize_user_input(user_input_host_src, action_type, InputType.HOST)
             src_host = IP(valid_input_src_host)
+
             if src_host in current.known_data:
                 print(f"Known data in {src_host}")
                 data = get_selection_from_user(current.known_data[src_host], f"Select data to exflitrate [0-{len(current.known_data[src_host])-1}]: ")
                 if data:
                     user_input_host_trg = input(f"Provide TARGET host for data exfiltration: ")
-                    valid_input_trg_host = sanitize_user_input(user_input_host_trg, action_type)
+                    valid_input_trg_host = sanitize_user_input(user_input_host_trg, action_type, InputType.HOST)
                     while not valid_input_trg_host:
                         print(colored("Incorrect input, desired format of host: X.X.X.X", "red"))
                         user_input_host_trg = input(f"Provide TARGET host for data exfiltration: ")
-                        valid_input_trg_host = sanitize_user_input(user_input_host_trg, action_type)
+                        valid_input_trg_host = sanitize_user_input(user_input_host_trg, action_type, InputType.HOST)
                     trg_host = IP(valid_input_trg_host)
                     params = {"target_host": trg_host, "data":data, "source_host":src_host}
             else:
                 print(f"Host {src_host} does not have any data yet.")
         case _:
-            user_input = input(f"Provide target host for selected action {action_type}: ")
-            valid_input = sanitize_user_input(user_input, action_type)
+            user_input_host_src = input(f"Provide SOURCE host for selected action {action_type}: ")
+            valid_input_src_host = sanitize_user_input(user_input_host_src, action_type, InputType.HOST)
+            while not valid_input_src_host:
+                print(colored("Incorrect input, desired format of host: X.X.X.X", "red"))
+                user_input_host_src = input(f"Provide SOURCE host for selected action {action_type}: ")
+                valid_input_src_host = sanitize_user_input(user_input_host_src, action_type, InputType.HOST)
+            src_host = IP(valid_input_src_host)
+
+            user_input = input(f"Provide TARGET host for selected action {action_type}: ")
+            valid_input = sanitize_user_input(user_input, action_type, InputType.HOST)
             while not valid_input:
                 print(colored("Incorrect input, desired format of host: X.X.X.X", "red"))
-                user_input = input(f"Provide target host for selected action {action_type}: ")
-                valid_input = sanitize_user_input(user_input, action_type)
-            params = {"target_host": IP(valid_input)}
+                user_input = input(f"Provide TARGET host for selected action {action_type}: ")
+                valid_input = sanitize_user_input(user_input, action_type, InputType.HOST)
+            params = {"target_host": IP(valid_input), "source_host":src_host}
     return params
 
 

@@ -2,6 +2,7 @@ import sys
 from os import path
 import re
 import logging
+from typing import Union 
 
 import openai
 from dotenv import dotenv_values
@@ -13,7 +14,7 @@ sys.path.append(
     path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 )
 
-from env.game_components import ActionType, Action, IP, Data, Network, Service
+from env.game_components import ActionType, Action, IP, Data, Network, Service, Observation
 
 
 config = dotenv_values(".env")
@@ -38,31 +39,31 @@ Known data for source host 1.1.1.2: are ('User1', 'SomeData')
 Known services for host 1.1.1.1 are "openssh"
 
 Here are some examples of actions:
-Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24"}}
-Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3"}}
-Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh"}}
-Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1"}}
+Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24", 'source_host': '1.1.1.2'}}
+Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3", 'source_host': '2.2.2.2'}}
+Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh"}, 'source_host': '1.1.1.2'}
+Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1", 'source_host': '1.1.1.2'}}
 Action: {"action":"ExfiltrateData", "parameters":"{'target_host': '2.2.2.2', 'data': ('User1', 'SomeData'), 'source_host': '1.1.1.2'}"}}
 End of example.
 """
 
 COT_PROMPT2 = """
 Here are some examples of actions:
-Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24"}}
-Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3"}}
-Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh"}}
-Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1"}}
-Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": ("User1", "WebData"), "source_host": "1.1.1.2"}}}
+Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24", 'source_host': '2.2.2.2'}}
+Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3"}, 'source_host': '2.2.2.2'}}
+Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh"}, 'source_host': '1.1.1.2'}}
+Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1", 'source_host': '1.1.1.2'}}
+Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": ("User1", "WebData"), "source_host": "1.1.1.2"}}
 End of examples.
 """
 
 EXAMPLE_PROMPT2 = """
 Here are some examples of actions:
-Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24"}}
-Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3"}}
-Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh"}}
-Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1"}}
-Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": ("User1", "WebData"), "source_host": "1.1.1.2"}}}
+Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24", "source_host": "2.2.2.2"}}
+Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3", "source_host": "2.2.2.2"}}
+Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh", "source_host": "1.1.1.2"}}
+Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1", "source_host": "1.1.1.1"}}
+Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": ("User1", "WebData"), "source_host": "1.1.1.2"}}
 End of examples.
 """
 
@@ -77,6 +78,7 @@ The rules are:
 3. You can only exploit services when you know the service.
 4. You can find data in hosts you control.
 5. You can exfiltrate known data to and from controlled hosts.
+6. You can only use as source_host a host you control.
 
 Do not repeat actions that you took in the past.
 Do not scan or exploit services in hosts you control.
@@ -94,7 +96,7 @@ Q4 = """Provide the best next action in the correct JSON format. Action: """
 
 
 @retry(stop=stop_after_attempt(3))
-def openai_query(msg_list, max_tokens, model):
+def openai_query(msg_list: list[dict], max_tokens: int, model: str):
     """Send messages to OpenAI API and return the response."""
     llm_response = openai.ChatCompletion.create(
         model=model, messages=msg_list, max_tokens=max_tokens, temperature=0.0
@@ -107,7 +109,7 @@ class LLMAssistant:
     An assistant that takes a state and returns an action to the user.
     """
 
-    def __init__(self, model_name, target_host, memory_len=10) -> None:
+    def __init__(self, model_name: str, target_host: str, memory_len: int = 10):
         self.model = model_name
         self.target_host = target_host
         self.memory_len = memory_len
@@ -119,7 +121,7 @@ class LLMAssistant:
         template = jinja_environment.from_string(INSTRUCTIONS_TEMPLATE)
         self.instructions = template.render(target_host=self.target_host)
 
-    def create_status_from_state(self, state):
+    def create_status_from_state(self, state: Observation.state) -> str:
         """Create a status prompt using the current state and the sae memories."""
         contr_hosts = [host.ip for host in state.controlled_hosts]
         known_hosts = [
@@ -182,7 +184,7 @@ class LLMAssistant:
                 prompt += f'You have taken action {{"action":"{memory[0]}" with "parameters":"{memory[1]}"}} in the past.\n'
         return prompt
 
-    def parse_response(self, llm_response, state):
+    def parse_response(self, llm_response: str, state: Observation.state):
         try:
             regex = r"\{+[^}]+\}\}"
             matches = re.findall(regex, llm_response)
@@ -202,11 +204,12 @@ class LLMAssistant:
                 action_str = (f"You can take action {action_str} with parameters {action_params}")
             else:
                 action_str = llm_response
+                action = None
             return action_str, action
         except:
             return llm_response, None
 
-    def validate_action_in_state(self, llm_response, state):
+    def validate_action_in_state(self, llm_response: dict, state: Observation.state) -> bool:
         """Check the LLM response and validate it against the current state."""
         contr_hosts = [str(host) for host in state.controlled_hosts]
         known_hosts = [str(host) for host in state.known_hosts if host.ip not in contr_hosts]
@@ -247,7 +250,7 @@ class LLMAssistant:
             self.logger.info("Exception during validation of %s", llm_response)
             return False
 
-    def create_action_from_response(self, llm_response, state):
+    def create_action_from_response(self, llm_response: dict, state: Observation.state) -> Union[bool, Action]:
         """Build the action object from the llm response"""
         try:
             # Validate action based on current states
@@ -261,22 +264,29 @@ class LLMAssistant:
                 match action_str:
                     case 'ScanNetwork':
                         target_net, mask = action_params["target_network"].split('/')
-                        action  = Action(ActionType.ScanNetwork, {"target_network":Network(target_net, int(mask))})
+                        src_host = action_params["source_host"]
+                        action  = Action(ActionType.ScanNetwork, {"target_network":Network(target_net, int(mask)), "source_host": IP(src_host)})
                     case 'ScanServices':
-                        action  = Action(ActionType.FindServices, {"target_host":IP(action_params["target_host"])})
+                        src_host = action_params["source_host"]
+                        action  = Action(ActionType.FindServices, {"target_host":IP(action_params["target_host"]), "source_host": IP(src_host)})
                     case 'ExploitService':
                         target_ip = action_params["target_host"]
                         target_service = action_params["target_service"]
+                        src_host = action_params["source_host"]
                         if len(list(state.known_services[IP(target_ip)])) > 0:
                             for serv in state.known_services[IP(target_ip)]:
                                 if serv.name == target_service:
-                                    parameters = {"target_host":IP(target_ip), "target_service":Service(serv.name, serv.type, serv.version, serv.is_local)}
+                                    parameters = {"target_host":IP(target_ip), "target_service":Service(serv.name, serv.type, serv.version, serv.is_local), "source_host": IP(src_host)}
                                     action = Action(ActionType.ExploitService, parameters)
+                        else:
+                            action = None
                     case 'FindData':
-                        action = Action(ActionType.FindData, {"target_host":IP(action_params["target_host"])})
+                        src_host = action_params["source_host"]
+                        action = Action(ActionType.FindData, {"target_host":IP(action_params["target_host"]), "source_host": IP(src_host)})
                     case 'ExfiltrateData':
+                        src_host = action_params["source_host"]
                         data_owner, data_id = action_params["data"]
-                        action = Action(ActionType.ExfiltrateData, {"target_host":IP(action_params["target_host"]), "data":Data(data_owner, data_id), "source_host":IP(action_params["source_host"])})
+                        action = Action(ActionType.ExfiltrateData, {"target_host":IP(action_params["target_host"]), "data":Data(data_owner, data_id), "source_host":IP(src_host)})
                     case _:
                         return False, action
 
@@ -289,7 +299,7 @@ class LLMAssistant:
         return valid, action
 
 
-    def get_action_from_obs(self, observation):
+    def get_action_from_obs(self, observation: Observation) -> Union[str, Action]:
         """
         Use the simple agent architecture for the assistant
         """
