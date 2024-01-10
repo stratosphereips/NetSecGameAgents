@@ -127,11 +127,11 @@ def get_action_params_from_stdin(action_type: ActionType, current: GameState)->d
                 valid_input_src_host = sanitize_user_input(user_input_host_src, action_type, InputType.HOST)
             src_host = IP(valid_input_src_host)
 
-            user_input_host = input(f"Provide target host for selected action {action_type}: ")
+            user_input_host = input(f"Provide TARGET host for selected action {action_type}: ")
             valid_input = sanitize_user_input(user_input_host, action_type, InputType.HOST)
             while not valid_input:
                 print(colored("Incorrect input, desired format of host: X.X.X.X", "red"))
-                user_input_host = input(f"Provide target host for selected action {action_type}: ")
+                user_input_host = input(f"Provide TARGET host for selected action {action_type}: ")
                 valid_input = sanitize_user_input(user_input_host, action_type, InputType.HOST)
             trg_host = IP(valid_input)
             if trg_host in current.known_services:
