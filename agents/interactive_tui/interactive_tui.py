@@ -1,50 +1,20 @@
 from textual.app import App, ComposeResult, Widget
 from textual.widgets import Tree, Button, Header, Footer, Log, Select, Input
+# from textual.reactive import reactive
 from textual.containers import Vertical, VerticalScroll
-from textual.validation import Function
 from textual import on
 
 import sys
 from os import path
-import os
-import logging
-import ipaddress
-from random import choice
-import argparse
-
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
+
 from env.network_security_game import NetworkSecurityEnvironment
-from env.game_components import Network, IP, Service, Data
+from env.game_components import Network, IP
 from env.game_components import ActionType, Action, GameState, Observation
 
-# This is used so the agent can see the BaseAgent
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
-from base_agent import BaseAgent
-
-log_filename = os.path.dirname(os.path.abspath(__file__)) + '/interactive_tui_agent.log'
-logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
-logger = logging.getLogger('Interactive-TUI-agent')
-logger.info('Start')
-
-
-def is_valid_ip(ip_addr: str) -> bool:
-    """Validate if the input string is an IPv4 address"""
-    """Validate if the input string is an IPv4 address"""
-    try:
-        ipaddress.IPv4Address(ip_addr)
-        return True
-    except ipaddress.AddressValueError:
-        return False
-
-def is_valid_net(net_addr: str) -> bool:
-    """Validate if the input string is an IPv4 or IPv6 network"""
-    """Validate if the input string is an IPv4 or IPv6 network"""
-    try:
-        ipaddress.ip_network(net_addr)
-        return True
-    except (ipaddress.NetmaskValueError, ipaddress.AddressValueError, ValueError):
-        return False
+from random import choice
+import argparse
 
 
 class TreeState(Widget):
@@ -92,19 +62,20 @@ class InteractiveTUI(App):
     """App to display key events."""
     CSS_PATH = "layout.tcss"
 
-    def __init__(self, host: str, port: int, role: str):
+    def __init__(self, config_file="netsecenv-task.yaml"):
         super().__init__()
+        self.env = NetworkSecurityEnvironment(config_file)
         self.returns = 0
+        self.current_obs = self.env.reset()
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
         self.network_input = ""
         self.service_input = ""
         self.data_input = ""
-        self.agent = BaseAgent(host, port, role)
-        self.current_obs = self.agent.register()
 
     def compose(self) -> ComposeResult:
+        # yield Header(show_clock=True)
         yield Vertical(
             TreeState(obs=self.current_obs),
             classes="box", id="tree")
@@ -120,12 +91,9 @@ class InteractiveTUI(App):
             classes="box")
         yield Vertical(
             VerticalScroll(
-                Input(placeholder="Source Host", id="src_host", 
-                      validators=[Function(is_valid_ip, "This is not a valid IP.")]),
-                Input(placeholder="Network", id="network",
-                      validators=[Function(is_valid_net, "This is not a valid Network.")]),
-                Input(placeholder="Target Host", id="target_host",
-                      validators=[Function(is_valid_ip, "This is not a valid IP.")]),
+                Input(placeholder="Source Host", id="src_host"),
+                Input(placeholder="Network", id="network"),
+                Input(placeholder="Target Host", id="target_host"),
                 Input(placeholder="Service", id="service"),
                 Input(placeholder="Data", id="data"),
                 classes="box"))
@@ -192,12 +160,8 @@ class InteractiveTUI(App):
         elif event._sender.id == "data":
             self.data_input = event.value
 
-    @on(Button.Pressed)
-    def submit_action(self, event: Button.Pressed) -> None:
-        """
-        Press the button to select a random action.
-        Right now there is only one button. If we add more we will need to distinguish them.
-        """
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Press the button to select a random action"""
         self.update_state()
 
         # Take the first node of TreeState which contains the tree
@@ -208,7 +172,7 @@ class InteractiveTUI(App):
     def update_state(self) -> None:
         action = self._move(self.current_obs.state)
         # Get next observation of the environment
-        next_observation = self.agent.make_step(action)
+        next_observation = self.env.step(action)
         # Collect reward
         self.returns += next_observation.reward
         # Move to next state
@@ -217,6 +181,8 @@ class InteractiveTUI(App):
         if next_observation.done:
             self.notify(f"You won! Total return: {self.returns}", timeout=10)
             self._clear_state()
+            
+
 
     def update_tree(self, tree: Widget) -> None:        
         """Update the tree with the new state"""
@@ -250,7 +216,7 @@ class InteractiveTUI(App):
             node = data.add(str(host), expand=True)
             for datum in new_state.known_data[host]:
                 node.add_leaf(f"{datum.owner} - {datum.id}")
-    
+
     def _generate_valid_actions(self, state: GameState)-> list:
         # Generate the list of all valid actions in the current state
         valid_actions = set()
@@ -277,13 +243,13 @@ class InteractiveTUI(App):
                         valid_actions.add(Action(ActionType.ExfiltrateData, params={"target_host": trg_host, "source_host": src_host, "data": data}))
         return list(valid_actions)
 
-    def _move(self, state: GameState)->Action:
+    def _move(self, state: GameState):
         action = None
         log = self.query_one("Log")
         if self.next_action == ActionType.ScanNetwork:
             parameters = {
                 "source_host": IP(self.src_host_input),
-                "target_network": Network(self.network_input[:-3], mask=int(self.network_input[-2:]))
+                "target_network": Network(IP(self.network_input[:-3]), mask=int(self.network_input[-2:]))
             }
             action = Action(action_type=self.next_action, params=parameters)
         elif self.next_action in [ActionType.FindServices, ActionType.FindData]:
@@ -317,15 +283,13 @@ class InteractiveTUI(App):
                             action = Action(action_type=self.next_action, params=parameters)
         else:
             log.write_line(f"Invalid input: {self.next_action} with {parameters}")
-            logger.info(f"Invalid input from user: {self.next_action} with {parameters}")
             
         if action is None:
             action = self._random_move(state)
             log.write_line(f"Random action: {str(action)}")
-            logger.info(f"Random action due to error: {str(action)}")
+
         
         log.write_line(f"Action to take: {str(action)}")
-        logger.info(f"User selected action: {str(action)}")
             
         return action
 
@@ -338,8 +302,7 @@ class InteractiveTUI(App):
     
     def _clear_state(self) -> None:
         """Reset the state and variables"""
-        logger.info(f"Reset the environment and state")
-        self.current_obs = self.agent.request_game_reset()
+        self.current_obs = self.env.reset()
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
@@ -354,12 +317,11 @@ class InteractiveTUI(App):
             inp.clear()
 
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
-    parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
-    parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--role", help="Role of the agent", default="Attacker", choices=["Attacker"])
+    parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
+    # parser.add_argument("--force_ignore", help="Force ignore repeated actions in code", default=False, action=argparse.BooleanOptionalAction)
     args = parser.parse_args()
 
     app = InteractiveTUI(args.task_config_file)
