@@ -9,6 +9,7 @@ from os import path
 import os
 import socket
 import json
+from enum import Enum
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
 
@@ -18,6 +19,13 @@ from env.game_components import ActionType, Action, GameState, Observation
 
 logger = logging.getLogger('Interactive-agent')
 
+class InputType(Enum):
+    """
+    What is this class for?
+    """
+    HOST = 1
+    NETWORK = 2
+    DATA = 3
 
 class InteractiveAgent:
     """
@@ -418,6 +426,11 @@ def play(host, port, agent, num_episodes=None):
             logger.info(f'Could not register in the server.')
             return False
         
+        if 'That side does not exists.' in message:
+            logger.info(message)
+            print(message)
+            sys.exit(-1)
+        
         if not status:
             return False
 
@@ -433,6 +446,7 @@ def play(host, port, agent, num_episodes=None):
             
             print(colored(message, 'light_cyan'))
             observation_dict = json.loads(observation)
+            print(observation_dict)
             if observation_dict['end'] == 'False':
                 observation_dict['end'] = False
             elif observation_dict['end'] == 'True':
