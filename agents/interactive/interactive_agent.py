@@ -18,9 +18,7 @@ from env.game_components import Network, IP, Service, Data
 from env.game_components import ActionType, Action, GameState, Observation
 
 #log_filename=Path('interactive_agent.log')
-log_filename='interactive_agent.log'
-#if not log_filename.parent.exists():
-    #os.makedirs(log_filename.parent)
+log_filename = os.path.dirname(os.path.abspath(__file__)) + '/interactive_agent.log'
 logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
 logger = logging.getLogger('Interactive-agent')
 logger.info('Start')
@@ -329,7 +327,7 @@ def receive_data(client_socket):
     Receive data from server
     """
     # Receive data from the server
-    data = client_socket.recv(1024).decode()
+    data = client_socket.recv(8192).decode()
     logger.info(f"Data received from env: {data}")
     data_dict = json.loads(data)
     return data_dict
