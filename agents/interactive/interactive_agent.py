@@ -286,7 +286,7 @@ def print_current_state(new_state: GameState, reward: int = None, new_previous_s
                 previous_nets.append(net)
             else:
                 new_nets.append(net)
-        nets = [str(n) for n in sorted(previous_nets, key=lambda x: x['ip'])] + [colored(str(n), 'yellow') for n in sorted(new_nets, key=lambda x: x['ip'])]
+        nets = [str(str(n['ip']) + '/' + str(n['mask'])) for n in sorted(previous_nets, key=lambda x: x['ip'])] + [colored(str(n['ip']) + '/' + str(n['mask']), 'yellow') for n in sorted(new_nets, key=lambda x: x['ip'])]
     else:
         nets = [colored(str(net), 'yellow') for net in sorted(state.known_networks, key=lambda x: x['ip'])]
     print(f"| {colored('NETWORKS',None,attrs=['bold'])}: {', '.join(nets)}")
@@ -299,9 +299,9 @@ def print_current_state(new_state: GameState, reward: int = None, new_previous_s
                 previous_hosts.append(host)
             else:
                 new_hosts.append(host)
-        hosts = [str(h) for h in sorted(previous_hosts, key=lambda x: x['ip'])] + [colored(str(h), 'yellow') for h in sorted(new_hosts, key=lambda x: x['ip'])]
+        hosts = [str(h['ip']) for h in sorted(previous_hosts, key=lambda x: x['ip'])] + [colored(str(h['ip']), 'yellow') for h in sorted(new_hosts, key=lambda x: x['ip'])]
     else:
-        hosts = [colored(str(host), 'yellow') for host in sorted(state.known_hosts, key=lambda x: x['ip'])]
+        hosts = [colored(str(host['ip']), 'yellow') for host in sorted(state.known_hosts, key=lambda x: x['ip'])]
     print(f"| {colored('KNOWN_H',None,attrs=['bold'])}: {', '.join(hosts)}")
     print("+----------------------------------------------------------------------------------------------------------------------")
     if previous_state:
@@ -312,9 +312,9 @@ def print_current_state(new_state: GameState, reward: int = None, new_previous_s
                 previous_hosts.append(host)
             else:
                 new_hosts.append(host)
-        owned_hosts = [str(h) for h in sorted(previous_hosts, key=lambda x: x['ip'])] + [colored(str(h), 'yellow') for h in sorted(new_hosts, key=lambda x: x['ip'])]
+        owned_hosts = [str(h['ip']) for h in sorted(previous_hosts, key=lambda x: x['ip'])] + [colored(str(h['ip']), 'yellow') for h in sorted(new_hosts, key=lambda x: x['ip'])]
     else:
-        owned_hosts = [colored(str(host), 'yellow') for host in sorted(state.controlled_hosts, key=lambda x: x['ip'])]    
+        owned_hosts = [colored(str(host['ip']), 'yellow') for host in sorted(state.controlled_hosts, key=lambda x: x['ip'])]    
     print(f"| {colored('OWNED_H',None,attrs=['bold'])}: {', '.join(owned_hosts)}")
     print("+----------------------------------------------------------------------------------------------------------------------")
     print_known_services(state.known_services, previous_state)
@@ -351,7 +351,6 @@ def register(client_socket):
             message_dict = {'PutNick': player_name}
             message_str = json.dumps(message_dict)
             
-            #client_socket.sendall(message_str.encode())
             status, observation, message = step(client_socket, message_str)
             return status, observation, message
         else:
@@ -375,7 +374,6 @@ def choose_side(client_socket, message):
             message_dict = {'ChooseSide': side}
             message_str = json.dumps(message_dict)
             
-            #client_socket.sendall(message_str.encode())
             status, observation, message = step(client_socket, message_str)
             return status, observation, message
         else:
@@ -455,27 +453,27 @@ def play(host, port, agent, num_episodes=None):
             # The first 'empty' previous state should be a dictionary game state, but empty. But represented as a dictionary. This can only be done from the json representation
             empty_game_state = json.loads(GameState(known_networks=[], known_hosts=[], controlled_hosts=[], known_services={}, known_data={}).as_json())
             # Must be a dict
-            previous_state = {'state': empty_game_state, 'reward': 0, 'end': False, 'info': {}}
+            previous_observation = {'state': empty_game_state, 'reward': 0, 'end': False, 'info': {}}
 
             while not observation_dict['end'] and not stop:
-                print_current_state(observation_dict['state'], observation_dict['reward'], previous_state['state'])
+                print_current_state(observation_dict['state'], observation_dict['reward'], previous_observation['state'])
                 action = agent.move(observation_dict)
                 if action:
                     status, observation_dict, message = step(client_socket, action)
-                previous_state = observation_dict
+                previous_observation = observation_dict
             episode_counter +=1
             print(colored(f"\nEpisode over! Reason {observation_dict['info']}", 'light_cyan'))
             if input(colored("\nDo you want to play again? Y/n: ", 'light_cyan')) in ["Y", 'y']:
                 print("\n################################################ STARTING NEW EPISODE ################################################\n")
             else:
                 stop = True
+    except KeyboardInterrupt:
+        logger.info('Agent pressed CTRL-C')
+        print('\nAgent pressed CTRL-C')
+        client_socket.close()
     finally:
         # Close the socket
         client_socket.close()
-
-    # Send data to the server
-    # client_socket.sendall(message.encode())
-
 
 def main() -> None:
     """
