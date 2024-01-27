@@ -84,6 +84,156 @@ class TreeState(Widget):
         tree = self._create_tree_from_obs(self.init_obs)
         yield tree
 
+def receive_data(client_socket):
+    """
+    Receive data from server
+    """
+    # Receive data from the server
+    data = client_socket.recv(8192).decode()
+    logger.info(f"Data received from env: {data}")
+    data_dict = json.loads(data)
+    return data_dict
+
+def register(client_socket):
+    """
+    Register in the game with a nickname
+    """
+    try:
+        status, observation, message = step(client_socket, '')
+
+        if 'Insert your nick' in message:
+            # Send the nick
+            print(message)
+            player_name = input("Answer: ")
+
+            while not player_name or len(player_name)==0:
+                print("Incorrect input.")
+                player_name = input("Answer: ")
+            
+            message_dict = {'PutNick': player_name}
+            message_str = json.dumps(message_dict)
+            
+            #client_socket.sendall(message_strencode())
+            status, observation, message = step(client_socket, message_str)
+            return status, observation, message
+        else:
+            return False, False, False
+    except Exception as e:
+        logger.error(f'Exception in register(): {e}')
+
+def choose_side(client_socket, message):
+    """
+    Choose your side
+    """
+    try:
+
+        if 'Which side are' in message:
+            # Choose side
+            print(message)
+            side = input("Answer: ")
+            while not side or len(side)==0:
+                print("Incorrect input.")
+                side = input("Answer: ")
+            message_dict = {'ChooseSide': side}
+            message_str = json.dumps(message_dict)
+            
+            #client_socket.sendall(message_str.encode())
+            status, observation, message = step(client_socket, message_str)
+            return status, observation, message
+        else:
+            return {}, {}, ''
+    except Exception as e:
+        print(e)
+        logger.error(f'Exception in choose_side(): {e}')
+
+def step(client_socket, action):
+    """
+    Send an action and receive a response
+    """
+    try:
+        logger.info(f'Doing step')
+        logger.info(f'Sending: {action}')
+
+        if type(action) == Action:
+            action = action.as_json()
+
+        client_socket.sendall(action.encode())
+        data_dict = receive_data(client_socket)
+        logger.info(f'Received: {data_dict}')
+        try:
+            status = data_dict['status']
+        except KeyError:
+            status = {}
+        try:
+            observation = data_dict['observation']
+        except KeyError:
+            observation = {}
+        try:
+            message = data_dict['message']
+        except KeyError:
+            message = ''
+        return status, observation, message
+    except Exception as e:
+        logger.error(f'Exception in step(): {e}')
+
+def play(host, port, agent, num_episodes=None):
+    """
+    Play the game
+    """
+    try:
+        # Open connection to the game server
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Connect to the server
+        client_socket.connect((host, port))
+
+        # Register
+        status, observation_dict, message = register(client_socket)
+
+        if status:
+            # Choose side
+            status, observation_dict, message = choose_side(client_socket, message)
+            # This status, observation and message are the ones that start the game
+        else:
+            logger.info(f'Could not register in the server.')
+            return False
+        
+        if 'That side does not exists.' in message:
+            logger.info(message)
+            print(message)
+            sys.exit(-1)
+        
+        if not status:
+            return False
+
+        episode_counter = 0
+        stop = False
+
+        while not stop and observation_dict:
+            print(message)
+            
+            # Convert the state in observation from json string to dict
+            logger.info(f'Interpreted: \n\tObservation:{observation_dict}')
+
+            # The first 'empty' previous state should be a dictionary game state, but empty. But represented as a dictionary. This can only be done from the json representation
+            empty_game_state = json.loads(GameState(known_networks=[], known_hosts=[], controlled_hosts=[], known_services={}, known_data={}).as_json())
+            # Must be a dict
+            previous_state = {'state': empty_game_state, 'reward': 0, 'end': False, 'info': {}}
+
+            while not observation_dict['end'] and not stop:
+                print(observation_dict['state'], observation_dict['reward'], previous_state['state'])
+                action = agent.move(observation_dict)
+                if action:
+                    status, observation_dict, message = step(client_socket, action)
+                previous_state = observation_dict
+            episode_counter +=1
+            print(f"\nEpisode over! Reason {observation_dict['info']}")
+            if input("\nDo you want to play again? Y/n: ") in ["Y", 'y']:
+                print("\n################################################ STARTING NEW EPISODE ################################################\n")
+            else:
+                stop = True
+    finally:
+        # Close the socket
+        client_socket.close()
 
 class InteractiveTUI(App):
     """App to display key events."""
@@ -91,9 +241,8 @@ class InteractiveTUI(App):
 
     def __init__(self, config_file:str):
         super().__init__()
-        self.env = NetworkSecurityEnvironment(config_file)
         self.returns = 0
-        self.current_obs = self.env.reset()
+        self.current_obs = {}
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
