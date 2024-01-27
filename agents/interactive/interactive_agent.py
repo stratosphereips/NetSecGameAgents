@@ -288,7 +288,7 @@ def print_current_state(new_state: GameState, reward: int = None, new_previous_s
                 new_nets.append(net)
         nets = [str(str(n['ip']) + '/' + str(n['mask'])) for n in sorted(previous_nets, key=lambda x: x['ip'])] + [colored(str(n['ip']) + '/' + str(n['mask']), 'yellow') for n in sorted(new_nets, key=lambda x: x['ip'])]
     else:
-        nets = [colored(str(net), 'yellow') for net in sorted(state.known_networks, key=lambda x: x['ip'])]
+        nets = [colored(str(net['ip']+'/'+net['mask']), 'yellow') for net in sorted(state.known_networks, key=lambda x: x['ip'])]
     print(f"| {colored('NETWORKS',None,attrs=['bold'])}: {', '.join(nets)}")
     print("+----------------------------------------------------------------------------------------------------------------------")
     if previous_state:
