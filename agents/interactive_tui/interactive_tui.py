@@ -179,10 +179,6 @@ class InteractiveTUI(App):
         self.current_obs = next_observation
 
         if next_observation.done:
-            log = self.query_one(Log)
-            log.write_line("=========================================================")
-            log.write_line(f"You won! Total return: {self.returns}")
-            log.write_line("=========================================================")
             self.notify(f"You won! Total return: {self.returns}", timeout=10)
             self._clear_state()
 
