@@ -101,10 +101,11 @@ class BaseAgent:
             returns = []
             for episode in range(num_episodes):
                 while observation_dict and not observation_dict["end"]:
-                    # Convert the state in observation from json string to dict
                     self._logger.info(f'Observation received:{observation_dict}')
+                    # Convert the state in observation from json string to dict
                     action = self.step(Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{}))
                     status, observation_dict, message = self.communicate(game_socket, action)
+                self._logger.info(f'Observation received:{observation_dict}')
                 returns.append(observation_dict["reward"])
                 self._logger.info(f"Episode {episode} ended. Mean returns={np.mean(returns)}±{np.std(returns)}")
 
