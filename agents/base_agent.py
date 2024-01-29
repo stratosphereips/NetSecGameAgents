@@ -103,7 +103,7 @@ class BaseAgent:
                 while observation_dict and not observation_dict["end"]:
                     # Convert the state in observation from json string to dict
                     self._logger.info(f'\tObservation recieved:{observation_dict}')
-                    action = self.step(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"])
+                    action = self.step(Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{}))
                     status, observation_dict, message = self.communicate(game_socket, action)
                 returns.append(observation_dict["reward"])
                 self._logger.info(f"Episode {episode} ended. Mean returns={np.mean(returns)}±{np.std(returns)}")
