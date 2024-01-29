@@ -38,7 +38,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
 
-    logging.basicConfig(filename='agents/random/logs/random_agent.log', filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+    logging.basicConfig(filename='logs/random_agent.log', filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
     # Setup tensorboard
     #run_name = f"netsecgame__llm__{env.seed}__{int(time.time())}"
