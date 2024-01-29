@@ -48,7 +48,7 @@ class BaseAgent:
                 logger.error(f'Exception in _send_data(): {e}')
                 raise e
             
-        def _recieve_data(socket)->tuple:
+        def _receive_data(socket)->tuple:
             """
             Receive data from server
             """
@@ -72,7 +72,7 @@ class BaseAgent:
             raise ValueError("Incorrect data type! Supported types are 'Action', dict, and str.")
         
         _send_data(socket, data)
-        return _recieve_data(socket)
+        return _receive_data(socket)
 
     def register(self,socket, role="Attacker"):
         """
