@@ -36,7 +36,7 @@ class BaseAgent:
         Outputs dictionary with server's response"""
         def _send_data(socket, data:str)->None:
             try:
-                self._logger.info(f'Sending: {data}')
+                self._logger.debug(f'Sending: {data}')
                 socket.sendall(data.encode())
             except Exception as e:
                 self._logger.error(f'Exception in _send_data(): {e}')
@@ -48,7 +48,7 @@ class BaseAgent:
             """
             # Receive data from the server
             data = socket.recv(8192).decode()
-            self._logger.info(f"Data received from env: {data}")
+            self._logger.debug(f"Data received from env: {data}")
             # extract data from string representation
             data_dict = json.loads(data)
             # Add default values if dict keys are missing
@@ -102,7 +102,7 @@ class BaseAgent:
             for episode in range(num_episodes):
                 while observation_dict and not observation_dict["end"]:
                     # Convert the state in observation from json string to dict
-                    self._logger.info(f'\tObservation recieved:{observation_dict}')
+                    self._logger.info(f'Observation received:{observation_dict}')
                     action = self.step(Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{}))
                     status, observation_dict, message = self.communicate(game_socket, action)
                 returns.append(observation_dict["reward"])
