@@ -2,15 +2,15 @@
 # This agents just randomnly picks actions. No learning
 import sys
 import logging
-from os import path
+import os
 from random import choice
 import argparse
 from random import choice
 #from torch.utils.tensorboard import SummaryWriter
 
 # This is used so the agent can see the environment and game components
-sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
-sys.path.append(path.dirname(path.dirname( path.abspath(__file__) )))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) )))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
 #with the path fixed, we can import now
 from env.game_components import Action, ActionType, GameState, Observation
 from base_agent import BaseAgent
@@ -35,10 +35,12 @@ if __name__ == '__main__':
     parser.add_argument("--test_each", help="Sets periodic evaluation during testing", default=100, type=int)
     parser.add_argument("--force_ignore", help="Force ignore repeated actions in code", default=False, action=argparse.BooleanOptionalAction)
     parser.add_argument("--num_trials", type=int, default=1, help="Number of experiments to run")
+    parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
     args = parser.parse_args()
 
-
-    logging.basicConfig(filename='logs/random_agent.log', filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+    if not os.path.exists(args.logdir):
+        os.makedirs(args.logdir)
+    logging.basicConfig(filename=os.path.join(args.logdir, "random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
     # Setup tensorboard
     #run_name = f"netsecgame__llm__{env.seed}__{int(time.time())}"
