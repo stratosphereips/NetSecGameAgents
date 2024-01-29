@@ -11,8 +11,8 @@ from random import choice
 # This is used so the agent can see the environment and game components
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) )))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
-#with the path fixed, we can import now
-from env.game_components import Action, ActionType, GameState, Observation
+# with the path fixed, we can import now
+from env.game_components import Action, Observation
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions
 
@@ -21,8 +21,8 @@ class RandomAgent(BaseAgent):
     def __init__(self, host, port, seed) -> None:
         super().__init__(host, port)
     
-    def step(self, state, reward, done):
-        valid_actions = generate_valid_actions(state)
+    def step(self, observation:Observation)->Action:
+        valid_actions = generate_valid_actions(observation.state)
         action = choice(valid_actions)
         return action
 
