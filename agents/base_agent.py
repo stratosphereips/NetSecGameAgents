@@ -8,19 +8,12 @@ from os import path
 import os
 import socket
 import json
+import numpy as np
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))
-
 from env.game_components import Network, IP, Service, Data
 from env.game_components import ActionType, Action, GameState, Observation
 
-
-
-
-log_filename = os.path.dirname(os.path.abspath(__file__)) + '/base_agent.log'
-logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
-logger = logging.getLogger('Base-agent')
-logger.info('Start')
 
 class BaseAgent:
     """
@@ -30,6 +23,8 @@ class BaseAgent:
 
     def __init__(self, host, port)->None:
         self._connection_details = (host, port)
+        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger.info("Agent created")
     
     def step(self, observation: Observation)->Action:
        """
@@ -42,10 +37,10 @@ class BaseAgent:
         Outputs dictionary with server's response"""
         def _send_data(socket, data:str)->None:
             try:
-                logger.info(f'Sending: {data}')
+                self._logger.info(f'Sending: {data}')
                 socket.sendall(data.encode())
             except Exception as e:
-                logger.error(f'Exception in _send_data(): {e}')
+                self._logger.error(f'Exception in _send_data(): {e}')
                 raise e
             
         def _receive_data(socket)->tuple:
@@ -54,7 +49,7 @@ class BaseAgent:
             """
             # Receive data from the server
             data = socket.recv(8192).decode()
-            logger.info(f"Data received from env: {data}")
+            self._logger.info(f"Data received from env: {data}")
             # extract data from string representation
             data_dict = json.loads(data)
             # Add default values if dict keys are missing
@@ -81,44 +76,40 @@ class BaseAgent:
         TO BE REMOVED IN FUTURE WHEN THE GAME SUPPORTS 1 MESSAGE REGISTRATION
         """
         try:
-            logger.info(f'Registering agent as {role}')
+            self._logger.info(f'Registering agent as {role}')
             status, observation, message = self.communicate(socket,"")
             if 'Insert your nick' in message:
                 status, observation, message  = self.communicate(socket, {'PutNick': self.__class__.__name__} )
                 if 'Which side are' in message:
                     status, observation, message  = self.communicate(socket, {'ChooseSide': role})
                     if status:
-                        logger.info('\tRegistration successful')
+                        self._logger.info('\tRegistration successful')
                         return status, observation, message
                     else:
-                        logger.error('\tRegistration failed!')
+                        self._logger.error('\tRegistration failed!')
                         return False
         except Exception as e:
-            logger.error(f'Exception in register(): {e}')
+            self._logger.error(f'Exception in register(): {e}')
 
-    def play_game(self, num_episodes=None):
+    def play_game(self, num_episodes=1):
         """
-        The main loop for the gameplay. Handles socket opening and closing, agent registration and the main interaction loop.
+        The main function for the gameplay. Handles socket opening and closing, agent registration and the main interaction loop.
         """
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as game_socket:
             game_socket.connect(self._connection_details)
             # Register
             status, observation_dict, message = self.register(game_socket, role="Attacker")
-
-            episode_counter = 5
-            stop = False
-            while not stop and observation_dict:
-                # Convert the state in observation from json string to dict
-                logger.info(f'\tObservation recieved:{observation_dict}')
-                print
-                if episode_counter and not observation_dict["end"]:
-                    action = self.step(json.loads(observation_dict["state"], observation_dict["reward"]))
+            returns = []
+            for episode in range(num_episodes):
+                while observation_dict and not observation_dict["end"]:
+                    # Convert the state in observation from json string to dict
+                    self._logger.info(f'\tObservation recieved:{observation_dict}')
+                    action = self.step(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"])
                     status, observation_dict, message = self.communicate(game_socket, action)
-                    episode_counter = episode_counter -1
-                else:
-                    stop = True
-   
-
+                returns.append(observation_dict["reward"])
+                self._logger.info(f"Episode {0} ended. Mean returns={np.mean(returns)}±{np.std(returns)}")
+        print(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
+        self._logger.info("Terminating interaction")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -126,7 +117,7 @@ if __name__ == '__main__':
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
     
     args = parser.parse_args()
-    
-    logger.info('Creating the agent')
+    log_filename = os.path.dirname(os.path.abspath(__file__)) + '/base_agent.log'
+    logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
     agent = BaseAgent(args.host, args.port)
     agent.play_game()
