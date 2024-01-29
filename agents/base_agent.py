@@ -106,8 +106,9 @@ class BaseAgent:
                     action = self.step(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"])
                     status, observation_dict, message = self.communicate(game_socket, action)
                 returns.append(observation_dict["reward"])
-                self._logger.info(f"Episode {0} ended. Mean returns={np.mean(returns)}±{np.std(returns)}")
-        print(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
+                self._logger.info(f"Episode {episode} ended. Mean returns={np.mean(returns)}±{np.std(returns)}")
+
+        self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
         self._logger.info("Terminating interaction")
 
 if __name__ == '__main__':
