@@ -11,8 +11,7 @@ import json
 import numpy as np
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))
-from env.game_components import Network, IP, Service, Data
-from env.game_components import ActionType, Action, GameState, Observation
+from env.game_components import Action, GameState, Observation
 
 
 class BaseAgent:
