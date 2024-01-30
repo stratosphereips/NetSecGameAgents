@@ -89,6 +89,10 @@ class BaseAgent:
                         return False
         except Exception as e:
             self._logger.error(f'Exception in register(): {e}')
+    def reset_episode(self, socket)->tuple:
+        self._logger.info("Asking for a new episode")
+        status, observation_dict, message = self.communicate(socket, {"Reset":True})
+        return status, observation_dict, message
 
     def play_game(self, num_episodes=1):
         """
@@ -101,14 +105,15 @@ class BaseAgent:
             returns = []
             for episode in range(num_episodes):
                 while observation_dict and not observation_dict["end"]:
-                    self._logger.info(f'Observation received:{observation_dict}')
+                    self._logger.debug(f'Observation received:{observation_dict}')
                     # Convert the state in observation from json string to dict
                     action = self.step(Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{}))
                     status, observation_dict, message = self.communicate(game_socket, action)
-                self._logger.info(f'Observation received:{observation_dict}')
+                self._logger.debug(f'Observation received:{observation_dict}')
                 returns.append(observation_dict["reward"])
                 self._logger.info(f"Episode {episode} ended. Mean returns={np.mean(returns)}±{np.std(returns)}")
-
+                # Reset the episode
+                status, observation_dict, message = self.reset_episode(game_socket)
         self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
         self._logger.info("Terminating interaction")
 
