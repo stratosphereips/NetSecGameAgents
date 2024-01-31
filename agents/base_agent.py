@@ -8,7 +8,7 @@ from os import path
 import os
 import socket
 import json
-import numpy as np
+
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))
 from env.game_components import Action, GameState, Observation
@@ -57,6 +57,10 @@ class BaseAgent:
     @property
     def role(self)->str:
         return self._role
+    
+    @property
+    def logger(self)->logging.Logger:
+        return self._logger
     
     def make_step(self, action: Action)->Observation:
         """
