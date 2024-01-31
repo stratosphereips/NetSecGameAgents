@@ -23,7 +23,7 @@ agents:
 
       # In data, put the target host that must have the data and which data in format user,data
       # Example to fix the data in one host
-      known_data: {213.47.23.195: [[User1,DataFromServer1]]}
+      known_data: {213.47.23.195: ["random"]}
       # Example to fix two data in one host
       #known_data: {213.47.23.195: [[User1,DataFromServer1], [User5,DataFromServer5]]}
       # Example to fix the data in two host
@@ -49,32 +49,51 @@ agents:
 
   defender:
     # types are StochasticDefender and NoDefender
-    type: 'StochasticDefender'
-    # type: 'StochasticWithThreshold'
-    #type: 'NoDefender'
+    #type: 'StochasticDefender'
+    type: 'StochasticWithThreshold'
+    tw_size: 5
+    thresholds:
+      scan_network:
+        consecutive_actions: 2
+        tw_ratio: 0.25
+      find_services:
+        consecutive_actions: 3
+        tw_ratio: 0.3
+      exploit_service:
+        repeated_actions_episode: 2
+        tw_ratio: 0.25
+      find_data:
+        tw_ratio: 0.5
+        repeated_actions_episode: 2
+      exfiltrate_data:
+        consecutive_actions: 2
+        tw_ratio: 0.25
 
 env:
   # random means to choose the seed in a random way, so it is not fixed
   random_seed: 'random'
   # Or you can fix the seed
   # random_seed: 42
-  scenario: 'scenario1'
+  scenario: 'scenario1_small'
+  max_steps: 30
+  goal_reward: 100
+  detection_reward: -50
+  step_reward: -1
   store_replay_buffer: False
-  use_dynamic_addresses: True
-  max_steps: 15
+  use_dynamic_addresses: False
   actions:
     scan_network:
-      prob_success: 0.9
-      prob_detection: 0.2
+      prob_success: 1.0
+      prob_detection: 0
     find_services:
-      prob_success: 0.9
-      prob_detection: 0.3
+      prob_success: 1.0
+      prob_detection: 0
     exploit_services:
-      prob_success: 0.7
-      prob_detection: 0.4
+      prob_success: 1.7
+      prob_detection: 0
     find_data:
-      prob_success: 0.8
-      prob_detection: 0.1
+      prob_success: 1.0
+      prob_detection: 0
     exfiltrate_data:
-      prob_success: 0.8
-      prob_detection: 0.1
+      prob_success: 1.0
+      prob_detection: 0
