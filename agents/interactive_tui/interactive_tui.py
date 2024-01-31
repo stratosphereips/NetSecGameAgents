@@ -1,15 +1,14 @@
 from textual.app import App, ComposeResult, Widget
 from textual.widgets import Tree, Button, Header, Footer, Log, Select, Input
-# from textual.reactive import reactive
 from textual.containers import Vertical, VerticalScroll
+from textual.validation import Function
 from textual import on
 
 import sys
 from os import path
 import os
 import logging
-import json
-from communication import TcpHandler
+import ipaddress
 
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
@@ -24,6 +23,21 @@ log_filename = os.path.dirname(os.path.abspath(__file__)) + '/interactive_tui_ag
 logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
 logger = logging.getLogger('Interactive-TUI-agent')
 logger.info('Start')
+
+
+def is_valid_ip(ip_addr: str) -> bool:
+    try:
+        ipaddress.IPv4Address(ip_addr)
+        return True
+    except ipaddress.AddressValueError:
+        return False
+
+def is_valid_net(net_addr: str) -> bool:
+    try:
+        ipaddress.ip_network(net_addr)
+        return True
+    except (ipaddress.NetmaskValueError, ipaddress.AddressValueError, ValueError):
+        return False
 
 
 class TreeState(Widget):
@@ -100,9 +114,12 @@ class InteractiveTUI(App):
             classes="box")
         yield Vertical(
             VerticalScroll(
-                Input(placeholder="Source Host", id="src_host"),
-                Input(placeholder="Network", id="network"),
-                Input(placeholder="Target Host", id="target_host"),
+                Input(placeholder="Source Host", id="src_host", 
+                      validators=[Function(is_valid_ip, "This is not a valid IP.")]),
+                Input(placeholder="Network", id="network",
+                      validators=[Function(is_valid_net, "This is not a valid Network.")]),
+                Input(placeholder="Target Host", id="target_host",
+                      validators=[Function(is_valid_ip, "This is not a valid IP.")]),
                 Input(placeholder="Service", id="service"),
                 Input(placeholder="Data", id="data"),
                 classes="box"))
