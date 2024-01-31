@@ -96,8 +96,10 @@ class QAgent(BaseAgent):
                 episodic_returns.append(observation.reward)
                 observation = self.make_step(action)
             self._logger.debug(f'Observation received:{observation}')
+            episodic_returns.append(observation.reward)
             returns.append(np.sum(episodic_returns))
-            self._logger.info(f"Episode {episode} ended with return{np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)}")
+            episodic_returns = episodic_returns[1:]
+            self._logger.info(f"Episode {episode} (len={len(episodic_returns)})ended with return {np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)}")
             # Reset the episode
             observation = self.request_game_reset()
         self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
@@ -123,7 +125,7 @@ if __name__ == '__main__':
     # Create agent
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon=args.epsilon)
     agent.play_game(args.episodes)       
-
+    agent.store_q_table("./q_agent_marl.pickle")
 # if __name__ == '__main__':
 #     parser = argparse.ArgumentParser()
 #     parser.add_argument("--episodes", help="Sets number of training episodes", default=20000, type=int)
