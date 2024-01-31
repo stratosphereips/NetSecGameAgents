@@ -14,7 +14,6 @@ import pickle
 import sys
 import argparse
 import logging
-from torch.utils.tensorboard import SummaryWriter
 import time
 
 # This is used so the agent can see the environment and game component
@@ -26,8 +25,8 @@ from agent_utils import generate_valid_actions, state_as_ordered_string
 
 class QAgent(BaseAgent):
 
-    def __init__(self, host, port, alpha=0.1, gamma=0.6, epsilon=0.1) -> None:
-        super().__init__(host, port)
+    def __init__(self, host, port, role="Attacker", alpha=0.1, gamma=0.6, epsilon=0.1) -> None:
+        super().__init__(host, port, role)
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
@@ -58,7 +57,7 @@ class QAgent(BaseAgent):
         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
         return tmp[max(tmp,key=tmp.get)] #return maximum Q_value for a given state (out of available actions)
    
-    def move(self, observation:Observation, testing=False) -> Action:
+    def select_action(self, observation:Observation, testing=False) -> Action:
         state = observation.state
         actions = generate_valid_actions(state)
         state_id = self.get_state_id(state)
@@ -80,16 +79,36 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action] = 0
             return action
         
-    def step(self, observation: Observation) -> Action:
-        return self.move(observation)
-    
-
+   
+    def play_game(self, num_episodes=1):
+        """
+        The main function for the gameplay. Handles agent registration and the main interaction loop.
+        """
+        
+        observation = self.register()
+        returns = []
+        for episode in range(num_episodes):
+            episodic_returns = []
+            while observation and not observation.done:
+                self._logger.debug(f'Observation received:{observation}')
+                # select the action randomly
+                action = self.select_action(observation)
+                episodic_returns.append(observation.reward)
+                observation = self.make_step(action)
+            self._logger.debug(f'Observation received:{observation}')
+            returns.append(np.sum(episodic_returns))
+            self._logger.info(f"Episode {episode} ended with return{np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)}")
+            # Reset the episode
+            observation = self.request_game_reset()
+        self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
+        self._logger.info("Terminating interaction")
+        self.terminate_connection()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of testing episodes", default=10, type=int)
+    parser.add_argument("--episodes", help="Sets number of testing episodes", default=5, type=int)
     parser.add_argument("--test_each", help="Sets periodic evaluation during testing", default=100, type=int)
     parser.add_argument("--epsilon", help="Sets epsilon for exploration", default=0.2, type=float)
     parser.add_argument("--gamma", help="Sets gamma for Q learing", default=0.9, type=float)
@@ -104,173 +123,6 @@ if __name__ == '__main__':
     # Create agent
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon=args.epsilon)
     agent.play_game(args.episodes)       
-
-
-
-
-# class QAgent:
-#     """
-#     Class implementing the Q-Learning algorithm
-#     """
-#     def __init__(self, env, alpha=0.1, gamma=0.6, epsilon=0.1):
-#         self.env = env
-#         self.alpha = alpha
-#         self.gamma = gamma
-#         self.epsilon = epsilon
-#         self.q_values = {}
-#         self._str_to_id = {}
-
-#     def store_q_table(self,filename):
-#         with open(filename, "wb") as f:
-#             data = {"q_table":self.q_values, "state_mapping": self._str_to_id}
-#             pickle.dump(data, f)
-
-#     def load_q_table(self,filename):
-#         with open(filename, "rb") as f:
-#             data = pickle.load(f)
-#             self.q_values = data["q_table"]
-#             self._str_to_id = data["state_mapping"]
-    
-#     def get_valid_actions(self, state: GameState) -> set:
-#         valid_actions = set()
-#         # Network Scans
-#         for network in state.known_networks:
-#             # TODO ADD neighbouring networks
-#             valid_actions.add(
-#                 Action(ActionType.ScanNetwork, params={"target_network": network})
-#             )
-#         # Service Scans
-#         for host in state.known_hosts:
-#             valid_actions.add(
-#                 Action(ActionType.FindServices, params={"target_host": host})
-#             )
-#         # Service Exploits
-#         for host, service_list in state.known_services.items():
-#             for service in service_list:
-#                 valid_actions.add(
-#                     Action(
-#                         ActionType.ExploitService,
-#                         params={"target_host": host, "target_service": service},
-#                     )
-#                 )
-#         # Data Scans
-#         for host in state.controlled_hosts:
-#             valid_actions.add(Action(ActionType.FindData, params={"target_host": host}))
-
-#         # Data Exfiltration
-#         for src_host, data_list in state.known_data.items():
-#             for data in data_list:
-#                 for trg_host in state.controlled_hosts:
-#                     if trg_host != src_host:
-#                         valid_actions.add(
-#                             Action(
-#                                 ActionType.ExfiltrateData,
-#                                 params={
-#                                     "target_host": trg_host,
-#                                     "source_host": src_host,
-#                                     "data": data,
-#                                 },
-#                             )
-#                         )
-#         return valid_actions
-
-#     def get_state_id(self, state:GameState) -> int:
-#         state_str = state_as_ordered_string(state)
-#         if state_str not in self._str_to_id:
-#             self._str_to_id[state_str] = len(self._str_to_id)
-#         return self._str_to_id[state_str]
-    
-#     def move(self, observation:Observation, testing=False) -> Action:
-#         state = observation.state
-#         actions = self.get_valid_actions(state)
-#         state_id = self.get_state_id(state)
-        
-#         #logger.info(f'The valid actions in this state are: {[str(action) for action in actions]}')
-#         if random.uniform(0, 1) <= self.epsilon and not testing:
-#             action = random.choice(list(actions))
-#             if (state_id, action) not in self.q_values:
-#                 self.q_values[state_id, action] = 0
-#             return action
-#         else: #greedy play
-#             #select the acion with highest q_value
-#             tmp = dict(((state_id,action), self.q_values.get((state_id,action), 0)) for action in actions)
-#             state_id, action = max(tmp, key=tmp.get)
-#             #if max_q_key not in self.q_values:
-#             try:
-#                 self.q_values[state_id, action]
-#             except KeyError:
-#                 self.q_values[state_id, action] = 0
-#             return action
-
-#     def max_action_q(self, observation:Observation) -> Action:
-#         state = observation.state
-#         actions = self.get_valid_actions(state)
-#         state_id = self.get_state_id(state)
-#         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
-#         return tmp[max(tmp,key=tmp.get)] #return maximum Q_value for a given state (out of available actions)
-
-#     def play(self, observation:Observation, testing=False) -> tuple:
-#         """
-#         Play a complete episode from beginning to end
-
-#         1. Get next action
-#         2. Step and get next state
-#         3. Get max action of next state
-#         4. Update q table
-#         5. Store rewards
-#         6. loop
-#         """
-#         rewards = 0
-#         while not observation.done:
-#             # Select action
-#             action = self.move(observation, testing)
-#             # Get next state of the environment
-#             next_observation = self.env.step(action)
-
-#             # Find max Q-Value for next state
-#             if next_observation.done:
-#                 max_q_next = 0
-#             else:
-#                 max_q_next = self.max_action_q(next_observation)
-
-#             # Update q values
-#             state = observation.state
-#             state_id = self.get_state_id(state)
-
-#             new_q = self.q_values.get((state_id, action), 0) + self.alpha*(next_observation.reward + self.gamma * max_q_next - self.q_values.get((state_id, action), 0))
-#             self.q_values[state_id, action] = new_q
-            
-#             rewards += next_observation.reward
-
-#             # Move to next observation
-#             observation = next_observation
-
-#         # If state is 'done' this should throw an error of missing variables
-#         return rewards, self.env.is_goal(state), self.env.detected, self.env.timestamp
-
-#     def evaluate(self, observation:Observation) -> tuple: #(cumulative_reward, goal?, detected?, num_steps)
-#         """
-#         Evaluate the agent so far for one episode
-
-#         Do without learning
-#         """
-#         return_value = 0
-#         while not observation.done:
-#             action = self.move(observation, testing=True)
-#             next_observation = self.env.step(action)
-#             return_value += next_observation.reward
-#             observation = next_observation
-
-#         # Has to return
-#         # 1. returns
-#         # 2. if it is a win
-#         # 3. if it is was detected
-#         # 4. amount of steps when finished
-#         wins = next_observation.reward > 0
-#         detected = self.env.detected
-#         steps = self.env.timestamp
-#         return return_value, wins, detected, steps
-
 
 # if __name__ == '__main__':
 #     parser = argparse.ArgumentParser()
