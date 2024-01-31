@@ -68,7 +68,7 @@ class BaseAgent:
         """
         _, observation_dict, _ = self.communicate(action)
         if observation_dict:
-            return  Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+            return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
         else:
             return None
     
@@ -109,7 +109,7 @@ class BaseAgent:
         _send_data(self._socket, data)
         return _receive_data(self._socket)
 
-    def register(self)->tuple:
+    def register(self)->Observation:
         """
         Method for registering agent to the game server.
         Classname is used as agent name and the role is based on the 'role' argument.
@@ -124,20 +124,25 @@ class BaseAgent:
                     status, observation_dict, message  = self.communicate({'ChooseSide': self.role})
                     if status:
                         self._logger.info('\tRegistration successful')
-                        return status, observation_dict, message
+                        return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
                     else:
-                        self._logger.error('\tRegistration failed!')
+                        self._logger.error(f'\tRegistration failed! (status: {status}, msg:{message}')
                         return None
         except Exception as e:
             self._logger.error(f'Exception in register(): {e}')
 
-    def request_game_reset(self)->tuple:
+    def request_game_reset(self)->Observation:
         """
         Method for requesting restart of the game.
         """
         self._logger.info("Requesting game reset")
         status, observation_dict, message = self.communicate({"Reset":True})
-        return status, observation_dict, message
+        if status:
+            self._logger.debug('\tReset successful')
+            return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+        else:
+            self._logger.error(f'\rReset failed! (status: {status}, msg:{message}')
+            return None
 
 
 if __name__ == '__main__':
