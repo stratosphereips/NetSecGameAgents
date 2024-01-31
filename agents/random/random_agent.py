@@ -6,22 +6,50 @@ import os
 from random import choice
 import argparse
 from random import choice
+import numpy as np
 #from torch.utils.tensorboard import SummaryWriter
 
 # This is used so the agent can see the environment and game components
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) )))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
 # with the path fixed, we can import now
-from env.game_components import Action, Observation
+from env.game_components import Action, Observation, GameState
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions
 
+
 class RandomAgent(BaseAgent):
 
-    def __init__(self, host, port, seed) -> None:
-        super().__init__(host, port)
+    def __init__(self, host, port,role, seed) -> None:
+        super().__init__(host, port, role)
     
-    def step(self, observation:Observation)->Action:
+
+    def play_game(self, num_episodes=1):
+        """
+        The main function for the gameplay. Handles agent registration and the main interaction loop.
+        """
+        
+        _, observation_dict, _ = self.register()
+        returns = []
+        for episode in range(num_episodes):
+            episodic_returns = []
+            observation = Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+            while observation and not observation.done:
+                self._logger.debug(f'Observation received:{observation}')
+                # select the action randomly
+                action = self.select_action(observation)
+                episodic_returns.append(observation.reward)
+                observation = self.make_step(action)
+            self._logger.debug(f'Observation received:{observation}')
+            returns.append(np.sum(episodic_returns))
+            self._logger.info(f"Episode {episode} ended with return{np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)}")
+            # Reset the episode
+            _, observation_dict, _ = self.request_game_reset()
+        self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
+        self._logger.info("Terminating interaction")
+        self.terminate_connection()
+    
+    def select_action(self, observation:Observation)->Action:
         valid_actions = generate_valid_actions(observation.state)
         action = choice(valid_actions)
         return action
@@ -46,7 +74,7 @@ if __name__ == '__main__':
     #run_name = f"netsecgame__llm__{env.seed}__{int(time.time())}"
 
     # Create agent
-    agent = RandomAgent(args.host, args.port, seed=42)
+    agent = RandomAgent(args.host, args.port,"Attacker", seed=42)
     agent.play_game(args.episodes)
 
     # trial_win_rate = []
