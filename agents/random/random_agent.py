@@ -29,11 +29,10 @@ class RandomAgent(BaseAgent):
         The main function for the gameplay. Handles agent registration and the main interaction loop.
         """
         
-        _, observation_dict, _ = self.register()
+        observation = self.register()
         returns = []
         for episode in range(num_episodes):
             episodic_returns = []
-            observation = Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
             while observation and not observation.done:
                 self._logger.debug(f'Observation received:{observation}')
                 # select the action randomly
@@ -44,7 +43,7 @@ class RandomAgent(BaseAgent):
             returns.append(np.sum(episodic_returns))
             self._logger.info(f"Episode {episode} ended with return{np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)}")
             # Reset the episode
-            _, observation_dict, _ = self.request_game_reset()
+            observation = self.request_game_reset()
         self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
         self._logger.info("Terminating interaction")
         self.terminate_connection()
