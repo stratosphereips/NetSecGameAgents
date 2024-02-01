@@ -9,18 +9,21 @@ from os import path
 import os
 import logging
 import ipaddress
+from random import choice
+import argparse
 
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
-
 from env.network_security_game import NetworkSecurityEnvironment
 from env.game_components import Network, IP, Service, Data
 from env.game_components import ActionType, Action, GameState, Observation
 
-from random import choice
-import argparse
+# This is used so the agent can see the BaseAgent
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
+from base_agent import BaseAgent
+
 log_filename = os.path.dirname(os.path.abspath(__file__)) + '/interactive_tui_agent.log'
-logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
 logger = logging.getLogger('Interactive-TUI-agent')
 logger.info('Start')
 
@@ -87,20 +90,19 @@ class InteractiveTUI(App):
     """App to display key events."""
     CSS_PATH = "layout.tcss"
 
-    def __init__(self, config_file:str):
+    def __init__(self, host: str, port: int, role: str):
         super().__init__()
-        self.env = NetworkSecurityEnvironment(config_file)
         self.returns = 0
-        self.current_obs = self.env.reset()
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
         self.network_input = ""
         self.service_input = ""
         self.data_input = ""
+        self.agent = BaseAgent(host, port, role)
+        self.current_obs = self.agent.register()
 
     def compose(self) -> ComposeResult:
-        # yield Header(show_clock=True)
         yield Vertical(
             TreeState(obs=self.current_obs),
             classes="box", id="tree")
@@ -201,7 +203,7 @@ class InteractiveTUI(App):
     def update_state(self) -> None:
         action = self._move(self.current_obs.state)
         # Get next observation of the environment
-        next_observation = self.env.step(action)
+        next_observation = self.agent.make_step(action)
         # Collect reward
         self.returns += next_observation.reward
         # Move to next state
@@ -276,7 +278,7 @@ class InteractiveTUI(App):
         if self.next_action == ActionType.ScanNetwork:
             parameters = {
                 "source_host": IP(self.src_host_input),
-                "target_network": Network(IP(self.network_input[:-3]), mask=int(self.network_input[-2:]))
+                "target_network": Network(self.network_input[:-3], mask=int(self.network_input[-2:]))
             }
             action = Action(action_type=self.next_action, params=parameters)
         elif self.next_action in [ActionType.FindServices, ActionType.FindData]:
@@ -332,7 +334,7 @@ class InteractiveTUI(App):
     def _clear_state(self) -> None:
         """Reset the state and variables"""
         logger.info(f"Reset the environment and state")
-        self.current_obs = self.env.reset()
+        self.current_obs = self.agent.request_game_reset()
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
@@ -349,10 +351,12 @@ class InteractiveTUI(App):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
-    # parser.add_argument("--rb_log_directory", help="directory to store the logs", default="env/logs/replays", action='store', required=False)
+    # parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
+    parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
+    parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
+    parser.add_argument("--role", help="Role of the agent", default="Attacker", choices=["Attacker"])
     args = parser.parse_args()
 
     logger.info('Creating the agent')
-    app = InteractiveTUI(args.task_config_file)
+    app = InteractiveTUI(args.host, args.port, args.role)
     app.run()
