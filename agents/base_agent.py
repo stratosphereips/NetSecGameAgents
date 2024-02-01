@@ -135,7 +135,7 @@ class BaseAgent:
         """
         Method for requesting restart of the game.
         """
-        self._logger.info("Requesting game reset")
+        self._logger.debug("Requesting game reset")
         status, observation_dict, message = self.communicate({"Reset":True})
         if status:
             self._logger.debug('\tReset successful')
