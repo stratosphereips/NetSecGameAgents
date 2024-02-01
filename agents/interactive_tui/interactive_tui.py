@@ -27,7 +27,6 @@ logger.info('Start')
 
 def is_valid_ip(ip_addr: str) -> bool:
     """Validate if the input string is an IPv4 address"""
-    """Validate if the input string is an IPv4 address"""
     try:
         ipaddress.IPv4Address(ip_addr)
         return True
@@ -35,7 +34,6 @@ def is_valid_ip(ip_addr: str) -> bool:
         return False
 
 def is_valid_net(net_addr: str) -> bool:
-    """Validate if the input string is an IPv4 or IPv6 network"""
     """Validate if the input string is an IPv4 or IPv6 network"""
     try:
         ipaddress.ip_network(net_addr)
@@ -192,10 +190,7 @@ class InteractiveTUI(App):
 
     @on(Button.Pressed)
     def submit_action(self, event: Button.Pressed) -> None:
-        """
-        Press the button to select a random action.
-        Right now there is only one button. If we add more we will need to distinguish them.
-        """
+        """Press the button to select a random action"""
         self.update_state()
 
         # Take the first node of TreeState which contains the tree
