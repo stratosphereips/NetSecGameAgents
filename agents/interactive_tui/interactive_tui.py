@@ -1,15 +1,14 @@
 from textual.app import App, ComposeResult, Widget
 from textual.widgets import Tree, Button, Header, Footer, Log, Select, Input
-# from textual.reactive import reactive
 from textual.containers import Vertical, VerticalScroll
+from textual.validation import Function
 from textual import on
 
 import sys
 from os import path
 import os
 import logging
-import json
-import socket
+import ipaddress
 
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
@@ -24,6 +23,23 @@ log_filename = os.path.dirname(os.path.abspath(__file__)) + '/interactive_tui_ag
 logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
 logger = logging.getLogger('Interactive-TUI-agent')
 logger.info('Start')
+
+
+def is_valid_ip(ip_addr: str) -> bool:
+    """Validate if the input string is an IPv4 address"""
+    try:
+        ipaddress.IPv4Address(ip_addr)
+        return True
+    except ipaddress.AddressValueError:
+        return False
+
+def is_valid_net(net_addr: str) -> bool:
+    """Validate if the input string is an IPv4 or IPv6 network"""
+    try:
+        ipaddress.ip_network(net_addr)
+        return True
+    except (ipaddress.NetmaskValueError, ipaddress.AddressValueError, ValueError):
+        return False
 
 
 class TreeState(Widget):
@@ -66,165 +82,16 @@ class TreeState(Widget):
         tree = self._create_tree_from_obs(self.init_obs)
         yield tree
 
-def receive_data(client_socket):
-    """
-    Receive data from server
-    """
-    # Receive data from the server
-    data = client_socket.recv(8192).decode()
-    logger.info(f"Data received from env: {data}")
-    data_dict = json.loads(data)
-    return data_dict
-
-def register(client_socket):
-    """
-    Register in the game with a nickname
-    """
-    try:
-        status, observation, message = step(client_socket, '')
-
-        if 'Insert your nick' in message:
-            # Send the nick
-            print(message)
-            player_name = input("Answer: ")
-
-            while not player_name or len(player_name)==0:
-                print("Incorrect input.")
-                player_name = input("Answer: ")
-            
-            message_dict = {'PutNick': player_name}
-            message_str = json.dumps(message_dict)
-            
-            #client_socket.sendall(message_strencode())
-            status, observation, message = step(client_socket, message_str)
-            return status, observation, message
-        else:
-            return False, False, False
-    except Exception as e:
-        logger.error(f'Exception in register(): {e}')
-
-def choose_side(client_socket, message):
-    """
-    Choose your side
-    """
-    try:
-
-        if 'Which side are' in message:
-            # Choose side
-            print(message)
-            side = input("Answer: ")
-            while not side or len(side)==0:
-                print("Incorrect input.")
-                side = input("Answer: ")
-            message_dict = {'ChooseSide': side}
-            message_str = json.dumps(message_dict)
-            
-            #client_socket.sendall(message_str.encode())
-            status, observation, message = step(client_socket, message_str)
-            return status, observation, message
-        else:
-            return {}, {}, ''
-    except Exception as e:
-        print(e)
-        logger.error(f'Exception in choose_side(): {e}')
-
-def step(client_socket, action):
-    """
-    Send an action and receive a response
-    """
-    try:
-        logger.info(f'Doing step')
-        logger.info(f'Sending: {action}')
-
-        if type(action) == Action:
-            action = action.as_json()
-
-        client_socket.sendall(action.encode())
-        data_dict = receive_data(client_socket)
-        logger.info(f'Received: {data_dict}')
-        try:
-            status = data_dict['status']
-        except KeyError:
-            status = {}
-        try:
-            observation = data_dict['observation']
-        except KeyError:
-            observation = {}
-        try:
-            message = data_dict['message']
-        except KeyError:
-            message = ''
-        return status, observation, message
-    except Exception as e:
-        logger.error(f'Exception in step(): {e}')
-
-def play(host, port, agent, num_episodes=None):
-    """
-    Play the game
-    """
-    try:
-        # Open connection to the game server
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # Connect to the server
-        client_socket.connect((host, port))
-
-        # Register
-        status, observation_dict, message = register(client_socket)
-
-        if status:
-            # Choose side
-            status, observation_dict, message = choose_side(client_socket, message)
-            # This status, observation and message are the ones that start the game
-        else:
-            logger.info(f'Could not register in the server.')
-            return False
-        
-        if 'That side does not exists.' in message:
-            logger.info(message)
-            print(message)
-            sys.exit(-1)
-        
-        if not status:
-            return False
-
-        episode_counter = 0
-        stop = False
-
-        while not stop and observation_dict:
-            print(message)
-            
-            # Convert the state in observation from json string to dict
-            logger.info(f'Interpreted: \n\tObservation:{observation_dict}')
-
-            # The first 'empty' previous state should be a dictionary game state, but empty. But represented as a dictionary. This can only be done from the json representation
-            empty_game_state = json.loads(GameState(known_networks=[], known_hosts=[], controlled_hosts=[], known_services={}, known_data={}).as_json())
-            # Must be a dict
-            previous_state = {'state': empty_game_state, 'reward': 0, 'end': False, 'info': {}}
-
-            while not observation_dict['end'] and not stop:
-                print(observation_dict['state'], observation_dict['reward'], previous_state['state'])
-                action = agent.move(observation_dict)
-                if action:
-                    status, observation_dict, message = step(client_socket, action)
-                previous_state = observation_dict
-            episode_counter +=1
-            print(f"\nEpisode over! Reason {observation_dict['info']}")
-            if input("\nDo you want to play again? Y/n: ") in ["Y", 'y']:
-                print("\n################################################ STARTING NEW EPISODE ################################################\n")
-            else:
-                stop = True
-    finally:
-        # Close the socket
-        client_socket.close()
 
 class InteractiveTUI(App):
     """App to display key events."""
     CSS_PATH = "layout.tcss"
 
-    def __init__(self):
+    def __init__(self, config_file:str):
         super().__init__()
+        self.env = NetworkSecurityEnvironment(config_file)
         self.returns = 0
-        self.current_obs = {}
+        self.current_obs = self.env.reset()
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
@@ -249,9 +116,12 @@ class InteractiveTUI(App):
             classes="box")
         yield Vertical(
             VerticalScroll(
-                Input(placeholder="Source Host", id="src_host"),
-                Input(placeholder="Network", id="network"),
-                Input(placeholder="Target Host", id="target_host"),
+                Input(placeholder="Source Host", id="src_host", 
+                      validators=[Function(is_valid_ip, "This is not a valid IP.")]),
+                Input(placeholder="Network", id="network",
+                      validators=[Function(is_valid_net, "This is not a valid Network.")]),
+                Input(placeholder="Target Host", id="target_host",
+                      validators=[Function(is_valid_ip, "This is not a valid IP.")]),
                 Input(placeholder="Service", id="service"),
                 Input(placeholder="Data", id="data"),
                 classes="box"))
@@ -318,8 +188,12 @@ class InteractiveTUI(App):
         elif event._sender.id == "data":
             self.data_input = event.value
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Press the button to select a random action"""
+    @on(Button.Pressed)
+    def submit_action(self, event: Button.Pressed) -> None:
+        """
+        Press the button to select a random action.
+        Right now there is only one button. If we add more we will need to distinguish them.
+        """
         self.update_state()
 
         # Take the first node of TreeState which contains the tree
@@ -372,7 +246,7 @@ class InteractiveTUI(App):
             node = data.add(str(host), expand=True)
             for datum in new_state.known_data[host]:
                 node.add_leaf(f"{datum.owner} - {datum.id}")
-
+    
     def _generate_valid_actions(self, state: GameState)-> list:
         # Generate the list of all valid actions in the current state
         valid_actions = set()
@@ -399,9 +273,7 @@ class InteractiveTUI(App):
                         valid_actions.add(Action(ActionType.ExfiltrateData, params={"target_host": trg_host, "source_host": src_host, "data": data}))
         return list(valid_actions)
 
-    #def _move(self, state: GameState)->Action:
-    def _move(self, observation: Observation)->Action:
-        state = Observation['state']
+    def _move(self, state: GameState)->Action:
         action = None
         log = self.query_one("Log")
         if self.next_action == ActionType.ScanNetwork:
@@ -441,13 +313,15 @@ class InteractiveTUI(App):
                             action = Action(action_type=self.next_action, params=parameters)
         else:
             log.write_line(f"Invalid input: {self.next_action} with {parameters}")
+            logger.info(f"Invalid input from user: {self.next_action} with {parameters}")
             
         if action is None:
             action = self._random_move(state)
             log.write_line(f"Random action: {str(action)}")
-
+            logger.info(f"Random action due to error: {str(action)}")
         
         log.write_line(f"Action to take: {str(action)}")
+        logger.info(f"User selected action: {str(action)}")
             
         return action
 
@@ -460,7 +334,8 @@ class InteractiveTUI(App):
     
     def _clear_state(self) -> None:
         """Reset the state and variables"""
-        self.current_obs = ''
+        logger.info(f"Reset the environment and state")
+        self.current_obs = self.env.reset()
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
@@ -475,12 +350,10 @@ class InteractiveTUI(App):
             inp.clear()
 
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--rb_log_directory", help="directory to store the logs", default="env/logs/replays", action='store', required=False)
-    parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
-    parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
+    parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
+    # parser.add_argument("--rb_log_directory", help="directory to store the logs", default="env/logs/replays", action='store', required=False)
     args = parser.parse_args()
 
     app = InteractiveTUI(args.task_config_file)
