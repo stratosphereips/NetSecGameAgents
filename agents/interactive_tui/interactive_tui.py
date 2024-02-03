@@ -30,7 +30,6 @@ logger.info('Start')
 
 def is_valid_ip(ip_addr: str) -> bool:
     """Validate if the input string is an IPv4 address"""
-    """Validate if the input string is an IPv4 address"""
     try:
         ipaddress.IPv4Address(ip_addr)
         return True
@@ -38,7 +37,6 @@ def is_valid_ip(ip_addr: str) -> bool:
         return False
 
 def is_valid_net(net_addr: str) -> bool:
-    """Validate if the input string is an IPv4 or IPv6 network"""
     """Validate if the input string is an IPv4 or IPv6 network"""
     try:
         ipaddress.ip_network(net_addr)
@@ -362,5 +360,6 @@ if __name__ == "__main__":
     parser.add_argument("--role", help="Role of the agent", default="Attacker", choices=["Attacker"])
     args = parser.parse_args()
 
-    app = InteractiveTUI(args.task_config_file)
+    logger.info('Creating the agent')
+    app = InteractiveTUI(args.host, args.port, args.role)
     app.run()
