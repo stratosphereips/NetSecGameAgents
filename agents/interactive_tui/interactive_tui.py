@@ -357,7 +357,7 @@ if __name__ == "__main__":
     # parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--role", help="Role of the agent", default="Attacker", choices=["Attacker"])
+    parser.add_argument("--role", help="Role of the agent", default="Attacker", choices=["Attacker", "Defender", "Human"])
     args = parser.parse_args()
 
     logger.info('Creating the agent')
