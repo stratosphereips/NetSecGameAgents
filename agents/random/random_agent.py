@@ -32,6 +32,7 @@ class RandomAgent(BaseAgent):
         observation = self.register()
         returns = []
         for episode in range(num_episodes):
+            self._logger.info(f"Playing episode {episode}")
             episodic_returns = []
             while observation and not observation.end:
                 self._logger.debug(f'Observation received:{observation}')
@@ -60,7 +61,6 @@ if __name__ == '__main__':
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
     parser.add_argument("--episodes", help="Sets number of testing episodes", default=10, type=int)
     parser.add_argument("--test_each", help="Sets periodic evaluation during testing", default=100, type=int)
-    parser.add_argument("--force_ignore", help="Force ignore repeated actions in code", default=False, action=argparse.BooleanOptionalAction)
     parser.add_argument("--num_trials", type=int, default=1, help="Number of experiments to run")
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
     args = parser.parse_args()
