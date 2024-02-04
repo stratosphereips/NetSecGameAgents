@@ -33,7 +33,7 @@ class RandomAgent(BaseAgent):
         returns = []
         for episode in range(num_episodes):
             episodic_returns = []
-            while observation and not observation.done:
+            while observation and not observation.end:
                 self._logger.debug(f'Observation received:{observation}')
                 # select the action randomly
                 action = self.select_action(observation)
