@@ -11,7 +11,7 @@ import json
 
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))
-from env.game_components import Action, GameState, Observation
+from env.game_components import Action, GameState, Observation, ActionType, GameStatus,AgentInfo, IP, Network
 
 
 class BaseAgent:
@@ -72,13 +72,13 @@ class BaseAgent:
         else:
             return None
     
-    def communicate(self, data:object)-> tuple:
+    def communicate(self, data:Action)-> tuple:
         """Method for a data exchange with the server. Expect Action, dict or string as input.
         Outputs tuple with server's response in format (status_dict, response_body, message)"""
         def _send_data(socket, data:str)->None:
             try:
                 self._logger.debug(f'Sending: {data}')
-                self.socket.sendall(data.encode())
+                socket.sendall(data.encode())
             except Exception as e:
                 self._logger.error(f'Exception in _send_data(): {e}')
                 raise e
@@ -97,46 +97,41 @@ class BaseAgent:
             observation = json.loads(data_dict["observation"]) if "observation" in data_dict else {}
             message = data_dict["message"] if "message" in data_dict else None
 
-            return status, observation, message
+            return GameStatus.from_string(status), observation, message
         
         if isinstance(data, Action):
             data = data.as_json()
-        elif isinstance(data, dict):
-            data = json.dumps(data)
-        elif type(data) is not str:
-            raise ValueError("Incorrect data type! Supported types are 'Action', dict, and str.")
+        else:
+            raise ValueError("Incorrect data type! Data should be ONLY of type Action")
         
         _send_data(self._socket, data)
         return _receive_data(self._socket)
-
+    
     def register(self)->Observation:
         """
         Method for registering agent to the game server.
         Classname is used as agent name and the role is based on the 'role' argument.
-        TO BE MODIFIED IN FUTURE WHEN THE GAME SUPPORTS 1 MESSAGE REGISTRATION
         """
         try:
             self._logger.info(f'Registering agent as {self.role}')
-            status, observation_dict, message = self.communicate("")
-            if 'Insert your nick' in message:
-                status, observation_dict, message  = self.communicate({'PutNick': self.__class__.__name__} )
-                if 'Which side are' in message:
-                    status, observation_dict, message  = self.communicate({'ChooseSide': self.role})
-                    if status:
-                        self._logger.info('\tRegistration successful')
-                        return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
-                    else:
-                        self._logger.error(f'\tRegistration failed! (status: {status}, msg:{message}')
-                        return None
+            status, observation_dict, message = self.communicate(Action(ActionType.JoinGame,
+                                                                         params={"agent_info":AgentInfo(self.__class__.__name__,self.role)}))
+            self._logger.info(f'\tRegistering agent as {status, observation_dict, message}')
+            if status is GameStatus.CREATED:
+                self._logger.info('\tRegistration successful')
+                return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+            else:
+                self._logger.error(f'\tRegistration failed! (status: {status}, msg:{message}')
+                return None
         except Exception as e:
             self._logger.error(f'Exception in register(): {e}')
-
+    
     def request_game_reset(self)->Observation:
         """
         Method for requesting restart of the game.
         """
         self._logger.debug("Requesting game reset")
-        status, observation_dict, message = self.communicate({"Reset":True})
+        status, observation_dict, message = self.communicate(Action(ActionType.ResetGame))
         if status:
             self._logger.debug('\tReset successful')
             return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
@@ -152,6 +147,7 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     log_filename = os.path.dirname(os.path.abspath(__file__)) + '/base_agent.log'
-    logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+    logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
     agent = BaseAgent(args.host, args.port, role="Attacker")
     print(agent.register())
+    print(agent.make_step(Action(ActionType.ScanNetwork, params={"source_host":IP("192.168.2.2"), "target_network":Network("192.168.1.0", 24)})))
