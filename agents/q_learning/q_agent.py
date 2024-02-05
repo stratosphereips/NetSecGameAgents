@@ -89,7 +89,7 @@ class QAgent(BaseAgent):
         returns = []
         for episode in range(num_episodes):
             episodic_returns = []
-            while observation and not observation.done:
+            while observation and not observation.end:
                 self._logger.debug(f'Observation received:{observation}')
                 # select the action randomly
                 action = self.select_action(observation)
@@ -99,7 +99,7 @@ class QAgent(BaseAgent):
             episodic_returns.append(observation.reward)
             returns.append(np.sum(episodic_returns))
             episodic_returns = episodic_returns[1:]
-            self._logger.info(f"Episode {episode} (len={len(episodic_returns)})ended with return {np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)}")
+            self._logger.info(f"Episode {episode} (len={len(episodic_returns)}) ended with return {np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)} |Q_table| = {len(self.q_values)}")
             # Reset the episode
             observation = self.request_game_reset()
         self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
@@ -124,6 +124,7 @@ if __name__ == '__main__':
 
     # Create agent
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon=args.epsilon)
+    agent.load_q_table("./q_agent_marl.pickle")
     agent.play_game(args.episodes)       
     agent.store_q_table("./q_agent_marl.pickle")
 # if __name__ == '__main__':
