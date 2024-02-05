@@ -325,7 +325,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--llm",
         type=str,
-        choices=["gpt-4", "gpt-3.5-turbo", "gpt-3.5-turbo-16k", "HuggingFaceH4/zephyr-7b-beta"],
+        choices=["gpt-4", "gpt-4-turbo-preview", "gpt-3.5-turbo-0125", "gpt-3.5-turbo-16k", "HuggingFaceH4/zephyr-7b-beta"],
         default="gpt-3.5-turbo",
         help="LLM used with OpenAI API",
     )
