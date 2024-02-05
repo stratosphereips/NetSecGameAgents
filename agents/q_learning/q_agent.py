@@ -67,7 +67,7 @@ class QAgent(BaseAgent):
             action = random.choice(list(actions))
             if (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
-            return action
+            return action, state_id
         else: #greedy play
             #select the acion with highest q_value
             tmp = dict(((state_id,action), self.q_values.get((state_id,action), 0)) for action in actions)
@@ -77,10 +77,10 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action]
             except KeyError:
                 self.q_values[state_id, action] = 0
-            return action
+            return action, state_id
         
    
-    def play_game(self, num_episodes=1):
+    def play_game(self, num_episodes=1, testing=False):
         """
         The main function for the gameplay. Handles agent registration and the main interaction loop.
         """
@@ -91,14 +91,16 @@ class QAgent(BaseAgent):
             episodic_returns = []
             while observation and not observation.end:
                 self._logger.debug(f'Observation received:{observation}')
-                # select the action randomly
-                action = self.select_action(observation)
-                episodic_returns.append(observation.reward)
+                # get next_action
+                action,state_id = self.select_action(observation, testing)
+                # perform the action and observe next observation
                 observation = self.make_step(action)
-            self._logger.debug(f'Observation received:{observation}')
-            episodic_returns.append(observation.reward)
+                # store the reward of the next observation
+                episodic_returns.append(observation.reward)
+                # use it to update the Q table
+                self.q_values[state_id, action]+= self.alpha*(observation.reward+ self.gamma*self.max_action_q(observation))-self.q_values[state_id, action]
+
             returns.append(np.sum(episodic_returns))
-            episodic_returns = episodic_returns[1:]
             self._logger.info(f"Episode {episode} (len={len(episodic_returns)}) ended with return {np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)} |Q_table| = {len(self.q_values)}")
             # Reset the episode
             observation = self.request_game_reset()
@@ -116,6 +118,7 @@ if __name__ == '__main__':
     parser.add_argument("--gamma", help="Sets gamma for Q learing", default=0.9, type=float)
     parser.add_argument("--alpha", help="Sets alpha for learning rate", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
+    parser.add_argument("--test_only", help="Only run testing", default=False, action='store_true')
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
@@ -124,9 +127,14 @@ if __name__ == '__main__':
 
     # Create agent
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon=args.epsilon)
-    agent.load_q_table("./q_agent_marl.pickle")
-    agent.play_game(args.episodes)       
-    agent.store_q_table("./q_agent_marl.pickle")
+
+    if args.test_only:
+        agent.load_q_table("./q_agent_marl.pickle")
+        agent.play_game(args.episodes, testing=True)       
+    else:
+        agent.play_game(args.episodes, testing=False)
+        agent.store_q_table("./q_agent_marl.pickle")
+
 # if __name__ == '__main__':
 #     parser = argparse.ArgumentParser()
 #     parser.add_argument("--episodes", help="Sets number of training episodes", default=20000, type=int)
