@@ -12,7 +12,7 @@ sys.path.append(
 from env.network_security_game import NetworkSecurityEnvironment
 from env.game_components import ActionType, Action, IP, Data, Network, Service
 
-import openai
+from openai import OpenAI
 from tenacity import retry, stop_after_attempt
 import argparse
 import jinja2
@@ -30,7 +30,8 @@ import numpy as np
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
 config = dotenv_values(".env")
-openai.api_key = config["OPENAI_API_KEY"]
+client = OpenAI(api_key=config["OPENAI_API_KEY"])
+
 
 # local_services = ['bash', 'powershell', 'remote desktop service', 'windows login', 'can_attack_start_here']
 local_services = ["can_attack_start_here"]
@@ -286,10 +287,13 @@ def summary_prompt(memory_list):
 @retry(stop=stop_after_attempt(3))
 def openai_query(msg_list, max_tokens=60, model="gpt-3.5-turbo"):
     """Send messages to OpenAI API and return the response."""
-    llm_response = openai.ChatCompletion.create(
-        model=model, messages=msg_list, max_tokens=max_tokens, temperature=0.0
+    llm_response = client.chat.completions.create(
+        model=model,
+        messages=msg_list,
+        max_tokens=max_tokens,
+        temperature=0.0
     )
-    return llm_response["choices"][0]["message"]["content"]
+    return llm_response.choices[0].message.content
 
 
 def model_query(model, tokenizer, messages, max_tokens=100):
