@@ -67,7 +67,7 @@ class QAgent(BaseAgent):
             action = random.choice(list(actions))
             if (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
-            return action
+            return action, state_id
         else: #greedy play
             #select the acion with highest q_value
             tmp = dict(((state_id,action), self.q_values.get((state_id,action), 0)) for action in actions)
@@ -77,7 +77,7 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action]
             except KeyError:
                 self.q_values[state_id, action] = 0
-            return action
+            return action, state_id
         
    
     def play_game(self, num_episodes=1):
@@ -91,14 +91,16 @@ class QAgent(BaseAgent):
             episodic_returns = []
             while observation and not observation.end:
                 self._logger.debug(f'Observation received:{observation}')
-                # select the action randomly
-                action = self.select_action(observation)
-                episodic_returns.append(observation.reward)
+                # get next_action
+                action,state_id = self.select_action(observation)
+                # perform the action and observe next observation
                 observation = self.make_step(action)
-            self._logger.debug(f'Observation received:{observation}')
-            episodic_returns.append(observation.reward)
+                # store the reward of the next observation
+                episodic_returns.append(observation.reward)
+                # use it to update the Q table
+                self.q_values[state_id, action]+= self.alpha*(observation.reward+ self.gamma*self.max_action_q(observation))-self.q_values[state_id, action]
+
             returns.append(np.sum(episodic_returns))
-            episodic_returns = episodic_returns[1:]
             self._logger.info(f"Episode {episode} (len={len(episodic_returns)}) ended with return {np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)} |Q_table| = {len(self.q_values)}")
             # Reset the episode
             observation = self.request_game_reset()
@@ -124,7 +126,6 @@ if __name__ == '__main__':
 
     # Create agent
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon=args.epsilon)
-    agent.load_q_table("./q_agent_marl.pickle")
     agent.play_game(args.episodes)       
     agent.store_q_table("./q_agent_marl.pickle")
 # if __name__ == '__main__':
