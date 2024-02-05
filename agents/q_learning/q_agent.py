@@ -118,7 +118,7 @@ if __name__ == '__main__':
     parser.add_argument("--gamma", help="Sets gamma for Q learing", default=0.9, type=float)
     parser.add_argument("--alpha", help="Sets alpha for learning rate", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
-    parser.add_argument("--test_only", help="Only run testing", default=False, type=bool, action='store_true')
+    parser.add_argument("--test_only", help="Only run testing", default=False, action='store_true')
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
