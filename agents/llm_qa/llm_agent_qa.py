@@ -67,7 +67,7 @@ Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24"}}
 Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3"}}
 Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh"}}
 Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1"}}
-Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": ("User1", "WebData"), "source_host": "1.1.1.2"}}}
+Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": {"owner":"User1", "id": "WebData"}, "source_host": "1.1.1.2"}}}
 End of examples.
 """
 
@@ -240,9 +240,13 @@ def create_action_from_response(llm_response, state):
                     )
                 case "ExfiltrateData":
                     try:
-                        data_owner, data_id = action_params["data"]
+                        # data_owner, data_id = action_params["data"]
+                        data_owner = action_params["data"]["owner"]
+                        data_id = action_params["data"]["id"]
                     except:
-                        data_owner, data_id = eval(action_params["data"])
+                        action_data = eval(action_params["data"])
+                        data_owner = action_data["owner"]
+                        data_id = action_data["id"]
 
                     action = Action(
                         ActionType.ExfiltrateData,
@@ -285,13 +289,14 @@ def summary_prompt(memory_list):
 
 
 @retry(stop=stop_after_attempt(3))
-def openai_query(msg_list, max_tokens=60, model="gpt-3.5-turbo"):
+def openai_query(msg_list, max_tokens=60, model="gpt-3.5-turbo", fmt={"type":"text"}):
     """Send messages to OpenAI API and return the response."""
     llm_response = client.chat.completions.create(
         model=model,
         messages=msg_list,
         max_tokens=max_tokens,
-        temperature=0.0
+        temperature=0.0,
+        response_format=fmt
     )
     return llm_response.choices[0].message.content
 
@@ -444,18 +449,18 @@ if __name__ == "__main__":
             if 'zephyr' in args.llm:
                 response = model_query(model, tokenizer, messages, max_tokens=80)
             else:
-                response = openai_query(messages, max_tokens=80, model=args.llm)
+                response = openai_query(messages, max_tokens=80, model=args.llm, fmt={"type":"json_object"})
 
             print(f"LLM (step 2): {response}")
             logger.info("LLM (step 2): %s", response)
 
             try:
-                regex = r"\{+[^}]+\}\}"
-                matches = re.findall(regex, response)
-                print("Matches:", matches)
-                if len(matches) > 0:
-                    response = matches[0]
-                    print("Parsed Response:", response)
+                # regex = r"\{+[^}]+\}\}"
+                # matches = re.findall(regex, response)
+                # print("Matches:", matches)
+                # if len(matches) > 0:
+                #     response = matches[0]
+                #     print("Parsed Response:", response)
 
                 # response = eval(response)
                 response = json.loads(response)
