@@ -5,8 +5,9 @@ import logging
 import os
 from random import choice
 import argparse
-from random import choice
+from random import uniform
 import numpy as np
+import time
 #from torch.utils.tensorboard import SummaryWriter
 
 # This is used so the agent can see the environment and game components
@@ -20,9 +21,14 @@ from agent_utils import generate_valid_actions
 
 class RandomBenignAgent(BaseAgent):
 
-    def __init__(self, host:str, port:int,role:str, allowed_actions:list) -> None:
+    def __init__(self, host:str, port:int,role:str, allowed_actions:list, amp_limit:int=None) -> None:
         super().__init__(host, port, role)
         self._allowed_actions = allowed_actions
+        self._apm_limit = amp_limit
+        if self._apm_limit:
+            self.interval = 60/amp_limit
+        else:
+            self.interval = 0
     
 
     def play_game(self, num_episodes=1):
@@ -34,12 +40,22 @@ class RandomBenignAgent(BaseAgent):
         returns = []
         for episode in range(num_episodes):
             episodic_returns = []
+            start_time = time.time()
             while observation and not observation.end:
                 self._logger.debug(f'Observation received:{observation}')
                 # select the action randomly
                 action = self.select_action(observation)
                 episodic_returns.append(observation.reward)
                 observation = self.make_step(action)
+                if self._apm_limit:
+                    elapsed_time = time.time() - start_time
+                    remaining_time = self.interval - elapsed_time
+                    if remaining_time > 0:
+                        # Add randomness to the interval by multiplying it with a random factor
+                        randomized_interval = max(0, remaining_time *uniform(-1, 5))
+                        self._logger.debug(f"Waiting for {randomized_interval}s before next action")
+                        time.sleep(randomized_interval)
+                    start_time = time.time()
             self._logger.debug(f'Observation received:{observation}')
             returns.append(np.sum(episodic_returns))
             self._logger.info(f"Episode {episode} ended with return{np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)}")
@@ -53,7 +69,7 @@ class RandomBenignAgent(BaseAgent):
         valid_actions = generate_valid_actions(observation.state)
         # filter actions based on the allowed action types
         allowed_actions = filter(lambda action: action.type in self._allowed_actions, valid_actions)
-        action = choice(allowed_actions)
+        action = choice([a for a  in allowed_actions])
         return action
 
 if __name__ == '__main__':
@@ -67,8 +83,8 @@ if __name__ == '__main__':
 
     if not os.path.exists(args.logdir):
         os.makedirs(args.logdir)
-    logging.basicConfig(filename=os.path.join(args.logdir, "benign_random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+    logging.basicConfig(filename=os.path.join(args.logdir, "benign_random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.DEBUG)
 
     # Create agent
-    agent = RandomBenignAgent(args.host, args.port,"Human",allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices])
+    agent = RandomBenignAgent(args.host, args.port,"Human",allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices], amp_limit=10)
     agent.play_game(args.episodes)
