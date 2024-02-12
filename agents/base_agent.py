@@ -134,7 +134,7 @@ class BaseAgent:
         status, observation_dict, message = self.communicate(Action(ActionType.ResetGame))
         if status:
             self._logger.debug('\tReset successful')
-            return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+            return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
         else:
             self._logger.error(f'\rReset failed! (status: {status}, msg:{message}')
             return None
