@@ -68,7 +68,7 @@ class BaseAgent:
         """
         _, observation_dict, _ = self.communicate(action)
         if observation_dict:
-            return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+            return Observation(GameState.from_dict (observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
         else:
             return None
     
@@ -94,7 +94,7 @@ class BaseAgent:
             data_dict = json.loads(data)
             # Add default values if dict keys are missing
             status = data_dict["status"] if "status" in data_dict else {}
-            observation = json.loads(data_dict["observation"]) if "observation" in data_dict else {}
+            observation = data_dict["observation"] if "observation" in data_dict else {}
             message = data_dict["message"] if "message" in data_dict else None
 
             return GameStatus.from_string(status), observation, message
@@ -119,7 +119,7 @@ class BaseAgent:
             self._logger.info(f'\tRegistering agent as {status, observation_dict, message}')
             if status is GameStatus.CREATED:
                 self._logger.info('\tRegistration successful')
-                return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+                return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
             else:
                 self._logger.error(f'\tRegistration failed! (status: {status}, msg:{message}')
                 return None
