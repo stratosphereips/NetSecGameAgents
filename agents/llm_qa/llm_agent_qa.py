@@ -2,6 +2,7 @@
 This module implements an agent that is using ChatGPT 3.5 as a planning agent
 Authors:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
 """
+
 import sys
 from os import path
 
@@ -18,9 +19,11 @@ import argparse
 import jinja2
 import copy
 import json
-import re
+
+# import re
 
 from dotenv import dotenv_values
+
 # Set the logging
 import logging
 from torch.utils.tensorboard import SummaryWriter
@@ -28,6 +31,7 @@ import time
 import numpy as np
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+import pandas as pd
 
 config = dotenv_values(".env")
 client = OpenAI(api_key=config["OPENAI_API_KEY"])
@@ -289,37 +293,42 @@ def summary_prompt(memory_list):
 
 
 @retry(stop=stop_after_attempt(3))
-def openai_query(msg_list, max_tokens=60, model="gpt-3.5-turbo", fmt={"type":"text"}):
+def openai_query(msg_list, max_tokens=60, model="gpt-3.5-turbo", fmt={"type": "text"}):
     """Send messages to OpenAI API and return the response."""
     llm_response = client.chat.completions.create(
         model=model,
         messages=msg_list,
         max_tokens=max_tokens,
         temperature=0.0,
-        response_format=fmt
+        response_format=fmt,
     )
     return llm_response.choices[0].message.content
 
 
 def model_query(model, tokenizer, messages, max_tokens=100):
-
     if messages[0]["role"] != "system":
         messages.insert(0, {"role": "system", "content": ""})
     # Create a chat template because this is what the chat models expect.
-    prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    prompt = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True, tokenize=False
+    )
     model_inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
 
     # Parameters that control how to generate the output
-    gen_config = GenerationConfig(max_new_tokens=max_tokens, 
-                                  do_sample=True, 
-                                  eos_token_id=model.config.eos_token_id,
-                                  temperature=0.1,
-                                  top_k=100)
+    gen_config = GenerationConfig(
+        max_new_tokens=max_tokens,
+        do_sample=True,
+        eos_token_id=model.config.eos_token_id,
+        temperature=0.1,
+        top_k=100,
+    )
     #                              repetition_penalty=0.1)
 
     input_length = model_inputs.input_ids.shape[1]
     generated_ids = model.generate(**model_inputs, generation_config=gen_config)
-    return tokenizer.batch_decode(generated_ids[:, input_length:], skip_special_tokens=True)[0]
+    return tokenizer.batch_decode(
+        generated_ids[:, input_length:], skip_special_tokens=True
+    )[0]
 
 
 if __name__ == "__main__":
@@ -334,7 +343,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--llm",
         type=str,
-        choices=["gpt-4", "gpt-4-turbo-preview", "gpt-3.5-turbo-0125", "gpt-3.5-turbo-16k", "HuggingFaceH4/zephyr-7b-beta"],
+        choices=[
+            "gpt-4",
+            "gpt-4-turbo-preview",
+            "gpt-3.5-turbo-0125",
+            "gpt-3.5-turbo-16k",
+            "HuggingFaceH4/zephyr-7b-beta",
+        ],
         default="gpt-3.5-turbo",
         help="LLM used with OpenAI API",
     )
@@ -354,6 +369,12 @@ if __name__ == "__main__":
         required=False,
         type=int,
     )
+    parser.add_argument(
+        "--csv_log",
+        type=str,
+        help="Log the prompts, actions, and evaluations.",
+        default="logger.csv",
+    )
     args = parser.parse_args()
 
     logger = logging.getLogger("llm_qa")
@@ -363,11 +384,10 @@ if __name__ == "__main__":
     run_name = f"netsecgame__llm_qa__{env.seed}__{int(time.time())}"
     writer = SummaryWriter(f"agents/llm_qa/logs/{run_name}")
 
-    if 'zephyr' in args.llm:
+    if "zephyr" in args.llm:
         model = AutoModelForCausalLM.from_pretrained(args.llm, device_map="auto")
         tokenizer = AutoTokenizer.from_pretrained(args.llm, padding_side="left")
         tokenizer.pad_token = tokenizer.eos_token
-
 
     # Run multiple episodes to compute statistics
     wins = 0
@@ -384,6 +404,10 @@ if __name__ == "__main__":
 
     # Control to save the 1st prompt in tensorboard
     save_first_prompt = False
+
+    prompts = []
+    answers = []
+    evaluations = []
 
     for episode in range(1, args.test_episodes + 1):
         actions_took_in_episode = []
@@ -422,7 +446,7 @@ if __name__ == "__main__":
                 {"role": "user", "content": status_prompt},
                 {"role": "user", "content": Q1},
             ]
-            if 'zephyr' in args.llm:
+            if "zephyr" in args.llm:
                 response = model_query(model, tokenizer, messages, max_tokens=1024)
             else:
                 response = openai_query(messages, max_tokens=1024, model=args.llm)
@@ -445,14 +469,18 @@ if __name__ == "__main__":
                 writer.add_text("prompt_2", f"{messages}")
                 save_first_prompt = True
 
+            prompts.append(messages)
             # Query the LLM
-            if 'zephyr' in args.llm:
+            if "zephyr" in args.llm:
                 response = model_query(model, tokenizer, messages, max_tokens=80)
             else:
-                response = openai_query(messages, max_tokens=80, model=args.llm, fmt={"type":"json_object"})
+                response = openai_query(
+                    messages, max_tokens=80, model=args.llm, fmt={"type": "json_object"}
+                )
 
             print(f"LLM (step 2): {response}")
             logger.info("LLM (step 2): %s", response)
+            answers.append(response)
 
             try:
                 # regex = r"\{+[^}]+\}\}"
@@ -481,6 +509,11 @@ if __name__ == "__main__":
                 if observation.state != current_state:
                     good_action = True
                     current_state = observation.state
+                    evaluations.append(8)
+                else:
+                    evaluations.append(3)
+            else:
+                evaluations.append(1)
 
             logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
             if observation.done or i == (
@@ -501,6 +534,7 @@ if __name__ == "__main__":
                     wins += 1
                     num_win_steps += [steps]
                     type_of_end = "win"
+                    evaluations[-1] = 10
                 elif "detected" in reason["end_reason"]:
                     detected += 1
                     num_detected_steps += [steps]
@@ -563,6 +597,9 @@ if __name__ == "__main__":
             except:
                 # if the LLM sends a response that is not properly formatted.
                 memories.append(f"Response '{response}' was badly formatted.")
+
+    df = pd.DataFrame({"prompt": prompts, "answer": answers, "evaluation": evaluations})
+    df.to_csv(args.csv_log, index=False)
 
     # After all episodes are done. Compute statistics
     test_win_rate = (wins / (args.test_episodes)) * 100
