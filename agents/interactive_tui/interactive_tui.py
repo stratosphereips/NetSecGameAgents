@@ -209,7 +209,7 @@ class InteractiveTUI(App):
         # Move to next state
         self.current_obs = next_observation
 
-        if next_observation.done:
+        if next_observation.end:
             self.notify(f"You won! Total return: {self.returns}", timeout=10)
             self._clear_state()
 
