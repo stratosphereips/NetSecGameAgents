@@ -237,6 +237,8 @@ def create_action_from_response(llm_response, state):
                                     ),
                                 }
                                 action = Action(ActionType.ExploitService, parameters)
+                    if action is None:
+                        valid = False
                 case "FindData":
                     action = Action(
                         ActionType.FindData,
@@ -265,6 +267,9 @@ def create_action_from_response(llm_response, state):
 
     except SyntaxError:
         logger.error(f"Cannol parse the response from the LLM: {llm_response}")
+        valid = False
+
+    if action is None:
         valid = False
 
     return valid, action
@@ -483,14 +488,7 @@ if __name__ == "__main__":
             answers.append(response)
 
             try:
-                # regex = r"\{+[^}]+\}\}"
-                # matches = re.findall(regex, response)
-                # print("Matches:", matches)
-                # if len(matches) > 0:
-                #     response = matches[0]
-                #     print("Parsed Response:", response)
-
-                # response = eval(response)
+                # GPT models and Zephyr return valid JSON in this step
                 response = json.loads(response)
 
                 # Validate action based on current states
