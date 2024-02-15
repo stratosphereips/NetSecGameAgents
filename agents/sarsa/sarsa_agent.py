@@ -53,7 +53,7 @@ class SARSAAgent(BaseAgent):
         state_id = self.get_state_id(state)
         
         #logger.info(f'The valid actions in this state are: {[str(action) for action in actions]}')
-        if random.uniform(0, 1) <= self.epsilon and not testing:
+        if not testing and random.uniform(0, 1) <= self.epsilon:
             action = random.choice(list(actions))
             if (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
@@ -97,8 +97,8 @@ class SARSAAgent(BaseAgent):
         observation = self.register()
         if not args.test_only:
             for episode in range(num_episodes):
-                self.play_episode(testing=False)
-                self._logger.debug(f"Episode {episode} finished. |Q_table| = {len(self.q_values)}")
+                ret = self.play_episode(testing=False)
+                self._logger.debug(f"Episode {episode} finished({len(ret)}): {np.sum(ret)}. |Q_table| = {len(self.q_values)}")
                 if episode and episode % args.eval_each == 0:
                     testing_returns = []
                     for _ in range(args.eval_for):
