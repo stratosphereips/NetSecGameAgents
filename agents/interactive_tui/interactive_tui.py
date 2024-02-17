@@ -111,7 +111,7 @@ class InteractiveTUI(App):
 
     CSS_PATH = "layout.tcss"
 
-    def __init__(self, host: str, port: int, role: str):
+    def __init__(self, host: str, port: int, role: str, mode: str):
         super().__init__()
         self.returns = 0
         self.next_action = None
@@ -122,6 +122,7 @@ class InteractiveTUI(App):
         self.data_input = ""
         self.agent = BaseAgent(host, port, role)
         self.current_obs = self.agent.register()
+        self.mode = mode
 
     def compose(self) -> ComposeResult:
         yield Vertical(TreeState(obs=self.current_obs), classes="box", id="tree")
@@ -136,28 +137,46 @@ class InteractiveTUI(App):
             prompt="Select Action",
             classes="box",
         )
-        yield Vertical(
-            VerticalScroll(
-                Input(
-                    placeholder="Source Host",
-                    id="src_host",
-                    validators=[Function(is_valid_ip, "This is not a valid IP.")],
+        if self.mode == "guided":
+            yield Vertical(
+                VerticalScroll(Select([], prompt="Select source host", id="src_host")),
+                VerticalScroll(Select([], prompt="Select network", id="network")),
+                VerticalScroll(
+                    Select(
+                        [],
+                        prompt="Select target host",
+                        id="target_host",
+                    )
                 ),
-                Input(
-                    placeholder="Network",
-                    id="network",
-                    validators=[Function(is_valid_net, "This is not a valid Network.")],
-                ),
-                Input(
-                    placeholder="Target Host",
-                    id="target_host",
-                    validators=[Function(is_valid_ip, "This is not a valid IP.")],
-                ),
-                Input(placeholder="Service", id="service"),
-                Input(placeholder="Data", id="data"),
-                classes="box",
+                VerticalScroll(Select([], prompt="Select service", id="service")),
+                VerticalScroll(Select([], prompt="Select data", id="data")),
+                classes="params",
             )
-        )
+        else:
+            yield Vertical(
+                VerticalScroll(
+                    Input(
+                        placeholder="Source Host",
+                        id="src_host",
+                        validators=[Function(is_valid_ip, "This is not a valid IP.")],
+                    ),
+                    Input(
+                        placeholder="Network",
+                        id="network",
+                        validators=[
+                            Function(is_valid_net, "This is not a valid Network.")
+                        ],
+                    ),
+                    Input(
+                        placeholder="Target Host",
+                        id="target_host",
+                        validators=[Function(is_valid_ip, "This is not a valid IP.")],
+                    ),
+                    Input(placeholder="Service", id="service"),
+                    Input(placeholder="Data", id="data"),
+                    classes="box",
+                )
+            )
         yield Log(classes="box", id="textarea")
         yield Button("Take Action", variant="primary")
         # yield Footer()
@@ -167,13 +186,83 @@ class InteractiveTUI(App):
         log = self.query_one("Log")
         log.write_line(str(event.value))
 
-        self.next_action = event.value
+        # Save the selections of the action parameters
+        match event._sender.id:
+            case "src_host":
+                self.src_host_input = event.value
+                return
+            case "network":
+                self.network_input = event.value
+                return
+            case "target_host":
+                self.target_host_input = event.value
+                return
+            case "service":
+                self.service_input = event.value
+                return
+            case "data":
+                self.data_input = event.value
+                return
+            case _:
+                # otherwise it is the action selector
+                self.next_action = event.value
 
-        net_input = self.query_one("#network", Input)
-        target_input = self.query_one("#target_host", Input)
-        service_input = self.query_one("#service", Input)
-        data_input = self.query_one("#data", Input)
+        state = self.current_obs.state
 
+        if self.mode == "guided":
+            net_input = self.query_one("#network", Select)
+            target_input = self.query_one("#target_host", Select)
+            service_input = self.query_one("#service", Select)
+            data_input = self.query_one("#data", Select)
+
+            contr_hosts = [(str(host), str(host)) for host in state.controlled_hosts]
+            src_input = self.query_one("#src_host", Select)
+            src_input.set_options(contr_hosts)
+
+            known_hosts = [
+                (str(host), str(host))
+                for host in state.known_hosts
+                if host not in state.controlled_hosts
+            ]
+
+            match event.value:
+                case ActionType.ScanNetwork:
+                    networks = [
+                        (str(net), str(net))
+                        for net in self.current_obs.state.known_networks
+                    ]
+                    net_input.set_options(networks)
+                case ActionType.FindServices:
+                    target_input.set_options(known_hosts)
+                case ActionType.ExploitService:
+                    target_input.set_options(known_hosts)
+
+                    services = []
+                    for host in state.known_services:
+                        if host not in state.controlled_hosts:
+                            for serv in state.known_services[host]:
+                                services.append((serv.name, serv.name))
+                    service_input.set_options(services)
+
+                case ActionType.FindData:
+                    target_input.set_options(contr_hosts)
+
+                case ActionType.ExfiltrateData:
+                    target_input.set_options(contr_hosts)
+
+                    data = []
+                    for host in state.known_data:
+                        for d in state.known_data[host]:
+                            data.append((d.id, d.id))
+                    data_input.set_options(data)
+
+        else:
+            net_input = self.query_one("#network", Input)
+            target_input = self.query_one("#target_host", Input)
+            service_input = self.query_one("#service", Input)
+            data_input = self.query_one("#data", Input)
+
+        # Set proper visibility
         if event.value == ActionType.ScanNetwork:
             net_input.visible = True
             service_input.visible = False
@@ -429,8 +518,9 @@ class InteractiveTUI(App):
         self.service_input = ""
         self.data_input = ""
 
-        selector = self.query_one(Select)
-        selector.clear()
+        selectors = self.query(Select)
+        for selector in selectors:
+            selector.clear()
 
         for inp in self.query(Input):
             inp.clear()
@@ -457,8 +547,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--role", help="Role of the agent", default="Attacker", choices=["Attacker"]
     )
+    parser.add_argument(
+        "--mode", type=str, choices=["guided", "normal"], default="normal"
+    )
     args = parser.parse_args()
 
     logger.info("Creating the agent")
-    app = InteractiveTUI(args.host, args.port, args.role)
+    app = InteractiveTUI(args.host, args.port, args.role, args.mode)
     app.run()
