@@ -1,5 +1,5 @@
 from textual.app import App, ComposeResult, Widget
-from textual.widgets import Tree, Button, Header, Footer, Log, Select, Input
+from textual.widgets import Tree, Button, Log, Select, Input
 from textual.containers import Vertical, VerticalScroll
 from textual.validation import Function
 from textual import on
@@ -16,8 +16,7 @@ import argparse
 sys.path.append(
     path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 )
-from env.network_security_game import NetworkSecurityEnvironment
-from env.game_components import Network, IP, Service, Data
+from env.game_components import Network, IP
 from env.game_components import ActionType, Action, GameState, Observation
 
 # This is used so the agent can see the BaseAgent
