@@ -7,7 +7,6 @@ from os import path
 import argparse
 import jinja2
 import json
-import re
 
 from openai import OpenAI
 from dotenv import dotenv_values
