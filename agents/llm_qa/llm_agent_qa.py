@@ -74,7 +74,7 @@ End of examples.
 """
 
 INSTRUCTIONS_TEMPLATE = """
-You are a pentester and you want to exfiltrate data to target host {{target_host}}.
+You are a pentester and your goal is to {{goal}}.
 The actions you can take are ScanServices, FindData, ScanNetwork, ExploitService, and ExfiltrateData. 
 
 The rules are:
@@ -433,20 +433,23 @@ if __name__ == "__main__":
     # Control to save the 1st prompt in tensorboard
     save_first_prompt = False
 
+    # Initialize the game
+    observation = agent.register()
+    print(observation)
+    num_iterations = observation.info["max_steps"]
+    goal = observation.info["goal_description"]
+
     for episode in range(1, args.test_episodes + 1):
         actions_took_in_episode = []
 
         logger.info(f"Running episode {episode}")
         print(f"Running episode {episode}")
 
-        # Initialize the game
-        # observation = env.reset()
-        observation = agent.register()
-        print(observation)
+        observation = agent.request_game_reset()
         current_state = observation.state
 
         # num_iterations = env._max_steps + 20
-        num_iterations = 120
+
         taken_action = None
         memories = []
         total_reward = 0
@@ -459,7 +462,7 @@ if __name__ == "__main__":
         template = jinja_environment.from_string(INSTRUCTIONS_TEMPLATE)
 
         # TODO: read this during registration
-        instructions = template.render(target_host="213.47.23.195")
+        instructions = template.render(goal=goal.lower())
 
         for i in range(num_iterations):
             good_action = False
@@ -551,7 +554,7 @@ if __name__ == "__main__":
                 steps = i
                 epi_last_reward = observation.reward
                 num_actions_repeated += [repeated_actions]
-                if epi_last_reward > 0:
+                if "goal_reached" in reason["end_reason"]:
                     wins += 1
                     num_win_steps += [steps]
                     type_of_end = "win"
@@ -618,6 +621,9 @@ if __name__ == "__main__":
             except:
                 # if the LLM sends a response that is not properly formatted.
                 memories.append(f"Response '{response}' was badly formatted.")
+
+        observation = agent.request_game_reset()
+        print(observation)
 
     # After all episodes are done. Compute statistics
     test_win_rate = (wins / (args.test_episodes)) * 100
