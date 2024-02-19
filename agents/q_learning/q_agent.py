@@ -3,16 +3,14 @@
 #           Sebastian Garcia. sebastian.garcia@agents.fel.cvut.cz
 import sys
 import os
-# This is used so the agent can see the environment and game component
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) )))
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
-
 import numpy as np
 import random
 import pickle
-import sys
 import argparse
 import logging
+# This is used so the agent can see the environment and game component
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) )))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
 
 # This is used so the agent can see the environment and game component
 # with the path fixed, we can import now
