@@ -68,7 +68,7 @@ class BaseAgent:
         """
         _, observation_dict, _ = self.communicate(action)
         if observation_dict:
-            return Observation(GameState.from_dict (observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+            return Observation(GameState.from_dict (observation_dict["state"]), observation_dict["reward"], observation_dict["end"], observation_dict["info"])
         else:
             return None
     
