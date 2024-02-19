@@ -3,7 +3,6 @@
 #           Sebastian Garcia. sebastian.garcia@agents.fel.cvut.cz
 import sys
 import os
-from os import path
 # This is used so the agent can see the environment and game component
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) )))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
@@ -14,7 +13,6 @@ import pickle
 import sys
 import argparse
 import logging
-import time
 
 # This is used so the agent can see the environment and game component
 # with the path fixed, we can import now
