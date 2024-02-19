@@ -28,7 +28,7 @@ class BaseAgent:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._socket.connect((host, port))
         except socket.error as e:
-            self._logger.error("Socket error: {e}")
+            self._logger.error(f"Socket error: {e}")
             self.sock = None
         self._logger.info("Agent created")
     
@@ -118,8 +118,8 @@ class BaseAgent:
                                                                          params={"agent_info":AgentInfo(self.__class__.__name__,self.role)}))
             self._logger.info(f'\tRegistering agent as {status, observation_dict, message}')
             if status is GameStatus.CREATED:
-                self._logger.info('\tRegistration successful')
-                return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+                self._logger.info(f"\tRegistration successful! {message}")
+                return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"], message)
             else:
                 self._logger.error(f'\tRegistration failed! (status: {status}, msg:{message}')
                 return None

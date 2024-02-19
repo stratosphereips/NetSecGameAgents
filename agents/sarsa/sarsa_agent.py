@@ -2,21 +2,18 @@
 
 import sys
 import os
-from os import path
+import numpy as np
+import random
+import pickle
+import argparse
+import logging
 # This is used so the agent can see the environment and game component
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) )))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
 
-import numpy as np
-import random
-import pickle
-import sys
-import argparse
-import logging
-
 # This is used so the agent can see the environment and game component
 # with the path fixed, we can import now
-from env.game_components import Action, Observation, GameState
+from env.game_components import Action, GameState
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions, state_as_ordered_string
 
@@ -94,7 +91,7 @@ class SARSAAgent(BaseAgent):
         The main function for the gameplay. Handles agent registration and the main interaction loop.
         """
         
-        observation = self.register()
+        _ = self.register()
         if not args.test_only:
             for episode in range(num_episodes):
                 self.play_episode(testing=False)

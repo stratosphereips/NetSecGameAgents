@@ -5,7 +5,6 @@ import logging
 import os
 from random import choice
 import argparse
-from random import choice
 import numpy as np
 #from torch.utils.tensorboard import SummaryWriter
 
