@@ -435,9 +435,6 @@ if __name__ == "__main__":
 
     # Initialize the game
     observation = agent.register()
-    print(observation)
-    num_iterations = observation.info["max_steps"]
-    goal = observation.info["goal_description"]
 
     for episode in range(1, args.test_episodes + 1):
         actions_took_in_episode = []
@@ -446,6 +443,9 @@ if __name__ == "__main__":
         print(f"Running episode {episode}")
 
         observation = agent.request_game_reset()
+        print(observation)
+        num_iterations = observation.info["max_steps"]
+        goal = observation.info["goal_description"]
         current_state = observation.state
 
         # num_iterations = env._max_steps + 20
@@ -621,9 +621,6 @@ if __name__ == "__main__":
             except:
                 # if the LLM sends a response that is not properly formatted.
                 memories.append(f"Response '{response}' was badly formatted.")
-
-        observation = agent.request_game_reset()
-        print(observation)
 
     # After all episodes are done. Compute statistics
     test_win_rate = (wins / (args.test_episodes)) * 100
