@@ -134,7 +134,7 @@ class BaseAgent:
         status, observation_dict, message = self.communicate(Action(ActionType.ResetGame))
         if status:
             self._logger.debug('\tReset successful')
-            return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+            return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"], message)
         else:
             self._logger.error(f'\rReset failed! (status: {status}, msg:{message}')
             return None
@@ -150,4 +150,5 @@ if __name__ == '__main__':
     logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
     agent = BaseAgent(args.host, args.port, role="Attacker")
     print(agent.register())
+    print(agent.request_game_reset())
     print(agent.make_step(Action(ActionType.ScanNetwork, params={"source_host":IP("192.168.2.2"), "target_network":Network("192.168.1.0", 24)})))
