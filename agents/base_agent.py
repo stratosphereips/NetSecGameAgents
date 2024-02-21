@@ -28,7 +28,7 @@ class BaseAgent:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._socket.connect((host, port))
         except socket.error as e:
-            self._logger.error("Socket error: {e}")
+            self._logger.error(f"Socket error: {e}")
             self.sock = None
         self._logger.info("Agent created")
     
@@ -68,7 +68,7 @@ class BaseAgent:
         """
         _, observation_dict, _ = self.communicate(action)
         if observation_dict:
-            return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+            return Observation(GameState.from_dict (observation_dict["state"]), observation_dict["reward"], observation_dict["end"], observation_dict["info"])
         else:
             return None
     
@@ -94,7 +94,7 @@ class BaseAgent:
             data_dict = json.loads(data)
             # Add default values if dict keys are missing
             status = data_dict["status"] if "status" in data_dict else {}
-            observation = json.loads(data_dict["observation"]) if "observation" in data_dict else {}
+            observation = data_dict["observation"] if "observation" in data_dict else {}
             message = data_dict["message"] if "message" in data_dict else None
 
             return GameStatus.from_string(status), observation, message
@@ -118,8 +118,8 @@ class BaseAgent:
                                                                          params={"agent_info":AgentInfo(self.__class__.__name__,self.role)}))
             self._logger.info(f'\tRegistering agent as {status, observation_dict, message}')
             if status is GameStatus.CREATED:
-                self._logger.info('\tRegistration successful')
-                return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+                self._logger.info(f"\tRegistration successful! {message}")
+                return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"], message)
             else:
                 self._logger.error(f'\tRegistration failed! (status: {status}, msg:{message}')
                 return None
@@ -134,7 +134,7 @@ class BaseAgent:
         status, observation_dict, message = self.communicate(Action(ActionType.ResetGame))
         if status:
             self._logger.debug('\tReset successful')
-            return Observation(GameState.from_json(observation_dict["state"]), observation_dict["reward"], observation_dict["end"],{})
+            return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"], message)
         else:
             self._logger.error(f'\rReset failed! (status: {status}, msg:{message}')
             return None
@@ -150,4 +150,5 @@ if __name__ == '__main__':
     logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
     agent = BaseAgent(args.host, args.port, role="Attacker")
     print(agent.register())
+    print(agent.request_game_reset())
     print(agent.make_step(Action(ActionType.ScanNetwork, params={"source_host":IP("192.168.2.2"), "target_network":Network("192.168.1.0", 24)})))

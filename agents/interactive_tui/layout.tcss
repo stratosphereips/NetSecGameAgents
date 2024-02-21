@@ -20,3 +20,8 @@ Screen {
     border: solid green;
 }
 
+.params {
+    height: 100%;
+    border: solid green;
+}
+
