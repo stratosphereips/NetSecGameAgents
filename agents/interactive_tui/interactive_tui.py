@@ -311,7 +311,10 @@ class InteractiveTUI(App):
 
     @on(Button.Pressed)
     def submit_action(self, event: Button.Pressed) -> None:
-        """Press the button to select a random action"""
+        """
+        Press the button to select a random action.
+        Right now there is only one button. If we add more we will need to distinguish them.
+        """
         self.update_state()
 
         # Take the first node of TreeState which contains the tree
