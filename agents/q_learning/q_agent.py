@@ -58,16 +58,22 @@ class QAgent(BaseAgent):
         actions = generate_valid_actions(state)
         state_id = self.get_state_id(state)
         
-        #logger.info(f'The valid actions in this state are: {[str(action) for action in actions]}')
+        # E-greedy play. If the random number is less than the e, then choose random to explore.
+        # But do not do it if we are testing a model. 
         if random.uniform(0, 1) <= self.epsilon and not testing:
+            # We are training
+            # Random choose an ation from the list of actions?
             action = random.choice(list(actions))
             if (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
             return action, state_id
-        else: #greedy play
-            #select the acion with highest q_value
-            tmp = dict(((state_id,action), self.q_values.get((state_id,action), 0)) for action in actions)
-            state_id, action = max(tmp, key=tmp.get)
+        else: 
+            # We are training
+            # Select the action with highest q_value
+            # The default initial q-value for a (state, action) pair is 0.
+            initial_q_value = 0
+            tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
+            ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], random.random()))
             #if max_q_key not in self.q_values:
             try:
                 self.q_values[state_id, action]
@@ -75,46 +81,50 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action] = 0
             return action, state_id
         
-   
-    def play_game(self, num_episodes=1, testing=False):
+    def play_game(self, observation, num_episodes=1, testing=False):
         """
-        The main function for the gameplay. Handles agent registration and the main interaction loop.
+        The main function for the gameplay. Handles the main interaction loop.
         """
-        
-        observation = self.register()
         returns = []
+        num_steps = 0
         for episode in range(num_episodes):
-            episodic_returns = []
+            episodic_rewards = []
             while observation and not observation.end:
                 self._logger.debug(f'Observation received:{observation}')
-                # get next_action
-                action,state_id = self.select_action(observation, testing)
-                # perform the action and observe next observation
+                # Store steps so far
+                num_steps += 1
+                # Get next_action. If we are not training, selection is different, so pass it
+                action, state_id = self.select_action(observation, testing)
+                # Perform the action and observe next observation
                 observation = self.make_step(action)
-                # store the reward of the next observation
-                episodic_returns.append(observation.reward)
-                # use it to update the Q table
-                self.q_values[state_id, action]+= self.alpha*(observation.reward+ self.gamma*self.max_action_q(observation))-self.q_values[state_id, action]
-
-            returns.append(np.sum(episodic_returns))
-            self._logger.info(f"Episode {episode} (len={len(episodic_returns)}) ended with return {np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)} |Q_table| = {len(self.q_values)}")
+                # Store the reward of the next observation
+                episodic_rewards.append(observation.reward)
+                if not testing:
+                    # If we are training update the Q-table
+                    self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
+                # Copy the last observation so we can return it and avoid the empty observation after the reset
+                last_observation = observation
+            # Sum all episodic returns 
+            returns.append(np.sum(episodic_rewards))
+            self._logger.info(f"Episode {episode} (len={len(episodic_rewards)}) ended with sum of rewards {np.sum(episodic_rewards)}. For all past episodes: mean returns = {np.mean(returns):.5f} ± {np.std(returns):.5f} Nr. States in Q_table = {len(self.q_values)}")
             # Reset the episode
             observation = self.request_game_reset()
-        self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
-        self._logger.info("Terminating interaction")
-        self.terminate_connection()
+        agent._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
+        # This will be the last observation played before the reset
+        return (last_observation, num_steps)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of testing episodes", default=5, type=int)
-    parser.add_argument("--test_each", help="Sets periodic evaluation during testing", default=100, type=int)
-    parser.add_argument("--epsilon", help="Sets epsilon for exploration", default=0.2, type=float)
-    parser.add_argument("--gamma", help="Sets gamma for Q learing", default=0.9, type=float)
-    parser.add_argument("--alpha", help="Sets alpha for learning rate", default=0.1, type=float)
+    parser.add_argument("--episodes", help="Sets number of episodes to run.", default=1000, type=int)
+    parser.add_argument("--test_each", help="Evaluate the performance every this number of episodes. During training and testing.", default=100, type=int)
+    parser.add_argument("--epsilon", help="Sets epsilon for exploration during training.", default=0.2, type=float)
+    parser.add_argument("--gamma", help="Sets gamma discount for Q-learing during training.", default=0.9, type=float)
+    parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
-    parser.add_argument("--test_only", help="Only run testing", default=False, action='store_true')
+    parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", default='./q_agent_marl.pickle', type=str)
+    parser.add_argument("--testing", help="Test the agent. No train.", default=False)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
@@ -124,49 +134,30 @@ if __name__ == '__main__':
     # Create agent
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon=args.epsilon)
 
-    if args.test_only:
-        agent.load_q_table("./q_agent_marl.pickle")
-        agent.play_game(args.episodes, testing=True)       
-    else:
-        agent.play_game(args.episodes, testing=False)
+    # If there is a previous model passed. Always use it for both training and testing.
+    if args.previous_model:
+        # Load table
+        agent._logger.info(f'Loading the previous model in file {args.previous_model}')
+        agent.load_q_table(args.previous_model)
+
+    if not args.testing:
+        # Training
+        # Register
+        observation = agent.register()
+        # Play
+        agent.play_game(observation, args.episodes, testing=args.testing)       
+        # Store the q-table
+        agent.store_q_table(args.previous_model)
+        # Terminate
+        agent._logger.info("Terminating interaction")
+        agent.terminate_connection()
+
+    elif not args.testing:
+        agent.play_game(args.episodes, testing=args.testing)
         agent.store_q_table("./q_agent_marl.pickle")
 
-# if __name__ == '__main__':
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument("--episodes", help="Sets number of training episodes", default=20000, type=int)
-#     parser.add_argument("--epsilon", help="Sets epsilon for exploration", default=0.2, type=float)
-#     parser.add_argument("--gamma", help="Sets gamma for Q learing", default=0.9, type=float)
-#     parser.add_argument("--alpha", help="Sets alpha for learning rate", default=0.1, type=float)
-#     parser.add_argument("--test", help="Do not train, only run test", default=False, action="store_true")
-#     parser.add_argument("--eval_each", help="During training, evaluate every this amount of episodes. Evaluation is for 100 episodes each time.", default=100, type=int)
-#     parser.add_argument("--eval_for", help="Sets evaluation length", default=100, type=int)
-#     parser.add_argument("--test_for", help="Sets evaluation length", default=1000, type=int)
-#     parser.add_argument("--filename", help="Load previous model file", type=str, default=False)
-#     parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
-#     args = parser.parse_args()
-#     #args.filename = "QAgent_" + ",".join(("{}={}".format(key, value) for key, value in sorted(vars(args).items()) if key in ["episodes", "gamma", "epsilon", "alpha"])) + f"_{time.strftime('%Y%m%d-%H%M%S')}.pickle"
-
-#     # Remove all handlers associated with the root logger object.
-#     for handler in logging.root.handlers[:]:
-#         logging.root.removeHandler(handler)
-
-#     logging.basicConfig(filename='q_agent.log', filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
-#     logger = logging.getLogger('Q-agent')
-
-#     # Training
 #     logger.info(f'Initializing the environment')
 #     env = NetworkSecurityEnvironment(args.task_config_file)
-
-#     # Setup tensorboard
-#     run_name = f"netsecgame__qlearning__{env.seed}__{int(time.time())}"
-#     writer = SummaryWriter(f"agents/tensorboard-logs/logs/{run_name}")
-#     writer.add_text(
-#         "hypherparameters",
-#         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()]))
-#     )
-
-#     random.seed(env.seed)
-#     np.random.seed(env.seed)
 
 #     observation = env.reset()
 
@@ -251,6 +242,7 @@ if __name__ == '__main__':
 #     if args.filename:
 #         agent = QAgent(env, args.alpha, args.gamma, args.epsilon)
 #         agent.load_q_table(args.filename)
+
 #     # Test
 #     wins = 0
 #     detected = 0
