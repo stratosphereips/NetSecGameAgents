@@ -86,7 +86,10 @@ if __name__ == '__main__':
 
         # How it works:
         # - Evaluate for several 'episodes' (parameter)
-        # - Every X episodes, report in log and console (X is paramter)
+        # - Each episode finishes with: steps played, return, win/lose. Store all
+        # - Each episode compute the avg and std of all.
+        # - Every X episodes (parameter), report in log and mlflow
+        # - At the end, report in log and mlflow and console
 
         # Mlflow experiment name        
         experiment_name = "Evaluation of Random Agent"
@@ -105,18 +108,15 @@ if __name__ == '__main__':
             num_win_returns = []
             num_max_steps_returns = []
 
+            # Log more things in Mlflow
+            mlflow.set_tag("experiment_name", experiment_name)
+            # Log notes or additional information
+            mlflow.set_tag("notes", "This is an evaluation")
+            #mlflow.log_param("learning_rate", learning_rate)
+
             for episode in range(1, args.episodes + 1):
-                run_name = f"Run_{episode}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
                 agent.logger.info(f'Starting the testing for episode {episode}')
                 print(f'Starting the testing for episode {episode}')
-
-                # Log the experiment name as a tag too
-                mlflow.set_tag("experiment_name", experiment_name)
-                # Log notes or additional information
-                mlflow.set_tag("notes", "This is an evaluation")
-                # Log episode number
-                mlflow.set_tag("episode_number", episode)
-                #mlflow.log_param("learning_rate", learning_rate)
 
                 # Play the game for one episode
                 observation, num_steps = agent.play_game(observation, 1)
