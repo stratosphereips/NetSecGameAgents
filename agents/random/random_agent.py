@@ -29,10 +29,12 @@ class RandomAgent(BaseAgent):
         The main function for the gameplay. Handles agent registration and the main interaction loop.
         """
         returns = []
+        num_steps = 0
         for episode in range(num_episodes):
             self._logger.info(f"Playing episode {episode}")
             episodic_returns = []
             while observation and not observation.end:
+                num_steps += 1
                 self._logger.debug(f'Observation received:{observation}')
                 # Store returns in the episode
                 episodic_returns.append(observation.reward)
@@ -48,7 +50,7 @@ class RandomAgent(BaseAgent):
             observation = self.request_game_reset()
         self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
         # This will be the last observation played before the reset
-        return last_observation
+        return (last_observation, num_steps)
     
     def select_action(self, observation:Observation)->Action:
         valid_actions = generate_valid_actions(observation.state)
@@ -60,8 +62,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of episodes to play or evaluate", default=10, type=int)
-    parser.add_argument("--test_each", help="Evaluate performance during testing every this number of episodes.", default=100, type=int)
+    parser.add_argument("--episodes", help="Sets number of episodes to play or evaluate", default=200, type=int) # was 10
+    parser.add_argument("--test_each", help="Evaluate performance during testing every this number of episodes.", default=10, type=int) # was 100
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
     parser.add_argument("--evaluate", help="Evaluate the agent and report, instead of playing the game only once.", default=True)
     args = parser.parse_args()
@@ -92,21 +94,21 @@ if __name__ == '__main__':
         # Register in the game
         observation = agent.register()
         with mlflow.start_run(run_name=experiment_name) as run:
+            # To keep statistics of each episode
+            wins = 0
+            detected = 0
+            max_steps = 0
+            num_win_steps = []
+            num_detected_steps = []
+            num_max_steps_steps = []
+            num_detected_returns = []
+            num_win_returns = []
+            num_max_steps_returns = []
+
             for episode in range(1, args.episodes + 1):
                 run_name = f"Run_{episode}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
                 agent.logger.info(f'Starting the testing for episode {episode}')
                 print(f'Starting the testing for episode {episode}')
-
-                # To keep statistics of each episode
-                wins = 0
-                detected = 0
-                max_steps = 0
-                num_win_steps = []
-                num_detected_steps = []
-                num_max_steps_steps = []
-                num_detected_returns = []
-                num_win_returns = []
-                num_max_steps_returns = []
 
                 # Log the experiment name as a tag too
                 mlflow.set_tag("experiment_name", experiment_name)
@@ -114,9 +116,10 @@ if __name__ == '__main__':
                 mlflow.set_tag("notes", "This is an evaluation")
                 # Log episode number
                 mlflow.set_tag("episode_number", episode)
+                #mlflow.log_param("learning_rate", learning_rate)
 
                 # Play the game for one episode
-                observation = agent.play_game(observation, 1)
+                observation, num_steps = agent.play_game(observation, 1)
 
                 state = observation.state
                 reward = observation.reward
@@ -124,23 +127,20 @@ if __name__ == '__main__':
                 info = observation.info
 
                 if observation.info and observation.info['end_reason'] == 'detected':
-                    print(observation)
                     detected +=1
-                    steps = observation.info['steps']
-                    num_detected_steps += [steps]
+                    num_detected_steps += [num_steps]
                     num_detected_returns += [reward]
-                elif observation.info and observation.info['end_reason'] == 'goal_reach':
-                    print(observation)
+                elif observation.info and observation.info['end_reason'] == 'goal_reached':
                     wins += 1
-                    steps = observation.info['steps']
-                    num_win_steps += [steps]
+                    num_detected_steps += [num_steps]
                     num_win_returns += [reward]
                 elif observation.info and observation.info['end_reason'] == 'max_steps':
-                    print(observation)
                     max_steps += 1
-                    steps = observation.info['steps']
-                    num_max_steps_steps += [steps]
+                    num_detected_steps += [num_steps]
                     num_max_steps_returns += [reward]
+
+                # Reset the game
+                observation = agent.request_game_reset()
 
                 eval_win_rate = (wins/episode) * 100
                 eval_detection_rate = (detected/episode) * 100
@@ -166,7 +166,6 @@ if __name__ == '__main__':
                         average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
                         '''
                     agent.logger.info(text)
-                    print(text)
                     # Store in tensorboard
                     #writer.add_scalar("charts/eval_avg_win_rate", eval_win_rate, episode)
                     #writer.add_scalar("charts/eval_avg_detection_rate", eval_detection_rate, episode)
@@ -180,10 +179,8 @@ if __name__ == '__main__':
                     #writer.add_scalar("charts/eval_std_detected_steps", eval_std_detected_steps , episode)
                     # Store in mlflow
                     mlflow.log_metric("eval_avg_win_rate", eval_win_rate, step=episode)
+                    mlflow.log_metric("eval_avg_detection_rate", eval_detection_rate, step=episode)
 
-                    # Log other artifacts or parameters
-                    #mlflow.log_param("learning_rate", learning_rate)
-                    #mlflow.log_param("batch_size", batch_size)
             
             # Log the last final episode when it ends
             text = f'''Episode {episode}. Final eval after {episode} episodes, for {args.episodes} steps.
