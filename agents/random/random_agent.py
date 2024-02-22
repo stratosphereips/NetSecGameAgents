@@ -62,8 +62,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of episodes to play or evaluate", default=200, type=int) # was 10
-    parser.add_argument("--test_each", help="Evaluate performance during testing every this number of episodes.", default=10, type=int) # was 100
+    parser.add_argument("--episodes", help="Sets number of episodes to play or evaluate", default=100, type=int) 
+    parser.add_argument("--test_each", help="Evaluate performance during testing every this number of episodes.", default=10, type=int)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
     parser.add_argument("--evaluate", help="Evaluate the agent and report, instead of playing the game only once.", default=True)
     args = parser.parse_args()
@@ -132,11 +132,11 @@ if __name__ == '__main__':
                     num_detected_returns += [reward]
                 elif observation.info and observation.info['end_reason'] == 'goal_reached':
                     wins += 1
-                    num_detected_steps += [num_steps]
+                    num_win_steps += [num_steps]
                     num_win_returns += [reward]
                 elif observation.info and observation.info['end_reason'] == 'max_steps':
                     max_steps += 1
-                    num_detected_steps += [num_steps]
+                    num_max_steps_steps += [num_steps]
                     num_max_steps_returns += [reward]
 
                 # Reset the game
@@ -152,6 +152,8 @@ if __name__ == '__main__':
                 eval_std_win_steps = np.std(num_win_steps)
                 eval_average_detected_steps = np.mean(num_detected_steps)
                 eval_std_detected_steps = np.std(num_detected_steps)
+                eval_average_max_steps_steps = np.mean(num_max_steps_steps)
+                eval_std_max_steps_steps = np.std(num_max_steps_steps)
 
                 # Log and report every X episodes
                 if episode % args.test_each == 0 and episode != 0:
@@ -164,22 +166,22 @@ if __name__ == '__main__':
                         average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
                         average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
                         average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
+                        average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
                         '''
                     agent.logger.info(text)
-                    # Store in tensorboard
-                    #writer.add_scalar("charts/eval_avg_win_rate", eval_win_rate, episode)
-                    #writer.add_scalar("charts/eval_avg_detection_rate", eval_detection_rate, episode)
-                    #writer.add_scalar("charts/eval_avg_returns", eval_average_returns , episode)
-                    #writer.add_scalar("charts/eval_std_returns", eval_std_returns , episode)
-                    #writer.add_scalar("charts/eval_avg_episode_steps", eval_average_episode_steps , episode)
-                    #writer.add_scalar("charts/eval_std_episode_steps", eval_std_episode_steps , episode)
-                    #writer.add_scalar("charts/eval_avg_win_steps", eval_average_win_steps , episode)
-                    #writer.add_scalar("charts/eval_std_win_steps", test_std_win_steps , episode)
-                    #writer.add_scalar("charts/eval_avg_detected_steps", eval_average_detected_steps , episode)
-                    #writer.add_scalar("charts/eval_std_detected_steps", eval_std_detected_steps , episode)
                     # Store in mlflow
                     mlflow.log_metric("eval_avg_win_rate", eval_win_rate, step=episode)
                     mlflow.log_metric("eval_avg_detection_rate", eval_detection_rate, step=episode)
+                    mlflow.log_metric("eval_avg_returns", eval_average_returns, step=episode)
+                    mlflow.log_metric("eval_std_returns", eval_std_returns, step=episode)
+                    mlflow.log_metric("eval_avg_episode_steps", eval_average_episode_steps, step=episode)
+                    mlflow.log_metric("eval_std_episode_steps", eval_std_episode_steps, step=episode)
+                    mlflow.log_metric("eval_avg_win_steps", eval_average_win_steps, step=episode)
+                    mlflow.log_metric("eval_std_win_steps", eval_std_win_steps, step=episode)
+                    mlflow.log_metric("eval_avg_detected_steps", eval_average_detected_steps, step=episode)
+                    mlflow.log_metric("eval_std_detected_steps", eval_std_detected_steps, step=episode)
+                    mlflow.log_metric("eval_avg_max_steps_steps", eval_average_max_steps_steps, step=episode)
+                    mlflow.log_metric("eval_std_max_steps_steps", eval_std_max_steps_steps, step=episode)
 
             
             # Log the last final episode when it ends
@@ -192,6 +194,7 @@ if __name__ == '__main__':
                 average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
                 average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
                 average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
+                average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
                 '''
 
             agent.logger.info(text)
