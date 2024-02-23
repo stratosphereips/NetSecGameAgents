@@ -24,7 +24,7 @@ There are 4 important methods to be used for interaction with the environment:
 Examples of agents extending the BaseAgent can be found in:
 - [RandomAgent](./agents/random/random_agent.py)
 - [InteractiveAgent](./agents/interactive_tui/interactive_tui.py)
-- [Q-learningAgent](./agents/q_learning/q_agent.py)
+- [Q-learningAgent](./agents/q_learning/q_agent.py) (Documentation [here](./docs/q-learning.md))
 
 ## Agents' compatibility with the environment
 
