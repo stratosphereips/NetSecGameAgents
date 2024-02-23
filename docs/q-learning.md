@@ -22,7 +22,7 @@ The model can be read from file and store to a file every time.
 ## Testing
 You can specify the total amount of episodes, also every how many episodes you want to evaluate the model, and on each evaluation, for how many episodes you want to test. A small diagram showing this is
 
-![](./docs/training-testing-diagram.png)
+![](https://github.com/stratosphereips/NetSecGameAgents/blob/q-learning-improve/docs/training-testing-diagram.png)
 
 ## Storing actions
 You can use the parameter `--store_actions` to store the actions, state, reward, end and info to a file for later checking. Be careful that if you do this during training or a long testing it can get very large.
