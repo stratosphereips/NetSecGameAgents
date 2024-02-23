@@ -18,6 +18,7 @@ from env.game_components import Action, Observation, GameState
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions, state_as_ordered_string
 import mlflow
+import subprocess
 
 
 class QAgent(BaseAgent):
@@ -189,6 +190,15 @@ if __name__ == '__main__':
         mlflow.log_param("alpha", args.alpha)
         mlflow.log_param("epsilon", args.epsilon)
         mlflow.log_param("gamma", args.gamma)
+        mlflow.set_tag("Experiment ID", '')
+        # Use subprocess.run to get the commit hash
+        netsecenv_command = "git rev-parse HEAD"
+        netsecenv_git_result = subprocess.run(netsecenv_command, shell=True, capture_output=True, text=True).stdout
+        agents_command = "cd NetSecGameAgents; git rev-parse HEAD"
+        agents_git_result = subprocess.run(agents_command, shell=True, capture_output=True, text=True).stdout
+        agent._logger.info(f'Using commits. NetSecEnv: {netsecenv_git_result}. Agents: {agents_git_result}')
+        mlflow.set_tag("NetSecEnv commit", netsecenv_git_result)
+        mlflow.set_tag("Agents commit", agents_git_result)
 
         for episode in range(1, args.episodes + 1):
             #agent.logger.info(f'Starting the testing for episode {episode}')
