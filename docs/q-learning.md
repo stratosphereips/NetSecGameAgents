@@ -6,10 +6,15 @@ The characteristics of this agent are:
 
 ## Epsilon Decay
 It uses an epsilon decay function to decrase the value of epsilon from a parameter `epsilon_start` to an `epsilon_end` for `epsilon_max_episodes` episodes. The function is :
+    
+  
+  ```math
+  decay_rate = max((epsilon\_max\_episodes - episode\_num) / epsilon\_max\_episodes, 0)
+  ```
 
-\[ \text{{decay\_rate}} = \max\left(\frac{{\text{{epsilon\_max\_episodes}} - \text{{episode\_num}}}}{{\text{{epsilon\_max\_episodes}}}}, 0\right) \]
-
-\[ \text{{current\_epsilon}} = (\text{{epsilon\_start}} - \text{{epsilon\_end}}) \times \text{{decay\_rate}} + \text{{epsilon\_end}} \]
+  ```math
+  current\_epsilon = (epsilon\_start - epsilon\_end) * decay\_rate + epsilon\_end
+  ```
 
 This is a simple linear interpolation.
 
