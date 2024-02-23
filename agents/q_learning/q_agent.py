@@ -17,6 +17,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
 from env.game_components import Action, Observation, GameState
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions, state_as_ordered_string
+import mlflow
+import subprocess
 
 
 class QAgent(BaseAgent):
@@ -58,16 +60,22 @@ class QAgent(BaseAgent):
         actions = generate_valid_actions(state)
         state_id = self.get_state_id(state)
         
-        #logger.info(f'The valid actions in this state are: {[str(action) for action in actions]}')
+        # E-greedy play. If the random number is less than the e, then choose random to explore.
+        # But do not do it if we are testing a model. 
         if random.uniform(0, 1) <= self.epsilon and not testing:
+            # We are training
+            # Random choose an ation from the list of actions?
             action = random.choice(list(actions))
             if (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
             return action, state_id
-        else: #greedy play
-            #select the acion with highest q_value
-            tmp = dict(((state_id,action), self.q_values.get((state_id,action), 0)) for action in actions)
-            state_id, action = max(tmp, key=tmp.get)
+        else: 
+            # We are training
+            # Select the action with highest q_value
+            # The default initial q-value for a (state, action) pair is 0.
+            initial_q_value = 0
+            tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
+            ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], random.random()))
             #if max_q_key not in self.q_values:
             try:
                 self.q_values[state_id, action]
@@ -75,46 +83,49 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action] = 0
             return action, state_id
         
-   
-    def play_game(self, num_episodes=1, testing=False):
+    def play_game(self, observation, num_episodes=1, testing=False):
         """
-        The main function for the gameplay. Handles agent registration and the main interaction loop.
+        The main function for the gameplay. Handles the main interaction loop.
         """
-        
-        observation = self.register()
         returns = []
+        num_steps = 0
         for episode in range(num_episodes):
-            episodic_returns = []
+            episodic_rewards = []
             while observation and not observation.end:
                 self._logger.debug(f'Observation received:{observation}')
-                # get next_action
-                action,state_id = self.select_action(observation, testing)
-                # perform the action and observe next observation
+                # Store steps so far
+                num_steps += 1
+                # Get next_action. If we are not training, selection is different, so pass it
+                action, state_id = self.select_action(observation, testing)
+                # Perform the action and observe next observation
                 observation = self.make_step(action)
-                # store the reward of the next observation
-                episodic_returns.append(observation.reward)
-                # use it to update the Q table
-                self.q_values[state_id, action]+= self.alpha*(observation.reward+ self.gamma*self.max_action_q(observation))-self.q_values[state_id, action]
-
-            returns.append(np.sum(episodic_returns))
-            self._logger.info(f"Episode {episode} (len={len(episodic_returns)}) ended with return {np.sum(episodic_returns)}. Mean returns={np.mean(returns)}±{np.std(returns)} |Q_table| = {len(self.q_values)}")
+                # Store the reward of the next observation
+                episodic_rewards.append(observation.reward)
+                if not testing:
+                    # If we are training update the Q-table
+                    self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
+                # Copy the last observation so we can return it and avoid the empty observation after the reset
+                last_observation = observation
+            # Sum all episodic returns 
+            returns.append(np.sum(episodic_rewards))
             # Reset the episode
             observation = self.request_game_reset()
-        self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
-        self._logger.info("Terminating interaction")
-        self.terminate_connection()
+        #agent._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
+        # This will be the last observation played before the reset
+        return (last_observation, num_steps)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of testing episodes", default=5, type=int)
-    parser.add_argument("--test_each", help="Sets periodic evaluation during testing", default=100, type=int)
-    parser.add_argument("--epsilon", help="Sets epsilon for exploration", default=0.2, type=float)
-    parser.add_argument("--gamma", help="Sets gamma for Q learing", default=0.9, type=float)
-    parser.add_argument("--alpha", help="Sets alpha for learning rate", default=0.1, type=float)
+    parser.add_argument("--episodes", help="Sets number of episodes to run.", default=1000, type=int)
+    parser.add_argument("--test_each", help="Evaluate the performance every this number of episodes. During training and testing.", default=100, type=int)
+    parser.add_argument("--epsilon", help="Sets epsilon for exploration during training.", default=0.2, type=float)
+    parser.add_argument("--gamma", help="Sets gamma discount for Q-learing during training.", default=0.9, type=float)
+    parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
-    parser.add_argument("--test_only", help="Only run testing", default=False, action='store_true')
+    parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", default='./q_agent_marl.pickle', type=str)
+    parser.add_argument("--testing", help="Test the agent. No train.", default=False)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
@@ -124,202 +135,160 @@ if __name__ == '__main__':
     # Create agent
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon=args.epsilon)
 
-    if args.test_only:
-        agent.load_q_table("./q_agent_marl.pickle")
-        agent.play_game(args.episodes, testing=True)       
-    else:
-        agent.play_game(args.episodes, testing=False)
-        agent.store_q_table("./q_agent_marl.pickle")
-
-# if __name__ == '__main__':
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument("--episodes", help="Sets number of training episodes", default=20000, type=int)
-#     parser.add_argument("--epsilon", help="Sets epsilon for exploration", default=0.2, type=float)
-#     parser.add_argument("--gamma", help="Sets gamma for Q learing", default=0.9, type=float)
-#     parser.add_argument("--alpha", help="Sets alpha for learning rate", default=0.1, type=float)
-#     parser.add_argument("--test", help="Do not train, only run test", default=False, action="store_true")
-#     parser.add_argument("--eval_each", help="During training, evaluate every this amount of episodes. Evaluation is for 100 episodes each time.", default=100, type=int)
-#     parser.add_argument("--eval_for", help="Sets evaluation length", default=100, type=int)
-#     parser.add_argument("--test_for", help="Sets evaluation length", default=1000, type=int)
-#     parser.add_argument("--filename", help="Load previous model file", type=str, default=False)
-#     parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
-#     args = parser.parse_args()
-#     #args.filename = "QAgent_" + ",".join(("{}={}".format(key, value) for key, value in sorted(vars(args).items()) if key in ["episodes", "gamma", "epsilon", "alpha"])) + f"_{time.strftime('%Y%m%d-%H%M%S')}.pickle"
-
-#     # Remove all handlers associated with the root logger object.
-#     for handler in logging.root.handlers[:]:
-#         logging.root.removeHandler(handler)
-
-#     logging.basicConfig(filename='q_agent.log', filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
-#     logger = logging.getLogger('Q-agent')
-
-#     # Training
-#     logger.info(f'Initializing the environment')
-#     env = NetworkSecurityEnvironment(args.task_config_file)
-
-#     # Setup tensorboard
-#     run_name = f"netsecgame__qlearning__{env.seed}__{int(time.time())}"
-#     writer = SummaryWriter(f"agents/tensorboard-logs/logs/{run_name}")
-#     writer.add_text(
-#         "hypherparameters",
-#         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()]))
-#     )
-
-#     random.seed(env.seed)
-#     np.random.seed(env.seed)
-
-#     observation = env.reset()
-
-#     logger.info('Creating the agent')
-#     agent = QAgent(env, args.alpha, args.gamma, args.epsilon)
-#     if args.filename:
-#         try:
-#             # Load a previous qtable from a pickled file
-#             logger.info(f'Loading a previous Qtable')
-#             agent.load_q_table(args.filename)
-#         except FileNotFoundError:
-#             logger.info(f"No previous qtable file found to load, starting with an emptly zeroed qtable")
-
-#     # If we are not evaluating the model
-#     if not args.test:
-#         # Run for some episodes
-#         logger.info(f'Starting the training')
-#         for i in range(1, args.episodes + 1):
-#             # Reset
-#             observation = env.reset()
-#             # Play complete round
-#             ret, win,_,_ = agent.play(observation)
-#             logger.info(f'Reward: {ret}, Win:{win}')
-#             # Every X episodes, eval
-#             if i % args.eval_each == 0:
-#                 wins = 0
-#                 detected = 0
-#                 returns = []
-#                 num_steps = []
-#                 num_win_steps = []
-#                 num_detected_steps = []
-#                 for j in range(args.eval_for):
-#                     observation = env.reset()
-#                     ret, win, detection, steps = agent.evaluate(observation)
-#                     if win:
-#                         wins += 1
-#                         num_win_steps += [steps]
-#                     if detection:
-#                         detected += 1
-#                         num_detected_steps += [steps]
-#                     returns += [ret]
-#                     num_steps += [steps]
-
-#                 eval_win_rate = (wins/(args.eval_for+1))*100
-#                 eval_detection_rate = (detected/(args.eval_for+1))*100
-#                 eval_average_returns = np.mean(returns)
-#                 eval_std_returns = np.std(returns)
-#                 eval_average_episode_steps = np.mean(num_steps)
-#                 eval_std_episode_steps = np.std(num_steps)
-#                 eval_average_win_steps = np.mean(num_win_steps)
-#                 eval_std_win_steps = np.std(num_win_steps)
-#                 eval_average_detected_steps = np.mean(num_detected_steps)
-#                 eval_std_detected_steps = np.std(num_detected_steps)
-
-#                 text = f'''Evaluated after {i} episodes, for {args.eval_for} episodes.
-#                     Wins={wins},
-#                     Detections={detected},
-#                     winrate={eval_win_rate:.3f}%,
-#                     detection_rate={eval_detection_rate:.3f}%,
-#                     average_returns={eval_average_returns:.3f} +- {eval_std_returns:.3f},
-#                     average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
-#                     average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
-#                     average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
-#                     '''
-#                 print(text)
-#                 logger.info(text)
-#                 # Store in tensorboard
-#                 writer.add_scalar("charts/eval_avg_win_rate", eval_win_rate, i)
-#                 writer.add_scalar("charts/eval_avg_detection_rate", eval_detection_rate, i)
-#                 writer.add_scalar("charts/eval_avg_returns", eval_average_returns , i)
-#                 writer.add_scalar("charts/eval_std_returns", eval_std_returns , i)
-#                 writer.add_scalar("charts/eval_avg_episode_steps", eval_average_episode_steps , i)
-#                 writer.add_scalar("charts/eval_std_episode_steps", eval_std_episode_steps , i)
-#                 writer.add_scalar("charts/eval_avg_win_steps", eval_average_win_steps , i)
-#                 writer.add_scalar("charts/eval_std_win_steps", eval_std_win_steps , i)
-#                 writer.add_scalar("charts/eval_avg_detected_steps", eval_average_detected_steps , i)
-#                 writer.add_scalar("charts/eval_std_detected_steps", eval_std_detected_steps , i)
-
-#         # Store the q table on disk
-#         if args.filename:
-#             agent.store_q_table(args.filename)
-#     if args.filename:
-#         agent = QAgent(env, args.alpha, args.gamma, args.epsilon)
-#         agent.load_q_table(args.filename)
-#     # Test
-#     wins = 0
-#     detected = 0
-#     returns = []
-#     num_steps = []
-#     num_win_steps = []
-#     num_detected_steps = []
-#     for i in range(args.test_for + 1):
-#         observation = env.reset()
-#         ret, win, detection, steps = agent.evaluate(observation)
-#         if win:
-#             wins += 1
-#             num_win_steps += [steps]
-#         if detection:
-#             detected +=1
-#             num_detected_steps += [steps]
-#         returns += [ret]
-#         num_steps += [steps]
-
-#         test_win_rate = (wins/(i+1))*100
-#         test_detection_rate = (detected/(i+1))*100
-#         test_average_returns = np.mean(returns)
-#         test_std_returns = np.std(returns)
-#         test_average_episode_steps = np.mean(num_steps)
-#         test_std_episode_steps = np.std(num_steps)
-#         test_average_win_steps = np.mean(num_win_steps)
-#         test_std_win_steps = np.std(num_win_steps)
-#         test_average_detected_steps = np.mean(num_detected_steps)
-#         test_std_detected_steps = np.std(num_detected_steps)
+    # If there is a previous model passed. Always use it for both training and testing.
+    if args.previous_model:
+        # Load table
+        agent._logger.info(f'Loading the previous model in file {args.previous_model}')
+        try:
+            agent.load_q_table(args.previous_model)
+        except:
+            message = f'Problem loading the file: {args.previous_model}'
+            agent._logger.info(message)
+            print(message)
 
 
-#         # Print and report every 100 test episodes
-#         if i % 100 == 0 and i != 0:
-#             text = f'''Test results after {i} episodes.
-#                 Wins={wins},
-#                 Detections={detected},
-#                 winrate={test_win_rate:.3f}%,
-#                 detection_rate={test_detection_rate:.3f}%,
-#                 average_returns={test_average_returns:.3f} +- {test_std_returns:.3f},
-#                 average_episode_steps={test_average_episode_steps:.3f} +- {test_std_episode_steps:.3f},
-#                 average_win_steps={test_average_win_steps:.3f} +- {test_std_win_steps:.3f},
-#                 average_detected_steps={test_average_detected_steps:.3f} +- {test_std_detected_steps:.3f}
-#                 '''
+    if not args.testing:
+        # Mlflow experiment name        
+        experiment_name = "Training and testing of Q-learning Agent"
+        mlflow.set_experiment(experiment_name)
+    elif args.testing:
+        # Evaluate the agent performance
 
-#             print(text)
-#             logger.info(text)
-
-#         # Store in tensorboard
-#         writer.add_scalar("charts/test_avg_win_rate", test_win_rate, i)
-#         writer.add_scalar("charts/test_avg_detection_rate", test_detection_rate, i)
-#         writer.add_scalar("charts/test_avg_returns", test_average_returns , i)
-#         writer.add_scalar("charts/test_std_returns", test_std_returns , i)
-#         writer.add_scalar("charts/test_avg_episode_steps", test_average_episode_steps , i)
-#         writer.add_scalar("charts/test_std_episode_steps", test_std_episode_steps , i)
-#         writer.add_scalar("charts/test_avg_win_steps", test_average_win_steps , i)
-#         writer.add_scalar("charts/test_std_win_steps", test_std_win_steps , i)
-#         writer.add_scalar("charts/test_avg_detected_steps", test_average_detected_steps , i)
-#         writer.add_scalar("charts/test_std_detected_steps", test_std_detected_steps , i)
+        # Mlflow experiment name        
+        experiment_name = "Testing of Q-learning Agent"
+        mlflow.set_experiment(experiment_name)
 
 
-#     text = f'''Final test after {i} episodes
-#         Wins={wins},
-#         Detections={detected},
-#         winrate={test_win_rate:.3f}%,
-#         detection_rate={test_detection_rate:.3f}%,
-#         average_returns={test_average_returns:.3f} +- {test_std_returns:.3f},
-#         average_episode_steps={test_average_episode_steps:.3f} +- {test_std_episode_steps:.3f},
-#         average_win_steps={test_average_win_steps:.3f} +- {test_std_win_steps:.3f},
-#         average_detected_steps={test_average_detected_steps:.3f} +- {test_std_detected_steps:.3f}
-#         '''
-#     print(text)
-#     logger.info(text)
+    # This code runs for both training and testing. The difference is in the args.testing variable that is passed along
+    # How it works:
+    # - Evaluate for several 'episodes' (parameter)
+    # - Each episode finishes with: steps played, return, win/lose. Store all
+    # - Each episode compute the avg and std of all.
+    # - Every X episodes (parameter), report in log and mlflow
+    # - At the end, report in log and mlflow and console
+
+    # Register the agent
+    observation = agent.register()
+
+    with mlflow.start_run(run_name=experiment_name) as run:
+        # To keep statistics of each episode
+        wins = 0
+        detected = 0
+        max_steps = 0
+        num_win_steps = []
+        num_detected_steps = []
+        num_max_steps_steps = []
+        num_detected_returns = []
+        num_win_returns = []
+        num_max_steps_returns = []
+
+        # Log more things in Mlflow
+        mlflow.set_tag("experiment_name", experiment_name)
+        # Log notes or additional information
+        mlflow.set_tag("notes", "This is an evaluation")
+        mlflow.set_tag("Previous q-learning model loaded", str(args.previous_model))
+        mlflow.log_param("alpha", args.alpha)
+        mlflow.log_param("epsilon", args.epsilon)
+        mlflow.log_param("gamma", args.gamma)
+        mlflow.set_tag("Experiment ID", '')
+        # Use subprocess.run to get the commit hash
+        netsecenv_command = "git rev-parse HEAD"
+        netsecenv_git_result = subprocess.run(netsecenv_command, shell=True, capture_output=True, text=True).stdout
+        agents_command = "cd NetSecGameAgents; git rev-parse HEAD"
+        agents_git_result = subprocess.run(agents_command, shell=True, capture_output=True, text=True).stdout
+        agent._logger.info(f'Using commits. NetSecEnv: {netsecenv_git_result}. Agents: {agents_git_result}')
+        mlflow.set_tag("NetSecEnv commit", netsecenv_git_result)
+        mlflow.set_tag("Agents commit", agents_git_result)
+
+        for episode in range(1, args.episodes + 1):
+            #agent.logger.info(f'Starting the testing for episode {episode}')
+            #print(f'Starting the testing for episode {episode}')
+
+            # Play 1 episode
+            observation, num_steps = agent.play_game(observation, 1, testing=args.testing)       
+
+            state = observation.state
+            reward = observation.reward
+            end = observation.end
+            info = observation.info
+
+            if observation.info and observation.info['end_reason'] == 'detected':
+                detected +=1
+                num_detected_steps += [num_steps]
+                num_detected_returns += [reward]
+            elif observation.info and observation.info['end_reason'] == 'goal_reached':
+                wins += 1
+                num_win_steps += [num_steps]
+                num_win_returns += [reward]
+            elif observation.info and observation.info['end_reason'] == 'max_steps':
+                max_steps += 1
+                num_max_steps_steps += [num_steps]
+                num_max_steps_returns += [reward]
+
+            agent._logger.info(f"This episode: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+
+            # Reset the game
+            observation = agent.request_game_reset()
+
+            eval_win_rate = (wins/episode) * 100
+            eval_detection_rate = (detected/episode) * 100
+            eval_average_returns = np.mean(num_detected_returns+num_win_returns+num_max_steps_returns)
+            eval_std_returns = np.std(num_detected_returns+num_win_returns+num_max_steps_returns)
+            eval_average_episode_steps = np.mean(num_win_steps+num_detected_steps+num_max_steps_steps)
+            eval_std_episode_steps = np.std(num_win_steps+num_detected_steps+num_max_steps_steps)
+            eval_average_win_steps = np.mean(num_win_steps)
+            eval_std_win_steps = np.std(num_win_steps)
+            eval_average_detected_steps = np.mean(num_detected_steps)
+            eval_std_detected_steps = np.std(num_detected_steps)
+            eval_average_max_steps_steps = np.mean(num_max_steps_steps)
+            eval_std_max_steps_steps = np.std(num_max_steps_steps)
+
+            # Log and report every X episodes
+            if episode % args.test_each == 0 and episode != 0:
+                text = f'''Tested after {episode} episodes.
+                    Wins={wins},
+                    Detections={detected},
+                    winrate={eval_win_rate:.3f}%,
+                    detection_rate={eval_detection_rate:.3f}%,
+                    average_returns={eval_average_returns:.3f} +- {eval_std_returns:.3f},
+                    average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
+                    average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
+                    average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
+                    average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
+                    '''
+                agent.logger.info(text)
+                # Store in mlflow
+                mlflow.log_metric("eval_avg_win_rate", eval_win_rate, step=episode)
+                mlflow.log_metric("eval_avg_detection_rate", eval_detection_rate, step=episode)
+                mlflow.log_metric("eval_avg_returns", eval_average_returns, step=episode)
+                mlflow.log_metric("eval_std_returns", eval_std_returns, step=episode)
+                mlflow.log_metric("eval_avg_episode_steps", eval_average_episode_steps, step=episode)
+                mlflow.log_metric("eval_std_episode_steps", eval_std_episode_steps, step=episode)
+                mlflow.log_metric("eval_avg_win_steps", eval_average_win_steps, step=episode)
+                mlflow.log_metric("eval_std_win_steps", eval_std_win_steps, step=episode)
+                mlflow.log_metric("eval_avg_detected_steps", eval_average_detected_steps, step=episode)
+                mlflow.log_metric("eval_std_detected_steps", eval_std_detected_steps, step=episode)
+                mlflow.log_metric("eval_avg_max_steps_steps", eval_average_max_steps_steps, step=episode)
+                mlflow.log_metric("eval_std_max_steps_steps", eval_std_max_steps_steps, step=episode)
+
+        
+        # Log the last final episode when it ends
+        text = f'''Episode {episode}. Final eval after {episode} episodes, for {args.episodes} steps.
+            Wins={wins},
+            Detections={detected},
+            winrate={eval_win_rate:.3f}%,
+            detection_rate={eval_detection_rate:.3f}%,
+            average_returns={eval_average_returns:.3f} +- {eval_std_returns:.3f},
+            average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
+            average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
+            average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
+            average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
+            '''
+
+        agent.logger.info(text)
+        print(text)
+        agent._logger.info("Terminating interaction")
+        agent.terminate_connection()
+
+        # Store the q-table
+        agent.store_q_table(args.previous_model)
