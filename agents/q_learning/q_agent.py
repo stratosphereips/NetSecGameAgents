@@ -97,15 +97,21 @@ class QAgent(BaseAgent):
         for episode in range(num_episodes):
             episodic_rewards = []
             while observation and not observation.end:
-                self._logger.debug(f'Observation received:{observation}')
                 # Store steps so far
                 num_steps += 1
                 # Get next_action. If we are not training, selection is different, so pass it
                 action, state_id = self.select_action(observation, episode_num, testing)
+                if args.store_actions:
+                    actions_logger.info(f"\t State:{observation.state}")
+                    actions_logger.info(f"\t End:{observation.end}")
+                    actions_logger.info(f"\t Info:{observation.info}")
+                    actions_logger.info(f"\t\t Action:{action}")
                 # Perform the action and observe next observation
                 observation = self.make_step(action)
                 # Store the reward of the next observation
                 episodic_rewards.append(observation.reward)
+                if args.store_actions:
+                    agent._logger.error(f"\t\t Reward:{observation.reward}")
                 if not testing:
                     # If we are training update the Q-table
                     self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
@@ -114,6 +120,10 @@ class QAgent(BaseAgent):
             # Sum all episodic returns 
             returns.append(np.sum(episodic_rewards))
             # Reset the episode
+            if args.store_actions:
+                actions_logger.info(f"\t State:{observation.state}")
+                actions_logger.info(f"\t End:{observation.end}")
+                actions_logger.info(f"\t Info:{observation.info}")
             observation = self.request_game_reset()
         #agent._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
         # This will be the last observation played before the reset
@@ -133,13 +143,23 @@ if __name__ == '__main__':
     parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
     parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", default='./q_agent_marl.pickle', type=str)
-    parser.add_argument("--testing", help="Test the agent. No train.", default=False)
+    parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
+    parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
         os.makedirs(args.logdir)
     logging.basicConfig(filename=os.path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+
+    # Log for Actions
+    actions_logger = logging.getLogger('q_agent')
+    actions_logger.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    actions_handler = logging.FileHandler(os.path.join(args.logdir, "q_agent_actions.log"))
+    actions_handler.setLevel(logging.INFO)  
+    actions_handler.setFormatter(formatter)
+    actions_logger.addHandler(actions_handler)
 
     # Create agent
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes)
