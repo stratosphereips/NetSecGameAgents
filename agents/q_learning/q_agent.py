@@ -33,7 +33,7 @@ class QAgent(BaseAgent):
         self.epsilon_end = epsilon_end
         self.epsilon_max_episodes = epsilon_max_episodes
 
-    def store_q_table(self,filename):
+    def store_q_table(self, filename):
         with open(filename, "wb") as f:
             data = {"q_table":self.q_values, "state_mapping": self._str_to_id}
             pickle.dump(data, f)
@@ -146,6 +146,7 @@ if __name__ == '__main__':
     parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
+    parser.add_argument("--store_models", help="Store a model to disk on each testing round.", default=False, type=bool)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
@@ -200,7 +201,7 @@ if __name__ == '__main__':
     observation = agent.register()
 
     try:
-        with mlflow.start_run(run_name=experiment_name) as run:
+        with mlflow.start_run(run_name=experiment_name + f'. ID {args.experiment_id}') as run:
             # To keep statistics of each episode
             wins = 0
             detected = 0
@@ -222,7 +223,6 @@ if __name__ == '__main__':
             mlflow.log_param("epsilon_end", args.epsilon_end)
             mlflow.log_param("epsilon_max_episodes", args.epsilon_max_episodes)
             mlflow.log_param("gamma", args.gamma)
-            mlflow.set_tag("Experiment ID", args.experiment_id)
             # Use subprocess.run to get the commit hash
             netsecenv_command = "git rev-parse HEAD"
             netsecenv_git_result = subprocess.run(netsecenv_command, shell=True, capture_output=True, text=True).stdout
@@ -231,11 +231,8 @@ if __name__ == '__main__':
             agent._logger.info(f'Using commits. NetSecEnv: {netsecenv_git_result}. Agents: {agents_git_result}')
             mlflow.set_tag("NetSecEnv commit", netsecenv_git_result)
             mlflow.set_tag("Agents commit", agents_git_result)
-            mlflow.set_tag("Epsilon Start", agent.epsilon_start)
             agent._logger.info(f'Epsilon Start: {agent.epsilon_start}')
-            mlflow.set_tag("Epsilon End ", agent.epsilon_end)
             agent._logger.info(f'Epsilon End: {agent.epsilon_end}')
-            mlflow.set_tag("Epsilon Max Episodes", agent.epsilon_max_episodes)
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
 
             for episode in range(1, args.episodes + 1):
@@ -326,6 +323,9 @@ if __name__ == '__main__':
                             test_average_max_steps_steps = np.mean(num_max_steps_steps)
                             test_std_max_steps_steps = np.std(num_max_steps_steps)
 
+                            # store model
+                            agent.store_q_table(args.previous_model + '-episodes-' + str(episode))
+
                         text = f'''Tested after {episode} episodes.
                             Wins={wins},
                             Detections={detected},
@@ -401,8 +401,10 @@ if __name__ == '__main__':
             agent._logger.info("Terminating interaction")
             agent.terminate_connection()
 
-            # Store the q-table
-            agent.store_q_table(args.previous_model)
     except KeyboardInterrupt:
+        # Store the q-table
+        # Just in case...
+        agent.store_q_table(args.previous_model)
+    finally:
         # Store the q-table
         agent.store_q_table(args.previous_model)
