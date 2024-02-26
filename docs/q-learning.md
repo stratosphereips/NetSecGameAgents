@@ -35,5 +35,7 @@ You can use the parameter `--store_actions` to store the actions, state, reward,
 ## MlFlow
 It uses mlflow to log the experiments and you can say which Experiment ID it is. Automatically will store the commit hash of the NetSecEnvAgents repository and the NetSecEnv repository.
 
+## Check of q-table
+There is a small python file, called `check_q_table.py` that can be used to check the content of the q-table to see if the values make sense.
 
 
