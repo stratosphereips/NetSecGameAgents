@@ -353,6 +353,7 @@ if __name__ == '__main__':
                         mlflow.log_metric("test_avg_max_steps_steps", test_average_max_steps_steps, step=episode)
                         mlflow.log_metric("test_std_max_steps_steps", test_std_max_steps_steps, step=episode)
                         mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
+                        mlflow.log_metric("current_episode", episode, step=episode)
 
                     text = f'''Evaluated after {episode} episodes.
                         Wins={wins},
@@ -381,6 +382,7 @@ if __name__ == '__main__':
                     mlflow.log_metric("eval_avg_max_steps_steps", eval_average_max_steps_steps, step=episode)
                     mlflow.log_metric("eval_std_max_steps_steps", eval_std_max_steps_steps, step=episode)
                     mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
+                    mlflow.log_metric("current_episode", episode, step=episode)
             
             # Log the last final episode when it ends
             text = f'''Episode {episode}. Final eval after {episode} episodes, for {args.episodes} steps.
