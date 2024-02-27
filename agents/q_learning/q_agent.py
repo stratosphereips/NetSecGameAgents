@@ -87,7 +87,30 @@ class QAgent(BaseAgent):
             except KeyError:
                 self.q_values[state_id, action] = 0
             return action, state_id
+
+    def recompute_reward(self, observation: Observation) -> Observation:
+        """
+        Redefine how q-learning recomputes the inner reward
+        """
+        new_observation = None
+        state = observation['state']
+        reward = observation['reward']
+        end = observation['end']
+        info = observation['info']
+
+        if info and info['end_reason'] == 'detected':
+            # Reward when we are detected
+            reward = -1000
+        elif info and info['end_reason'] == 'goal_reached':
+            # Reward when we win
+            reward = 1000
+        elif info and info['end_reason'] == 'max_steps':
+            # Reward when we hit max steps
+            reward = -100
         
+        new_observation = Observation(GameState.from_dict(state), reward, end, info)
+        return new_observation
+
     def play_game(self, observation, episode_num, num_episodes=1, testing=False):
         """
         The main function for the gameplay. Handles the main interaction loop.
@@ -134,8 +157,8 @@ if __name__ == '__main__':
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
     parser.add_argument("--episodes", help="Sets number of episodes to run.", default=1000, type=int)
-    parser.add_argument("--test_each", help="Evaluate the performance every this number of episodes. During training and testing.", default=10, type=int)
-    parser.add_argument("--test_for", help="Evaluate the performance for this number of episodes each time. Only during training.", default=100, type=int)
+    parser.add_argument("--test_each", help="Evaluate the performance every this number of episodes. During training and testing.", default=1000, type=int)
+    parser.add_argument("--test_for", help="Evaluate the performance for this number of episodes each time. Only during training.", default=1000, type=int)
     parser.add_argument("--epsilon_start", help="Sets the start epsilon for exploration during training.", default=0.9, type=float)
     parser.add_argument("--epsilon_end", help="Sets the end epsilon for exploration during training.", default=0.1, type=float)
     parser.add_argument("--epsilon_max_episodes", help="Max episodes for epsilon to reach maximum decay", default=5000, type=int)
@@ -406,7 +429,9 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         # Store the q-table
         # Just in case...
-        agent.store_q_table(args.previous_model)
+        if not args.testing:
+            agent.store_q_table(args.previous_model)
     finally:
         # Store the q-table
-        agent.store_q_table(args.previous_model)
+        if not args.testing:
+            agent.store_q_table(args.previous_model)
