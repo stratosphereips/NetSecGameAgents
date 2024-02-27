@@ -8,13 +8,15 @@ from os import path
 import os
 import socket
 import json
+from abc import ABC, abstractmethod
+
 
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))
 from env.game_components import Action, GameState, Observation, ActionType, GameStatus,AgentInfo, IP, Network
 
 
-class BaseAgent:
+class BaseAgent(ABC):
     """
     Author: Ondrej Lukas, ondrej.lukas@aic.cvut.cz
     Basic agent for the network based NetSecGame environment. Implemenets communication with the game server.
@@ -62,13 +64,22 @@ class BaseAgent:
     def logger(self)->logging.Logger:
         return self._logger
     
+    @abstractmethod
+    def recompute_reward(self, observation: Observation)-> Observation:
+        """
+        Take the reward sent (or not sent) by the env and recompute what we need
+        """
+        pass
+    
     def make_step(self, action: Action)->Observation:
         """
         Method for sendind agent's action to the server and receiving and parsing response into new observation.
         """
         _, observation_dict, _ = self.communicate(action)
+        observation_dict = self.recompute_reward(observation_dict)
         if observation_dict:
-            return Observation(GameState.from_dict (observation_dict["state"]), observation_dict["reward"], observation_dict["end"], observation_dict["info"])
+            return observation_dict
+            #return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"], observation_dict["info"])
         else:
             return None
     
