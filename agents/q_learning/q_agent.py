@@ -246,6 +246,10 @@ if __name__ == '__main__':
             mlflow.log_param("epsilon_end", args.epsilon_end)
             mlflow.log_param("epsilon_max_episodes", args.epsilon_max_episodes)
             mlflow.log_param("gamma", args.gamma)
+            mlflow.log_param("Episodes", args.episodes)
+            mlflow.log_param("Test each", str(args.test_each))
+            mlflow.log_param("Test for", str(args.test_for))
+            mlflow.log_param("Testing", str(args.testing))
             # Use subprocess.run to get the commit hash
             netsecenv_command = "git rev-parse HEAD"
             netsecenv_git_result = subprocess.run(netsecenv_command, shell=True, capture_output=True, text=True).stdout
@@ -280,7 +284,7 @@ if __name__ == '__main__':
                     num_max_steps_steps += [num_steps]
                     num_max_steps_returns += [reward]
 
-                agent._logger.info(f"This episode: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                agent._logger.info(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
 
                 # Reset the game
                 observation = agent.request_game_reset()
@@ -298,60 +302,102 @@ if __name__ == '__main__':
                 eval_average_max_steps_steps = np.mean(num_max_steps_steps)
                 eval_std_max_steps_steps = np.std(num_max_steps_steps)
 
-                # Test, log and report every X episodes
+                # Now Test, log and report. This happens every X training episodes
                 if episode % args.test_each == 0 and episode != 0:
                     # If we are training, every these number of episodes, we need to test for some episodes.
                     # If we are testing, it is not necessary since the model does not change
                     if not args.testing:
-                        # We were training
-                        for testing_episode in range(1, args.test_for + 1):
+                        # This test happens during a training
+
+                        # First report performance of trained model up to here
+                        text = f'''Performance evaluated after {episode} training episodes.
+                            Wins={wins},
+                            Detections={detected},
+                            winrate={eval_win_rate:.3f}%,
+                            detection_rate={eval_detection_rate:.3f}%,
+                            average_returns={eval_average_returns:.3f} +- {eval_std_returns:.3f},
+                            average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
+                            average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
+                            average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
+                            average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
+                            epsilon={agent.current_epsilon}
+                            '''
+                        agent.logger.info(text)
+                        mlflow.log_metric("eval_avg_win_rate", eval_win_rate, step=episode)
+                        mlflow.log_metric("eval_avg_detection_rate", eval_detection_rate, step=episode)
+                        mlflow.log_metric("eval_avg_returns", eval_average_returns, step=episode)
+                        mlflow.log_metric("eval_std_returns", eval_std_returns, step=episode)
+                        mlflow.log_metric("eval_avg_episode_steps", eval_average_episode_steps, step=episode)
+                        mlflow.log_metric("eval_std_episode_steps", eval_std_episode_steps, step=episode)
+                        mlflow.log_metric("eval_avg_win_steps", eval_average_win_steps, step=episode)
+                        mlflow.log_metric("eval_std_win_steps", eval_std_win_steps, step=episode)
+                        mlflow.log_metric("eval_avg_detected_steps", eval_average_detected_steps, step=episode)
+                        mlflow.log_metric("eval_std_detected_steps", eval_std_detected_steps, step=episode)
+                        mlflow.log_metric("eval_avg_max_steps_steps", eval_average_max_steps_steps, step=episode)
+                        mlflow.log_metric("eval_std_max_steps_steps", eval_std_max_steps_steps, step=episode)
+                        mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
+                        mlflow.log_metric("current_episode", episode, step=episode)
+
+                        # To keep statistics of testing each episode
+                        test_wins = 0
+                        test_detected = 0
+                        test_max_steps = 0
+                        test_num_win_steps = []
+                        test_num_detected_steps = []
+                        test_num_max_steps_steps = []
+                        test_num_detected_returns = []
+                        test_num_win_returns = []
+                        test_num_max_steps_returns = []
+
+                        # Test
+                        for test_episode in range(1, args.test_for + 1):
                             # Play 1 episode
                             # See that we force the model to freeze by telling it that it is in 'testing' mode.
-                            # Also the episode_num is not changed since this controls the decay of the epsilon during training
-                            observation, num_steps = agent.play_game(observation, num_episodes=1, testing=True, episode_num=episode)       
+                            # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
+                            test_observation, test_num_steps = agent.play_game(observation, num_episodes=1, testing=True, episode_num=episode)       
 
-                            state = observation.state
-                            reward = observation.reward
-                            end = observation.end
-                            info = observation.info
+                            test_state = test_observation.state
+                            test_reward = test_observation.reward
+                            test_end = test_observation.end
+                            test_info = test_observation.info
 
-                            if observation.info and observation.info['end_reason'] == 'detected':
-                                detected +=1
-                                num_detected_steps += [num_steps]
-                                num_detected_returns += [reward]
-                            elif observation.info and observation.info['end_reason'] == 'goal_reached':
-                                wins += 1
-                                num_win_steps += [num_steps]
-                                num_win_returns += [reward]
-                            elif observation.info and observation.info['end_reason'] == 'max_steps':
-                                max_steps += 1
-                                num_max_steps_steps += [num_steps]
-                                num_max_steps_returns += [reward]
+                            if test_info and test_info['end_reason'] == 'detected':
+                                test_detected +=1
+                                test_num_detected_steps += [num_steps]
+                                test_num_detected_returns += [reward]
+                            elif test_info and test_info['end_reason'] == 'goal_reached':
+                                test_wins += 1
+                                test_num_win_steps += [num_steps]
+                                test_num_win_returns += [reward]
+                            elif test_info and test_info['end_reason'] == 'max_steps':
+                                test_max_steps += 1
+                                test_num_max_steps_steps += [num_steps]
+                                test_num_max_steps_returns += [reward]
 
-                            agent._logger.info(f"Tested this episode: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                            agent._logger.info(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
 
                             # Reset the game
-                            observation = agent.request_game_reset()
+                            test_observation = agent.request_game_reset()
 
-                            test_win_rate = (wins/episode) * 100
-                            test_detection_rate = (detected/episode) * 100
-                            test_average_returns = np.mean(num_detected_returns + num_win_returns + num_max_steps_returns)
-                            test_std_returns = np.std(num_detected_returns + num_win_returns + num_max_steps_returns)
-                            test_average_episode_steps = np.mean(num_win_steps + num_detected_steps + num_max_steps_steps)
-                            test_std_episode_steps = np.std(num_win_steps + num_detected_steps + num_max_steps_steps)
-                            test_average_win_steps = np.mean(num_win_steps)
-                            test_std_win_steps = np.std(num_win_steps)
-                            test_average_detected_steps = np.mean(num_detected_steps)
-                            test_std_detected_steps = np.std(num_detected_steps)
-                            test_average_max_steps_steps = np.mean(num_max_steps_steps)
-                            test_std_max_steps_steps = np.std(num_max_steps_steps)
+                            test_win_rate = (test_wins/test_episode) * 100
+                            test_detection_rate = (test_detected/test_episode) * 100
+                            test_average_returns = np.mean(test_num_detected_returns + test_num_win_returns + test_num_max_steps_returns)
+                            test_std_returns = np.std(test_num_detected_returns + test_num_win_returns + test_num_max_steps_returns)
+                            test_average_episode_steps = np.mean(test_num_win_steps + test_num_detected_steps + test_num_max_steps_steps)
+                            test_std_episode_steps = np.std(test_num_win_steps + test_num_detected_steps + test_num_max_steps_steps)
+                            test_average_win_steps = np.mean(test_num_win_steps)
+                            test_std_win_steps = np.std(test_num_win_steps)
+                            test_average_detected_steps = np.mean(test_num_detected_steps)
+                            test_std_detected_steps = np.std(test_num_detected_steps)
+                            test_average_max_steps_steps = np.mean(test_num_max_steps_steps)
+                            test_std_max_steps_steps = np.std(test_num_max_steps_steps)
 
                             # store model
                             agent.store_q_table(args.previous_model + '-episodes-' + str(episode))
 
-                        text = f'''Tested after {episode} episodes.
-                            Wins={wins},
-                            Detections={detected},
+                        text = f'''Tested for {test_episode} episodes after {episode} training episode.
+                            Wins={test_wins},
+                            Detections={test_detected},
                             winrate={test_win_rate:.3f}%,
                             detection_rate={test_detection_rate:.3f}%,
                             average_returns={test_average_returns:.3f} +- {test_std_returns:.3f},
@@ -378,37 +424,9 @@ if __name__ == '__main__':
                         mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
                         mlflow.log_metric("current_episode", episode, step=episode)
 
-                    text = f'''Evaluated after {episode} episodes.
-                        Wins={wins},
-                        Detections={detected},
-                        winrate={eval_win_rate:.3f}%,
-                        detection_rate={eval_detection_rate:.3f}%,
-                        average_returns={eval_average_returns:.3f} +- {eval_std_returns:.3f},
-                        average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
-                        average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
-                        average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
-                        average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
-                        epsilon={agent.current_epsilon}
-                        '''
-                    agent.logger.info(text)
-                    # Store in mlflow
-                    mlflow.log_metric("eval_avg_win_rate", eval_win_rate, step=episode)
-                    mlflow.log_metric("eval_avg_detection_rate", eval_detection_rate, step=episode)
-                    mlflow.log_metric("eval_avg_returns", eval_average_returns, step=episode)
-                    mlflow.log_metric("eval_std_returns", eval_std_returns, step=episode)
-                    mlflow.log_metric("eval_avg_episode_steps", eval_average_episode_steps, step=episode)
-                    mlflow.log_metric("eval_std_episode_steps", eval_std_episode_steps, step=episode)
-                    mlflow.log_metric("eval_avg_win_steps", eval_average_win_steps, step=episode)
-                    mlflow.log_metric("eval_std_win_steps", eval_std_win_steps, step=episode)
-                    mlflow.log_metric("eval_avg_detected_steps", eval_average_detected_steps, step=episode)
-                    mlflow.log_metric("eval_std_detected_steps", eval_std_detected_steps, step=episode)
-                    mlflow.log_metric("eval_avg_max_steps_steps", eval_average_max_steps_steps, step=episode)
-                    mlflow.log_metric("eval_std_max_steps_steps", eval_std_max_steps_steps, step=episode)
-                    mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
-                    mlflow.log_metric("current_episode", episode, step=episode)
             
             # Log the last final episode when it ends
-            text = f'''Episode {episode}. Final eval after {episode} episodes, for {args.episodes} steps.
+            text = f'''Final training performance after {episode} episodes.
                 Wins={wins},
                 Detections={detected},
                 winrate={eval_win_rate:.3f}%,
