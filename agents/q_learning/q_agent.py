@@ -93,10 +93,10 @@ class QAgent(BaseAgent):
         Redefine how q-learning recomputes the inner reward
         """
         new_observation = None
-        state = observation['state']
-        reward = observation['reward']
-        end = observation['end']
-        info = observation['info']
+        state = observation.state
+        reward = observation.reward
+        end = observation.end
+        info = observation.info
 
         if info and info['end_reason'] == 'detected':
             # Reward when we are detected
@@ -107,8 +107,10 @@ class QAgent(BaseAgent):
         elif info and info['end_reason'] == 'max_steps':
             # Reward when we hit max steps
             reward = -100
+        else:
+            reward = -1
         
-        new_observation = Observation(GameState.from_dict(state), reward, end, info)
+        new_observation = Observation(state, reward, end, info)
         return new_observation
 
     def play_game(self, observation, episode_num, num_episodes=1, testing=False):
@@ -131,6 +133,8 @@ class QAgent(BaseAgent):
                     actions_logger.info(f"\t\t Action:{action}")
                 # Perform the action and observe next observation
                 observation = self.make_step(action)
+                # Recompute the rewards
+                observation = self.recompute_reward(observation)
                 # Store the reward of the next observation
                 episodic_rewards.append(observation.reward)
                 if args.store_actions:

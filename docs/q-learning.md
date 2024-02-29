@@ -38,4 +38,11 @@ It uses mlflow to log the experiments and you can say which Experiment ID it is.
 ## Check of q-table
 There is a small python file, called `check_q_table.py` that can be used to check the content of the q-table to see if the values make sense.
 
+## Inner reward
+The qlearning agent has its own recomputation of inner reward. This means that it assigns special rewards to certain events to help learning. The current ones are:
+  - -1 for the normal step
+  - -100 for a time out (max steps reached)
+  - 1000 for the goal
+  - -1000 for detection
+
 
