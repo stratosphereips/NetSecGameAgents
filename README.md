@@ -30,10 +30,10 @@ Examples of agents extending the BaseAgent can be found in:
 
 | Agent | NetSecGame branch | Tag|
 | ----- |-----| ---- |
-|[BaseAgent](./agents/base_agent.py) | [multi-agent](https://github.com/stratosphereips/NetSecGame/tree/multi-agent) | `HEAD`|
-|[RandomAgent](./agents/random/random_agent.py) | [multi-agent](https://github.com/stratosphereips/NetSecGame/tree/multi-agent) | `HEAD`|
-|[InteractiveAgent](./agents/interactive_tui/interactive_tui.py) | [multi-agent](https://github.com/stratosphereips/NetSecGame/tree/multi-agent) | `HEAD`|
-|[Q-learning](./agents/q_learning/q_agent.py) | [multi-agent](https://github.com/stratosphereips/NetSecGame/tree/multi-agent) | `HEAD`|
+|[BaseAgent](./agents/base_agent.py) | [main](https://github.com/stratosphereips/NetSecGame/tree/main) | `HEAD`|
+|[RandomAgent](./agents/random/random_agent.py) | [main](https://github.com/stratosphereips/NetSecGame/tree/main) | `HEAD`|
+|[InteractiveAgent](./agents/interactive_tui/interactive_tui.py) | [main](https://github.com/stratosphereips/NetSecGame/tree/main) | `HEAD`|
+|[Q-learning](./agents/q_learning/q_agent.py) | [main](https://github.com/stratosphereips/NetSecGame/tree/main) | `HEAD`|
 |[LLM](./agents/llm/llm_agent.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | [realease_out_of_the_cage](https://github.com/stratosphereips/NetSecGame/tree/release_out_of_cage)|
 |[LLM_QA](./agents/llm_qa/llm_agent_qa.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | [realease_out_of_the_cage](https://github.com/stratosphereips/NetSecGame/tree/release_out_of_cage)|
 |[GNN_REINFORCE](./agents/llm_qa/llm_agent_qa.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | [realease_out_of_the_cage](https://github.com/stratosphereips/NetSecGame/tree/release_out_of_cage)|
