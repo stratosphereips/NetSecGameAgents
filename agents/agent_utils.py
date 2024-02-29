@@ -52,3 +52,33 @@ def state_as_ordered_string(state:GameState)->str:
         ret += f"{host}:[{','.join([str(x) for x in sorted(state.known_data[host])])}]"
     ret += "}"
     return ret   
+
+def recompute_reward(self, observation: Observation) -> Observation:
+    """
+    Redefine how an agent recomputes the inner reward
+    in: Observation object
+    out: Observation object
+    """
+    new_observation = None
+    state = observation['state']
+    reward = observation['reward']
+    end = observation['end']
+    info = observation['info']
+
+    # The rewards hare are the originals from the env. 
+    # Each agent can do this differently
+    if info and info['end_reason'] == 'detected':
+        # Reward when we are detected
+        reward = -100
+    elif info and info['end_reason'] == 'goal_reached':
+        # Reward when we win
+        reward = 100
+    elif info and info['end_reason'] == 'max_steps':
+        # Reward when we hit max steps
+        reward = -1
+    else:
+        # Reward when we hit max steps
+        reward = -1
+    
+    new_observation = Observation(GameState.from_dict(state), reward, end, info)
+    return new_observation
