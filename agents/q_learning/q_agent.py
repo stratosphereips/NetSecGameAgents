@@ -173,7 +173,7 @@ if __name__ == '__main__':
     parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
-    parser.add_argument("--store_models", help="Store a model to disk on each testing round.", default=False, type=bool)
+    parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=5000, type=int)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
@@ -397,7 +397,8 @@ if __name__ == '__main__':
                             test_std_max_steps_steps = np.std(test_num_max_steps_steps)
 
                             # store model
-                            agent.store_q_table(args.previous_model + '-episodes-' + str(episode))
+                            if episode % args.store_models_everye == 0 and episode != 0:
+                                agent.store_q_table(args.previous_model + '-episodes-' + str(episode))
 
                         text = f'''Tested for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
