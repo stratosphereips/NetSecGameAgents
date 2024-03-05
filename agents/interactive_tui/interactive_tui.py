@@ -1,6 +1,9 @@
+#
+# Author:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
+#
 from textual.app import App, ComposeResult, Widget
 from textual.widgets import Tree, Button, Log, Select, Input
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Vertical, VerticalScroll, Horizontal
 from textual.validation import Function
 from textual import on
 
@@ -11,6 +14,8 @@ import logging
 import ipaddress
 from random import choice
 import argparse
+
+from assistant import LLMAssistant
 
 # This is used so the agent can see the environment and game components
 sys.path.append(
@@ -110,7 +115,7 @@ class InteractiveTUI(App):
 
     CSS_PATH = "layout.tcss"
 
-    def __init__(self, host: str, port: int, role: str, mode: str):
+    def __init__(self, host: str, port: int, role: str, mode: str, llm: str):
         super().__init__()
         self.returns = 0
         self.next_action = None
@@ -120,8 +125,18 @@ class InteractiveTUI(App):
         self.service_input = ""
         self.data_input = ""
         self.agent = BaseAgent(host, port, role)
-        self.current_obs = self.agent.register()
+        self.agent.register()
+        self.current_obs = self.agent.request_game_reset()
         self.mode = mode
+        if llm != "None":
+            self.model = llm
+        else:
+            self.model = None
+
+        if self.model is not None:
+            self.assistant = LLMAssistant(
+                self.model, self.current_obs.info["goal_description"], 10
+            )
 
     def compose(self) -> ComposeResult:
         yield Vertical(TreeState(obs=self.current_obs), classes="box", id="tree")
@@ -177,14 +192,14 @@ class InteractiveTUI(App):
                 )
             )
         yield Log(classes="box", id="textarea")
-        yield Button("Take Action", variant="primary")
+        yield Horizontal(
+            Button("Take Action", variant="primary", id="act"),
+            Button("Assistant", variant="primary", id="help"),
+        )
         # yield Footer()
 
     @on(Select.Changed)
     def select_changed(self, event: Select.Changed) -> None:
-        log = self.query_one("Log")
-        log.write_line(str(event.value))
-
         # Save the selections of the action parameters
         match event._sender.id:
             case "src_host":
@@ -310,20 +325,28 @@ class InteractiveTUI(App):
             self.data_input = event.value
 
     @on(Button.Pressed)
-    def submit_action(self, event: Button.Pressed) -> None:
+    def do_something(self, event: Button.Pressed) -> None:
         """
         Press the button to select a random action.
         Right now there is only one button. If we add more we will need to distinguish them.
         """
-        self.update_state()
+        log = self.query_one("Log")
+        if event.button.id == "act":
+            action = self._move(self.current_obs.state)
 
-        # Take the first node of TreeState which contains the tree
-        tree_state = self.query_one(TreeState)
-        tree = tree_state.children[0]
-        self.update_tree(tree)
+            self.update_state(action)
+            # Take the first node of TreeState which contains the tree
+            tree_state = self.query_one(TreeState)
+            tree = tree_state.children[0]
+            self.update_tree(tree)
+        else:
+            if self.model is not None:
+                act_str, _ = self.assistant.get_action_from_obs_react(self.current_obs)
+                log.write_line(f"Assistant proposes: {act_str}")
+            else:
+                log.write_line("No assistant is available at the moment.")
 
-    def update_state(self) -> None:
-        action = self._move(self.current_obs.state)
+    def update_state(self, action: Action) -> None:
         # Get next observation of the environment
         next_observation = self.agent.make_step(action)
         # Collect reward
@@ -502,14 +525,13 @@ class InteractiveTUI(App):
     def _random_move(self, state: GameState) -> Action:
         # Randomly choose from the available actions
         valid_actions = self._generate_valid_actions(state)
-        # if self.args.force_ignore:
-        #     valid_actions = [action for action in valid_actions if action not in actions_taken]
         return choice(valid_actions)
 
     def _clear_state(self) -> None:
         """Reset the state and variables"""
         logger.info(f"Reset the environment and state")
         self.current_obs = self.agent.request_game_reset()
+        self.assistant.update_instructions(self.current_obs.info["goal_description"])
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
@@ -527,7 +549,6 @@ class InteractiveTUI(App):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # parser.add_argument("--task_config_file", help="Reads the task definition from a configuration file", default=path.join(path.dirname(__file__), 'netsecenv-task.yaml'), action='store', required=False)
     parser.add_argument(
         "--host",
         help="Host where the game server is",
@@ -549,8 +570,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode", type=str, choices=["guided", "normal"], default="normal"
     )
+    parser.add_argument(
+        "--llm",
+        choices=["gpt-4.5-turbo-preview", "gpt-3.5-turbo", "None"],
+        default="None",
+    )
     args = parser.parse_args()
 
     logger.info("Creating the agent")
-    app = InteractiveTUI(args.host, args.port, args.role, args.mode)
+    app = InteractiveTUI(args.host, args.port, args.role, args.mode, args.llm)
     app.run()
