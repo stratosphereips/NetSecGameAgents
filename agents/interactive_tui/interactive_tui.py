@@ -572,7 +572,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--llm",
-        choices=["gpt-4.5-turbo-preview", "gpt-3.5-turbo", "None"],
+        choices=["gpt-4-turbo-preview", "gpt-3.5-turbo", "None"],
         default="None",
     )
     args = parser.parse_args()
