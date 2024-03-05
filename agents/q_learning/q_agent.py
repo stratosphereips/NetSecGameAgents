@@ -206,13 +206,13 @@ if __name__ == '__main__':
 
     if not args.testing:
         # Mlflow experiment name        
-        experiment_name = "Training and testing of Q-learning Agent"
+        experiment_name = f"Training and testing of Q-learning Agent. ID {args.experiment_id}"
         mlflow.set_experiment(experiment_name)
     elif args.testing:
         # Evaluate the agent performance
 
         # Mlflow experiment name        
-        experiment_name = "Testing of Q-learning Agent"
+        experiment_name = f"Testing of Q-learning Agent. ID {args.experiment_id}"
         mlflow.set_experiment(experiment_name)
 
 
