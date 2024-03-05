@@ -184,7 +184,7 @@ if __name__ == '__main__':
     actions_logger = logging.getLogger('q_agent')
     actions_logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    actions_handler = logging.FileHandler(os.path.join(args.logdir, "q_agent_actions.log"))
+    actions_handler = logging.FileHandler(os.path.join(args.logdir, "q_agent_actions.log"), mode="w")
     actions_handler.setLevel(logging.INFO)  
     actions_handler.setFormatter(formatter)
     actions_logger.addHandler(actions_handler)
