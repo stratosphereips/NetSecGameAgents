@@ -2,7 +2,6 @@ import sys
 from os import path
 import json
 import logging
-from typing import Union
 
 from openai import OpenAI
 from dotenv import dotenv_values
@@ -15,7 +14,6 @@ sys.path.append(
 )
 from env.game_components import (
     ActionType,
-    IP,
     Observation,
 )
 
@@ -24,7 +22,6 @@ sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
 from llm_utils import (
     create_action_from_response,
     create_status_from_state,
-    validate_action_in_state,
 )
 
 
