@@ -366,7 +366,14 @@ class InteractiveTUI(App):
         self.current_obs = next_observation
 
         if next_observation.end:
-            self.notify(f"You won! Total return: {self.returns}", timeout=10)
+            if next_observation.info["end_reason"] == "goal_reached":
+                self.notify(f"You won! Total return: {self.returns}", timeout=10)
+            else:
+                self.notify(
+                    f"You lost! Total return: {self.returns}",
+                    severity="error",
+                    timeout=10,
+                )
             self._clear_state()
 
     def update_tree(self, tree: Widget) -> None:
