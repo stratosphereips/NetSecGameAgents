@@ -400,7 +400,7 @@ if __name__ == '__main__':
                             test_std_max_steps_steps = np.std(test_num_max_steps_steps)
 
                             # store model
-                            if episode % args.store_models_everye == 0 and episode != 0:
+                            if episode % args.store_models_every == 0 and episode != 0:
                                 agent.store_q_table(args.previous_model + '-episodes-' + str(episode))
 
                         text = f'''Tested for {test_episode} episodes after {episode} training episode.
@@ -434,7 +434,7 @@ if __name__ == '__main__':
 
             
             # Log the last final episode when it ends
-            text = f'''Final training performance after {episode} episodes.
+            text = f'''Final model performance after {episode} episodes.
                 Wins={wins},
                 Detections={detected},
                 winrate={eval_win_rate:.3f}%,
