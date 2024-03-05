@@ -115,7 +115,9 @@ class InteractiveTUI(App):
 
     CSS_PATH = "layout.tcss"
 
-    def __init__(self, host: str, port: int, role: str, mode: str, llm: str):
+    def __init__(
+        self, host: str, port: int, role: str, mode: str, llm: str, memory_len: int
+    ):
         super().__init__()
         self.returns = 0
         self.next_action = None
@@ -128,6 +130,12 @@ class InteractiveTUI(App):
         self.agent.register()
         self.current_obs = self.agent.request_game_reset()
         self.mode = mode
+
+        # Keep track of the actions played previously
+        # and how many to send to the assistant for the prompt creation
+        self.memory_len = memory_len
+        self.memory_buf = []
+
         if llm != "None":
             self.model = llm
         else:
@@ -135,7 +143,7 @@ class InteractiveTUI(App):
 
         if self.model is not None:
             self.assistant = LLMAssistant(
-                self.model, self.current_obs.info["goal_description"], 10
+                self.model, self.current_obs.info["goal_description"]
             )
 
     def compose(self) -> ComposeResult:
@@ -335,13 +343,16 @@ class InteractiveTUI(App):
             action = self._move(self.current_obs.state)
 
             self.update_state(action)
+            self.memory_buf.append(action)
             # Take the first node of TreeState which contains the tree
             tree_state = self.query_one(TreeState)
             tree = tree_state.children[0]
             self.update_tree(tree)
         else:
             if self.model is not None:
-                act_str, _ = self.assistant.get_action_from_obs_react(self.current_obs)
+                act_str, _ = self.assistant.get_action_from_obs_react(
+                    self.current_obs, self.memory_buf[-self.memory_len :]
+                )
                 log.write_line(f"Assistant proposes: {act_str}")
             else:
                 log.write_line("No assistant is available at the moment.")
@@ -517,7 +528,7 @@ class InteractiveTUI(App):
             log.write_line(f"Random action: {str(action)}")
             logger.info(f"Random action due to error: {str(action)}")
 
-        log.write_line(f"Action to take: {str(action)}")
+        log.write_line(f"Action selected: {str(action)}")
         logger.info(f"User selected action: {str(action)}")
 
         return action
@@ -529,7 +540,7 @@ class InteractiveTUI(App):
 
     def _clear_state(self) -> None:
         """Reset the state and variables"""
-        logger.info(f"Reset the environment and state")
+        logger.info("Reset the environment and state")
         self.current_obs = self.agent.request_game_reset()
         self.assistant.update_instructions(self.current_obs.info["goal_description"])
         self.next_action = None
@@ -538,6 +549,7 @@ class InteractiveTUI(App):
         self.network_input = ""
         self.service_input = ""
         self.data_input = ""
+        self.memory_buf = []
 
         selectors = self.query(Select)
         for selector in selectors:
@@ -572,11 +584,14 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--llm",
-        choices=["gpt-4.5-turbo-preview", "gpt-3.5-turbo", "None"],
+        choices=["gpt-4-turbo-preview", "gpt-3.5-turbo", "None"],
         default="None",
     )
+    parser.add_argument("--memory_len", type=int, default=10)
     args = parser.parse_args()
 
     logger.info("Creating the agent")
-    app = InteractiveTUI(args.host, args.port, args.role, args.mode, args.llm)
+    app = InteractiveTUI(
+        args.host, args.port, args.role, args.mode, args.llm, args.memory_len
+    )
     app.run()

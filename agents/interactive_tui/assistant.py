@@ -112,7 +112,7 @@ class LLMAssistant:
         prompt = ""
         if len(memory_list) > 0:
             for memory in memory_list:
-                prompt += f'You have taken action {{"action":"{memory[0]}" with "parameters":"{memory[1]}"}} in the past.\n'
+                prompt += f"You have taken action {str(memory)} in the past.\n"
         return prompt
 
     def parse_response(self, llm_response: str, state: Observation.state):
@@ -134,7 +134,9 @@ class LLMAssistant:
         except:
             return llm_response, None
 
-    def get_action_from_obs_react(self, observation: Observation) -> tuple:
+    def get_action_from_obs_react(
+        self, observation: Observation, memory_buf: list
+    ) -> tuple:
         """
         Use the ReAct architecture for the assistant
         """
@@ -152,15 +154,14 @@ class LLMAssistant:
         self.logger.info(f"(Stage 1) Response from LLM: {response}")
 
         # Stage 2
-        # TODO: decide how we are going to keep track of the memories
-        # memory_prompt = self.create_mem_prompt(self.memories[-self.memory_len :])
+        memory_prompt = self.create_mem_prompt(memory_buf)
 
         messages = [
             {"role": "user", "content": self.instructions},
             {"role": "user", "content": status_prompt},
             {"role": "user", "content": COT_PROMPT},
             {"role": "user", "content": response},
-            # {"role": "user", "content": memory_prompt},
+            {"role": "user", "content": memory_prompt},
             {"role": "user", "content": Q4},
         ]
 
