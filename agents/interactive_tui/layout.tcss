@@ -25,3 +25,11 @@ Screen {
     border: solid green;
 }
 
+#act {
+    dock: left;
+    margin: 1;
+}
+
+#help {
+    margin: 1;
+}
