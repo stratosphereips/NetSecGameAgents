@@ -228,7 +228,7 @@ if __name__ == '__main__':
     observation = agent.register()
 
     try:
-        with mlflow.start_run(run_name=experiment_name + f'. ID {args.experiment_id}') as run:
+        with mlflow.start_run(run_name=experiment_name) as run:
             # To keep statistics of each episode
             wins = 0
             detected = 0
