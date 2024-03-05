@@ -288,7 +288,10 @@ if __name__ == '__main__':
                     num_max_steps_steps += [num_steps]
                     num_max_steps_returns += [reward]
 
-                agent._logger.info(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                if args.testing:
+                    agent._logger.info(f"Testing episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                elif not args.testing:
+                    agent._logger.info(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
 
                 # Reset the game
                 observation = agent.request_game_reset()
