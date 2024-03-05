@@ -39,10 +39,15 @@ class QAgent(BaseAgent):
             pickle.dump(data, f)
 
     def load_q_table(self,filename):
-        with open(filename, "rb") as f:
-            data = pickle.load(f)
-            self.q_values = data["q_table"]
-            self._str_to_id = data["state_mapping"]
+        try:
+            with open(filename, "rb") as f:
+                data = pickle.load(f)
+                self.q_values = data["q_table"]
+                self._str_to_id = data["state_mapping"]
+            self.logger.info(f'Successfully loading file {filename}')
+        except Exception as e:
+            self.logger.info(f'Error loading file {filename}. {e}')
+            sys.exit(-1)
 
     def get_state_id(self, state:GameState) -> int:
         state_str = state_as_ordered_string(state)
