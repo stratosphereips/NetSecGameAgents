@@ -39,10 +39,15 @@ class QAgent(BaseAgent):
             pickle.dump(data, f)
 
     def load_q_table(self,filename):
-        with open(filename, "rb") as f:
-            data = pickle.load(f)
-            self.q_values = data["q_table"]
-            self._str_to_id = data["state_mapping"]
+        try:
+            with open(filename, "rb") as f:
+                data = pickle.load(f)
+                self.q_values = data["q_table"]
+                self._str_to_id = data["state_mapping"]
+            self.logger.info(f'Successfully loading file {filename}')
+        except Exception as e:
+            self.logger.info(f'Error loading file {filename}. {e}')
+            sys.exit(-1)
 
     def get_state_id(self, state:GameState) -> int:
         state_str = state_as_ordered_string(state)
@@ -117,10 +122,10 @@ class QAgent(BaseAgent):
         """
         The main function for the gameplay. Handles the main interaction loop.
         """
-        returns = []
+        #returns = []
         num_steps = 0
         for episode in range(num_episodes):
-            episodic_rewards = []
+            #episodic_rewards = []
             while observation and not observation.end:
                 # Store steps so far
                 num_steps += 1
@@ -136,7 +141,7 @@ class QAgent(BaseAgent):
                 # Recompute the rewards
                 observation = self.recompute_reward(observation)
                 # Store the reward of the next observation
-                episodic_rewards.append(observation.reward)
+                #episodic_rewards.append(observation.reward)
                 if args.store_actions:
                     agent._logger.error(f"\t\t Reward:{observation.reward}")
                 if not testing:
@@ -145,7 +150,7 @@ class QAgent(BaseAgent):
                 # Copy the last observation so we can return it and avoid the empty observation after the reset
                 last_observation = observation
             # Sum all episodic returns 
-            returns.append(np.sum(episodic_rewards))
+            #returns.append(np.sum(episodic_rewards))
             # Reset the episode
             if args.store_actions:
                 actions_logger.info(f"\t State:{observation.state}")
@@ -169,11 +174,12 @@ if __name__ == '__main__':
     parser.add_argument("--gamma", help="Sets gamma discount for Q-learing during training.", default=0.9, type=float)
     parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
-    parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", default='./q_agent_marl.pickle', type=str)
+    parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", type=str)
     parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=5000, type=int)
+    parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=True, type=str)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
@@ -184,7 +190,7 @@ if __name__ == '__main__':
     actions_logger = logging.getLogger('q_agent')
     actions_logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    actions_handler = logging.FileHandler(os.path.join(args.logdir, "q_agent_actions.log"))
+    actions_handler = logging.FileHandler(os.path.join(args.logdir, "q_agent_actions.log"), mode="w")
     actions_handler.setLevel(logging.INFO)  
     actions_handler.setFormatter(formatter)
     actions_logger.addHandler(actions_handler)
@@ -206,13 +212,13 @@ if __name__ == '__main__':
 
     if not args.testing:
         # Mlflow experiment name        
-        experiment_name = "Training and testing of Q-learning Agent"
+        experiment_name = f"Training and Eval of Q-learning Agent"
         mlflow.set_experiment(experiment_name)
     elif args.testing:
         # Evaluate the agent performance
 
         # Mlflow experiment name        
-        experiment_name = "Testing of Q-learning Agent"
+        experiment_name = f"Testing of Q-learning Agent"
         mlflow.set_experiment(experiment_name)
 
 
@@ -244,7 +250,8 @@ if __name__ == '__main__':
             mlflow.set_tag("experiment_name", experiment_name)
             # Log notes or additional information
             mlflow.set_tag("notes", "This is an evaluation")
-            mlflow.set_tag("Previous q-learning model loaded", str(args.previous_model))
+            if args.previous_model:
+                mlflow.set_tag("Previous q-learning model loaded", str(args.previous_model))
             mlflow.log_param("alpha", args.alpha)
             mlflow.log_param("epsilon_start", args.epsilon_start)
             mlflow.log_param("epsilon_end", args.epsilon_end)
@@ -262,6 +269,8 @@ if __name__ == '__main__':
             agent._logger.info(f'Using commits. NetSecEnv: {netsecenv_git_result}. Agents: {agents_git_result}')
             mlflow.set_tag("NetSecEnv commit", netsecenv_git_result)
             mlflow.set_tag("Agents commit", agents_git_result)
+            # Log the env conf
+            mlflow.log_artifact(args.env_conf)
             agent._logger.info(f'Epsilon Start: {agent.epsilon_start}')
             agent._logger.info(f'Epsilon End: {agent.epsilon_end}')
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
@@ -288,7 +297,10 @@ if __name__ == '__main__':
                     num_max_steps_steps += [num_steps]
                     num_max_steps_returns += [reward]
 
-                agent._logger.info(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                if args.testing:
+                    agent._logger.info(f"Testing episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                elif not args.testing:
+                    agent._logger.info(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
 
                 # Reset the game
                 observation = agent.request_game_reset()
@@ -396,9 +408,12 @@ if __name__ == '__main__':
                             test_average_max_steps_steps = np.mean(test_num_max_steps_steps)
                             test_std_max_steps_steps = np.std(test_num_max_steps_steps)
 
-                            # store model
-                            if episode % args.store_models_everye == 0 and episode != 0:
-                                agent.store_q_table(args.previous_model + '-episodes-' + str(episode))
+                            # store model. Use episode (training counter) and not test_episode (test counter)
+                            if episode % args.store_models_every == 0 and episode != 0:
+                                if args.previous_model:
+                                    agent.store_q_table(f'{args.previous_model}.experiment{args.experiment_id}-episodes-{episode}.pickle')
+                                else:
+                                    agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')
 
                         text = f'''Tested for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
@@ -431,7 +446,7 @@ if __name__ == '__main__':
 
             
             # Log the last final episode when it ends
-            text = f'''Final training performance after {episode} episodes.
+            text = f'''Final model performance after {episode} episodes.
                 Wins={wins},
                 Detections={detected},
                 winrate={eval_win_rate:.3f}%,
@@ -453,8 +468,14 @@ if __name__ == '__main__':
         # Store the q-table
         # Just in case...
         if not args.testing:
-            agent.store_q_table(args.previous_model)
+            if args.previous_model:
+                agent.store_q_table(args.previous_model)
+            else:
+                agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}.pickle')
     finally:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(args.previous_model)
+            if args.previous_model:
+                agent.store_q_table(args.previous_model)
+            else:
+                agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}.pickle')
