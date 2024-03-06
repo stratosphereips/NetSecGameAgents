@@ -174,7 +174,7 @@ if __name__ == '__main__':
     parser.add_argument("--gamma", help="Sets gamma discount for Q-learing during training.", default=0.9, type=float)
     parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
-    parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", default='./q_agent_marl.pickle', type=str)
+    parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", default='', type=str)
     parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
@@ -211,7 +211,7 @@ if __name__ == '__main__':
 
     if not args.testing:
         # Mlflow experiment name        
-        experiment_name = f"Training and testing of Q-learning Agent. ID {args.experiment_id}"
+        experiment_name = f"Training and Eval of Q-learning Agent. ID {args.experiment_id}"
         mlflow.set_experiment(experiment_name)
     elif args.testing:
         # Evaluate the agent performance
