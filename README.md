@@ -44,9 +44,8 @@ Utility functions in [agent_utils.py](./agents/agent_utils.py) can be used by an
 ## About us
 This code was developed at the [Stratosphere Laboratory at the Czech Technical University in Prague](https://www.stratosphereips.org/).
 
-# To see the results of mlflow
-
-## Locally
+## How to visualize the results of mlflow
+### Locally
 
 1. export MLFLOW_TRACKING_URI=sqlite:///mlruns.db
 2. Then run the agent code
