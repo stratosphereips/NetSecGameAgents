@@ -174,7 +174,7 @@ if __name__ == '__main__':
     parser.add_argument("--gamma", help="Sets gamma discount for Q-learing during training.", default=0.9, type=float)
     parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
-    parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", default='', type=str)
+    parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", type=str)
     parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
@@ -249,7 +249,8 @@ if __name__ == '__main__':
             mlflow.set_tag("experiment_name", experiment_name)
             # Log notes or additional information
             mlflow.set_tag("notes", "This is an evaluation")
-            mlflow.set_tag("Previous q-learning model loaded", str(args.previous_model))
+            if args.previous_model:
+                mlflow.set_tag("Previous q-learning model loaded", str(args.previous_model))
             mlflow.log_param("alpha", args.alpha)
             mlflow.log_param("epsilon_start", args.epsilon_start)
             mlflow.log_param("epsilon_end", args.epsilon_end)
