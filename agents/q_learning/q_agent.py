@@ -405,9 +405,12 @@ if __name__ == '__main__':
                             test_average_max_steps_steps = np.mean(test_num_max_steps_steps)
                             test_std_max_steps_steps = np.std(test_num_max_steps_steps)
 
-                            # store model
+                            # store model. Use episode (training counter) and not test_episode (test counter)
                             if episode % args.store_models_every == 0 and episode != 0:
-                                agent.store_q_table(args.previous_model + '-episodes-' + str(episode))
+                                if args.previous_model:
+                                    agent.store_q_table(f'{args.previous_model}.experiment{args.experiment_id}-episodes-{episode}.pickle')
+                                else:
+                                    agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')
 
                         text = f'''Tested for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
@@ -462,8 +465,14 @@ if __name__ == '__main__':
         # Store the q-table
         # Just in case...
         if not args.testing:
-            agent.store_q_table(args.previous_model)
+            if args.previous_model:
+                agent.store_q_table(args.previous_model)
+            else:
+                agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}.pickle')
     finally:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(args.previous_model)
+            if args.previous_model:
+                agent.store_q_table(args.previous_model)
+            else:
+                agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}.pickle')
