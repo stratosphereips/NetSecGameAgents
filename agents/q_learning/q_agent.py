@@ -122,10 +122,10 @@ class QAgent(BaseAgent):
         """
         The main function for the gameplay. Handles the main interaction loop.
         """
-        returns = []
+        #returns = []
         num_steps = 0
         for episode in range(num_episodes):
-            episodic_rewards = []
+            #episodic_rewards = []
             while observation and not observation.end:
                 # Store steps so far
                 num_steps += 1
@@ -141,7 +141,7 @@ class QAgent(BaseAgent):
                 # Recompute the rewards
                 observation = self.recompute_reward(observation)
                 # Store the reward of the next observation
-                episodic_rewards.append(observation.reward)
+                #episodic_rewards.append(observation.reward)
                 if args.store_actions:
                     agent._logger.error(f"\t\t Reward:{observation.reward}")
                 if not testing:
@@ -150,7 +150,7 @@ class QAgent(BaseAgent):
                 # Copy the last observation so we can return it and avoid the empty observation after the reset
                 last_observation = observation
             # Sum all episodic returns 
-            returns.append(np.sum(episodic_rewards))
+            #returns.append(np.sum(episodic_rewards))
             # Reset the episode
             if args.store_actions:
                 actions_logger.info(f"\t State:{observation.state}")
