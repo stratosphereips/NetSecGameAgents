@@ -179,6 +179,7 @@ if __name__ == '__main__':
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=5000, type=int)
+    parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=True, type=str)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
@@ -211,13 +212,13 @@ if __name__ == '__main__':
 
     if not args.testing:
         # Mlflow experiment name        
-        experiment_name = f"Training and Eval of Q-learning Agent. ID {args.experiment_id}"
+        experiment_name = f"Training and Eval of Q-learning Agent"
         mlflow.set_experiment(experiment_name)
     elif args.testing:
         # Evaluate the agent performance
 
         # Mlflow experiment name        
-        experiment_name = f"Testing of Q-learning Agent. ID {args.experiment_id}"
+        experiment_name = f"Testing of Q-learning Agent"
         mlflow.set_experiment(experiment_name)
 
 
@@ -233,7 +234,7 @@ if __name__ == '__main__':
     observation = agent.register()
 
     try:
-        with mlflow.start_run(run_name=experiment_name) as run:
+        with mlflow.start_run(run_name=experiment_name + f'. ID {args.experiment_id}') as run:
             # To keep statistics of each episode
             wins = 0
             detected = 0
