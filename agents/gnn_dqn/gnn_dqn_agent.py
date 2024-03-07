@@ -98,10 +98,10 @@ class GnnDQNAgent(BaseAgent):
             # greedy action
             return self.actions[np.argmax(tf.squeeze(self._model(self.state_to_graph_tensor(state))))]
 
-    def _make_training_step(self, inputs,actions, y_true)->None:
+    def _make_training_step(self, inputs, actions, y_true)->None:
         #perform training step
         with tf.GradientTape() as tape:
-            y_hat, node_emb = self.predict(inputs, training=True)[actions]
+            y_hat, node_emb = self._model(inputs, training=True)[actions]
             mse = tf.keras.losses.MeanSquaredError()
             loss = mse(y_true, y_hat)
         grads = tape.gradient(loss, self._model.trainable_weights)
