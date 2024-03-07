@@ -54,4 +54,6 @@ The qlearning agent has its own recomputation of inner reward. This means that i
   - 1000 for the goal
   - -1000 for detection
 
+## Actions Choosing
+All agents choose which actions can be done on each state, so only the possible actions are selected. This allows for a 'continually' growing q-table without the need to know all the possible actions in advance. Now we even filter that an action in a private IP or Net can only be done from a private IP or Net. So no trying to scan ports in a local private IP from a public one (which would never work).
 
