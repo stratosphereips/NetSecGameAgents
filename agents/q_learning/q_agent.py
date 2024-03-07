@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
 # with the path fixed, we can import now
 from env.game_components import Action, Observation, GameState
 from base_agent import BaseAgent
-from agent_utils import generate_valid_actions, state_as_ordered_string
+from agent_utils import generate_valid_actions, state_as_ordered_string, convert_concepts_to_ips, convert_ips_to_concepts
 import mlflow
 import subprocess
 
@@ -118,48 +118,43 @@ class QAgent(BaseAgent):
         new_observation = Observation(state, reward, end, info)
         return new_observation
 
-    def play_game(self, observation, episode_num, num_episodes=1, testing=False):
+    def play_game(self, observation, episode_num, testing=False):
         """
         The main function for the gameplay. Handles the main interaction loop.
         """
+        # Convert the observation into independent of specific IPs
+        observation = convert_ips_to_concepts(observation, agent._logger)
         #returns = []
         num_steps = 0
-        for episode in range(num_episodes):
-            #episodic_rewards = []
-            while observation and not observation.end:
-                # Store steps so far
-                num_steps += 1
-                # Get next_action. If we are not training, selection is different, so pass it
-                action, state_id = self.select_action(observation, episode_num, testing)
-                if args.store_actions:
-                    actions_logger.info(f"\t State:{observation.state}")
-                    actions_logger.info(f"\t End:{observation.end}")
-                    actions_logger.info(f"\t Info:{observation.info}")
-                    actions_logger.info(f"\t\t Action:{action}")
-                # Perform the action and observe next observation
-                observation = self.make_step(action)
-                # Recompute the rewards
-                observation = self.recompute_reward(observation)
-                # Store the reward of the next observation
-                #episodic_rewards.append(observation.reward)
-                if args.store_actions:
-                    agent._logger.error(f"\t\t Reward:{observation.reward}")
-                if not testing:
-                    # If we are training update the Q-table
-                    self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
-                # Copy the last observation so we can return it and avoid the empty observation after the reset
-                last_observation = observation
-            # Sum all episodic returns 
-            #returns.append(np.sum(episodic_rewards))
-            # Reset the episode
+        while not observation.end:
+            # Store steps so far
+            num_steps += 1
+            # Get next_action. If we are not training, selection is different, so pass it
+            action, state_id = self.select_action(observation, episode_num, testing)
             if args.store_actions:
                 actions_logger.info(f"\t State:{observation.state}")
                 actions_logger.info(f"\t End:{observation.end}")
                 actions_logger.info(f"\t Info:{observation.info}")
-            observation = self.request_game_reset()
-        #agent._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
+                actions_logger.info(f"\t\t Action:{action}")
+            # Convert the action on a concept to the action in IPs
+            action = convert_concepts_to_ips(action, agent._logger)
+            # Perform the action and observe next observation
+            observation = self.make_step(action)
+            # Recompute the rewards
+            observation = self.recompute_reward(observation)
+            if args.store_actions:
+                agent._logger.error(f"\t\t Reward:{observation.reward}")
+            if not testing:
+                # If we are training update the Q-table
+                self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
+        if args.store_actions:
+            actions_logger.info(f"\t State:{observation.state}")
+            actions_logger.info(f"\t End:{observation.end}")
+            actions_logger.info(f"\t Info:{observation.info}")
+        # Reset the episode
+        _ = self.request_game_reset()
         # This will be the last observation played before the reset
-        return (last_observation, num_steps)
+        return (observation, num_steps)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
@@ -277,7 +272,7 @@ if __name__ == '__main__':
 
             for episode in range(1, args.episodes + 1):
                 # Play 1 episode
-                observation, num_steps = agent.play_game(observation, num_episodes=1, testing=args.testing, episode_num=episode)       
+                observation, num_steps = agent.play_game(observation, testing=args.testing, episode_num=episode)       
 
                 state = observation.state
                 reward = observation.reward
@@ -370,7 +365,7 @@ if __name__ == '__main__':
                             # Play 1 episode
                             # See that we force the model to freeze by telling it that it is in 'testing' mode.
                             # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
-                            test_observation, test_num_steps = agent.play_game(observation, num_episodes=1, testing=True, episode_num=episode)       
+                            test_observation, test_num_steps = agent.play_game(observation, testing=True, episode_num=episode)       
 
                             test_state = test_observation.state
                             test_reward = test_observation.reward
