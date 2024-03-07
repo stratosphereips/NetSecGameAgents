@@ -1,14 +1,14 @@
 import argparse
 import pickle
 
-q_values = {}
-states = {}
+#q_values = {}
+#states = {}
 
-def load_q_table(filename):
+def load_q_table():
     global q_values
     global states
-    print(f'Loading file {filename}')
-    with open(filename, "rb") as f:
+    print(f'Loading file {args.file}')
+    with open(args.file, "rb") as f:
         data = pickle.load(f)
         q_values = data["q_table"]
         states = data["state_mapping"]
@@ -28,5 +28,6 @@ if __name__ == '__main__':
     parser.add_argument("--state_id", help="ID of the state to print", default=0, required=False, type=int)
     args = parser.parse_args()
 
-    load_q_table(args.file)
+    load_q_table()
+
     show_q_table()
