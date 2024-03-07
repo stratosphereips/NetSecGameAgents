@@ -80,8 +80,8 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action] = 0
             return action, state_id
         else: 
-            # We are training
-            # Select the action with highest q_value
+            # Here we can be during training outside the e-greede, or during testing
+            # Select the action with highest q_value, or random pick to break the ties
             # The default initial q-value for a (state, action) pair is 0.
             initial_q_value = 0
             tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
@@ -405,10 +405,7 @@ if __name__ == '__main__':
 
                             # store model. Use episode (training counter) and not test_episode (test counter)
                             if episode % args.store_models_every == 0 and episode != 0:
-                                if args.previous_model:
-                                    agent.store_q_table(f'{args.previous_model}.experiment{args.experiment_id}-episodes-{episode}.pickle')
-                                else:
-                                    agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')
+                                agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')
 
                         text = f'''Tested for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
@@ -463,14 +460,8 @@ if __name__ == '__main__':
         # Store the q-table
         # Just in case...
         if not args.testing:
-            if args.previous_model:
-                agent.store_q_table(args.previous_model)
-            else:
-                agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}.pickle')
+            agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}.pickle')
     finally:
         # Store the q-table
         if not args.testing:
-            if args.previous_model:
-                agent.store_q_table(args.previous_model)
-            else:
-                agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}.pickle')
+            agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}.pickle')
