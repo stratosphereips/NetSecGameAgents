@@ -179,7 +179,7 @@ if __name__ == '__main__':
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=5000, type=int)
-    parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=True, type=str)
+    parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
