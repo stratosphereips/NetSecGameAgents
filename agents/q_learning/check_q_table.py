@@ -14,6 +14,7 @@ def load_q_table():
         data = pickle.load(f)
         q_values = data["q_table"]
         states = data["state_mapping"]
+    print(f'Len of qtable: {len(q_values)}')
 
 def show_q_table():
     """
