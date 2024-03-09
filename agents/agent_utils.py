@@ -5,11 +5,13 @@ directly in the agent class.
 
 author: Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 """
+import random
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname( os.path.abspath(__file__) )))
 #with the path fixed, we can import now
-from env.game_components import Action, ActionType, GameState, Observation
+from env.game_components import Action, ActionType, GameState, Observation, Data, IP, Network
+import ipaddress
 
 def generate_valid_actions(state: GameState)->list:
     """Function that generates a list of all valid actions in a given state"""
@@ -95,13 +97,18 @@ def convert_ips_to_concepts(observation, logger):
     Function to convert the IPs and networks in the observation into a concept 
     so the agent is not dependent on IPs and specific values
     in: observation with IPs
-    out: observation with concepts
+    out: observation with concepts, dict with concept_mapping
     """
     new_observation = None
     state = observation.state
     reward = observation.reward
     end = observation.end
     info = observation.info
+
+    # Here we keep the mapping of concepts to values
+    concept_mapping = {'controlled_hosts': {}, 'known_hosts': {}, 'known_services': {}, 'known_data': {}, 'known_networks': {}}
+
+    # {192.168.1.2: {Data(owner='User2', id='Data2FromServer1'), Data(owner='User1', id='DataFromServer1'), Data(owner='User1', id='Data3FromServer1')}, 213.47.23.195: {Data(owner='User1', id='DataFromServer1')}}
 
     # state.controlled_hosts
     # state.known_hosts
@@ -110,15 +117,61 @@ def convert_ips_to_concepts(observation, logger):
     # state.known_networks
     #logger.info(f'IPS-CONCEPT: Received obs with CH: {state.controlled_hosts}, KH: {state.known_hosts}, KS: {state.known_services}, KD: {state.known_data}, NETs:{state.known_networks}')
 
-    new_observation = Observation(state, reward, end, info)
-    return new_observation
+    state_networks = {}
+    my_networks = []
+    unknown_networks = []
+    #logger.info(f'\tI2C: state known networks: {state.known_networks}')
+    for network in state.known_networks:
+        net_assigned = False
+        #logger.info(f'\tI2C: Trying to convert network {network}. NetIP:{network.ip}. NetMask: {network.mask}')
+        for controlled_ip in state.controlled_hosts:
+            #logger.info(f'\t\tI2C: Checking with ip {controlled_ip}')
+            if ipaddress.IPv4Address(controlled_ip.ip) in ipaddress.IPv4Network(f'{network.ip}/{network.mask}'):
+                #logger.info(f'\t\tI2C: Controlled IP {controlled_ip} is in network {network}. So mynet.')
+                my_networks.append(network)
+                net_assigned = True
+                break
+        if net_assigned:
+            continue
+        # Still we didnt assigned this net, so unknown
+        #logger.info(f'\t\tI2C: It was not my net, so unknown: {network}')
+        unknown_networks.append(network)
 
-def convert_concepts_to_ips(action, logger):
+    my_nets = Network('mynet', 24)
+    unknown_nets = Network('unknown', 24)
+    concept_mapping['known_networks'][my_nets] = my_networks
+    concept_mapping['known_networks'][unknown_nets] = unknown_networks
+    state_networks = {net for net in concept_mapping['known_networks']}
+
+    new_state = GameState(state.controlled_hosts, state.known_hosts, state.known_services, state.known_data, state_networks)
+    new_observation = Observation(new_state, reward, end, info)
+    return new_observation, concept_mapping
+
+def convert_concepts_to_actions(action, concept_mapping, logger):
     """
     Function to convert the concepts learned before into IPs and networks
     so the env knows where to really act
     in: action for concepts
     out: action for IPs
     """
-    #logger.info(f'CONCEPT-ACTION: Received action with ')
+    #logger.info(f'C2IP: Action to deal with: {action}')
+    #logger.info(f'\tC2IP: Action type: {action._type}')
+    if action._type == ActionType.ExploitService:
+        pass
+    elif action._type == ActionType.ExfiltrateData:
+        pass
+    elif action._type == ActionType.FindData:
+        pass
+    elif action._type == ActionType.ScanNetwork:
+        #known_networks = concept_mapping['known_networks']
+        target_net = action.parameters['target_network']
+        for net in concept_mapping['known_networks']:
+            if target_net == net:
+                new_target_network = random.choice(concept_mapping['known_networks'][net])
+                break
+        new_src_host = action.parameters['source_host']
+        action = Action(ActionType.ScanNetwork, params={"source_host": new_src_host, "target_network": new_target_network} )
+    elif action._type == ActionType.FindServices:
+        pass
+
     return action
