@@ -91,7 +91,6 @@ def recompute_reward(self, observation: Observation) -> Observation:
     new_observation = Observation(GameState.from_dict(state), reward, end, info)
     return new_observation
 
-
 def convert_ips_to_concepts(observation, logger):
     """
     Function to convert the IPs and networks in the observation into a concept 
@@ -117,30 +116,68 @@ def convert_ips_to_concepts(observation, logger):
     # state.known_networks
     #logger.info(f'IPS-CONCEPT: Received obs with CH: {state.controlled_hosts}, KH: {state.known_hosts}, KS: {state.known_services}, KD: {state.known_data}, NETs:{state.known_networks}')
 
-    state_networks = {}
-    my_networks = []
-    unknown_networks = []
-    #logger.info(f'\tI2C: state known networks: {state.known_networks}')
+
+    # The set for my networks. Networks here you control a host
+    my_networks = set()
+    # The index object
+    my_nets = Network('mynet', 24)
+
+    # The set
+    unknown_networks = set()
+    # The index object
+    unknown_nets = Network('unknown', 24)
+
+    logger.info(f'\tI2C: state known networks: {state.known_networks}')
     for network in state.known_networks:
+        # net_assigned is only to speed up the process when a network has been added because the agent
+        # controlls a host there, or two.
         net_assigned = False
-        #logger.info(f'\tI2C: Trying to convert network {network}. NetIP:{network.ip}. NetMask: {network.mask}')
+        logger.info(f'\tI2C: Trying to convert network {network}. NetIP:{network.ip}. NetMask: {network.mask}')
+
+        # Find the mynet networks
         for controlled_ip in state.controlled_hosts:
-            #logger.info(f'\t\tI2C: Checking with ip {controlled_ip}')
+            logger.info(f'\t\tI2C: Checking with ip {controlled_ip}')
             if ipaddress.IPv4Address(controlled_ip.ip) in ipaddress.IPv4Network(f'{network.ip}/{network.mask}'):
-                #logger.info(f'\t\tI2C: Controlled IP {controlled_ip} is in network {network}. So mynet.')
-                my_networks.append(network)
+                logger.info(f'\t\tI2C: Controlled IP {controlled_ip} is in network {network}. So mynet.')
+                my_networks.add(network)
                 net_assigned = True
                 break
+        # If this network was assigned to mynet, dont try to assign it again
         if net_assigned:
             continue
-        # Still we didnt assigned this net, so unknown
-        #logger.info(f'\t\tI2C: It was not my net, so unknown: {network}')
-        unknown_networks.append(network)
+        # Store mynets
+        concept_mapping['known_networks'][my_nets] = my_networks
 
-    my_nets = Network('mynet', 24)
-    unknown_nets = Network('unknown', 24)
-    concept_mapping['known_networks'][my_nets] = my_networks
-    concept_mapping['known_networks'][unknown_nets] = unknown_networks
+        # Find if we know hosts in this network, if we do, assign new name
+        # and remove from unknown
+        for known_host in state.known_hosts:
+            number_hosts = 0
+            if ipaddress.IPv4Address(known_host.ip) in ipaddress.IPv4Network(f'{network.ip}/{network.mask}'):
+                # There are hosts we know in this network
+                number_hosts += 1
+        if number_hosts:
+            # The index
+            new_net = Network('net' + str(number_hosts), 24)
+            try:
+                # Did we have any?
+                net_with_hosts = concept_mapping['known_networks'][new_net]
+            except KeyError:
+                net_with_hosts = set()
+
+            net_with_hosts.add(network)
+            concept_mapping['known_networks'][new_net] = net_with_hosts
+            # Remove from unknowns
+            concept_mapping['known_networks']['unknown/24'].discard(network)
+            # Continue with next net
+            continue
+
+        # Still we didnt assigned this net, so unknown
+        logger.info(f'\t\tI2C: It was not my net, so unknown: {network}')
+        unknown_networks.add(network)
+        # Store unknown nets
+        concept_mapping['known_networks'][unknown_nets] = unknown_networks
+        # In the future we can lost a controlling host in  a net, so if we add it to unknown, delete from other groups
+
     state_networks = {net for net in concept_mapping['known_networks']}
 
     new_state = GameState(state.controlled_hosts, state.known_hosts, state.known_services, state.known_data, state_networks)
