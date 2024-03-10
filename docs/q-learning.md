@@ -43,9 +43,10 @@ Now we send to mlflow
 - For each run of training, many metrics.
 - For each run of testing, many metrics.
 - The configuration file of the environment used, so to remember which game we played.
+- The file of the configuration of the environment used in the game as artifact. So we know the exact parameters of the game played. This file belongs to the env, so it may not be available to the agent. This file is only used here as documentation.
 
 ## Check of q-table
-There is a small python file, called `check_q_table.py` that can be used to check the content of the q-table to see if the values make sense.
+There is a small python file, called `check_q_table.py` that can be used to check the content of the q-table to see if the values make sense. It can print many states, all actions or the top one, in colors.
 
 ## Inner reward
 The qlearning agent has its own recomputation of inner reward. This means that it assigns special rewards to certain events to help learning. The current ones are:
@@ -56,4 +57,9 @@ The qlearning agent has its own recomputation of inner reward. This means that i
 
 ## Actions Choosing
 All agents choose which actions can be done on each state, so only the possible actions are selected. This allows for a 'continually' growing q-table without the need to know all the possible actions in advance. Now we even filter that an action in a private IP or Net can only be done from a private IP or Net. So no trying to scan ports in a local private IP from a public one (which would never work).
+
+## Conceptual Agent
+In the current version the qlearning agent implements an early stage of conceptual learning. We implemented a function that translates the observation comming from the env to concepts that are general and not dependent on the IPv4 Network octets. So now it doesnt matter the exact network where the agent is playing, it will still learn to win.
+
+For now we only translate Netorks and not IPs.
 
