@@ -127,31 +127,31 @@ def convert_ips_to_concepts(observation, logger):
     # The index object
     unknown_nets = Network('unknown', 24)
 
-    logger.info(f'\tI2C: state known networks: {state.known_networks}')
+    #logger.info(f'\tI2C: state known networks: {state.known_networks}')
     for network in state.known_networks:
         # net_assigned is only to speed up the process when a network has been added because the agent
         # controlls a host there, or two.
         net_assigned = False
-        logger.info(f'\tI2C: Trying to convert network {network}. NetIP:{network.ip}. NetMask: {network.mask}')
+        #logger.info(f'\tI2C: Trying to convert network {network}. NetIP:{network.ip}. NetMask: {network.mask}')
 
         # Find the mynet networks
         for controlled_ip in state.controlled_hosts:
-            logger.info(f'\t\tI2C: Checking with ip {controlled_ip}')
+            #logger.info(f'\t\tI2C: Checking with ip {controlled_ip}')
             if ipaddress.IPv4Address(controlled_ip.ip) in ipaddress.IPv4Network(f'{network.ip}/{network.mask}'):
-                logger.info(f'\t\tI2C: Controlled IP {controlled_ip} is in network {network}. So mynet.')
+                #logger.info(f'\t\tI2C: Controlled IP {controlled_ip} is in network {network}. So mynet.')
                 my_networks.add(network)
                 net_assigned = True
+                # Store mynets
+                concept_mapping['known_networks'][my_nets] = my_networks
                 break
         # If this network was assigned to mynet, dont try to assign it again
         if net_assigned:
             continue
-        # Store mynets
-        concept_mapping['known_networks'][my_nets] = my_networks
 
         # Find if we know hosts in this network, if we do, assign new name
         # and remove from unknown
+        number_hosts = 0
         for known_host in state.known_hosts:
-            number_hosts = 0
             if ipaddress.IPv4Address(known_host.ip) in ipaddress.IPv4Network(f'{network.ip}/{network.mask}'):
                 # There are hosts we know in this network
                 number_hosts += 1
@@ -167,12 +167,16 @@ def convert_ips_to_concepts(observation, logger):
             net_with_hosts.add(network)
             concept_mapping['known_networks'][new_net] = net_with_hosts
             # Remove from unknowns
-            concept_mapping['known_networks']['unknown/24'].discard(network)
+            try:
+                unknowns = concept_mapping['known_networks']['unknown/24']
+                unknowns.discard(network)
+            except KeyError:
+                pass
             # Continue with next net
             continue
 
         # Still we didnt assigned this net, so unknown
-        logger.info(f'\t\tI2C: It was not my net, so unknown: {network}')
+        #logger.info(f'\t\tI2C: It was not my net, so unknown: {network}')
         unknown_networks.add(network)
         # Store unknown nets
         concept_mapping['known_networks'][unknown_nets] = unknown_networks
@@ -204,7 +208,7 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
         target_net = action.parameters['target_network']
         for net in concept_mapping['known_networks']:
             if target_net == net:
-                new_target_network = random.choice(concept_mapping['known_networks'][net])
+                new_target_network = random.choice(list(concept_mapping['known_networks'][net]))
                 break
         new_src_host = action.parameters['source_host']
         action = Action(ActionType.ScanNetwork, params={"source_host": new_src_host, "target_network": new_target_network} )
