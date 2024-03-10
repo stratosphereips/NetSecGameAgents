@@ -33,7 +33,9 @@ def generate_valid_actions(state: GameState)->list:
             # Only exploit local services from local hosts
             if host.is_private() and src_host.is_private():
                 for service in service_list:
-                    valid_actions.add(Action(ActionType.ExploitService, params={"target_host": host,"target_service": service,"source_host": src_host,}))
+                    # Do not consider local services, which are internal to the host
+                    if not service.is_local:
+                        valid_actions.add(Action(ActionType.ExploitService, params={"target_host": host,"target_service": service,"source_host": src_host,}))
     # Data Scans
     for host in state.controlled_hosts:
         valid_actions.add(Action(ActionType.FindData, params={"target_host": host, "source_host": host}))
