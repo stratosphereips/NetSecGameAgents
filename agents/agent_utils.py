@@ -100,6 +100,20 @@ def convert_ips_to_concepts(observation, logger):
     in: observation with IPs
     out: observation with concepts, dict with concept_mapping
     """
+    #logger.info(f'IPS-CONCEPT: Received obs with CH: {state.controlled_hosts}, KH: {state.known_hosts}, KS: {state.known_services}, KD: {state.known_data}, NETs:{state.known_networks}')
+    # state.controlled_hosts
+    # state.known_hosts
+    # state.known_data
+    # state.known_networks
+
+    # state.known_services = {'ip': Service}
+    # Service
+        # service.name 'openssh' (what in the configuration is 'type'). The service name is derived from the nmap services https://svn.nmap.org/nmap/nmap-services
+        # service.type 'passive' | 'active' (This is added by our env when finding the )
+        # service.version : '1.1.1.'
+        # service.is_local: Bool
+        
+
     new_observation = None
     state = observation.state
     reward = observation.reward
@@ -109,15 +123,75 @@ def convert_ips_to_concepts(observation, logger):
     # Here we keep the mapping of concepts to values
     concept_mapping = {'controlled_hosts': {}, 'known_hosts': {}, 'known_services': {}, 'known_data': {}, 'known_networks': {}}
 
-    # {192.168.1.2: {Data(owner='User2', id='Data2FromServer1'), Data(owner='User1', id='DataFromServer1'), Data(owner='User1', id='Data3FromServer1')}, 213.47.23.195: {Data(owner='User1', id='DataFromServer1')}}
+    # Hosts
 
-    # state.controlled_hosts
-    # state.known_hosts
-    # state.known_services
-    # state.known_data
-    # state.known_networks
-    #logger.info(f'IPS-CONCEPT: Received obs with CH: {state.controlled_hosts}, KH: {state.known_hosts}, KS: {state.known_services}, KD: {state.known_data}, NETs:{state.known_networks}')
+    # Host are separated according to their services. So we only do the separation if they have services, if not, just all together.
+    # The concept of type of hosts comes from the type of data they may have inside
+    db_hosts_words = ['sql', 'dbase', 'mongo', 'redis', 'database']
+    db_hosts = set()
+    db_hosts_idx = IP('db')
+    web_hosts_words = ['http', 'web']
+    web_hosts = set()
+    web_hosts_idx = IP('web')
+    remote_hosts_words = ['ssh', 'telnet', 'ms-wbt-server', 'remote', 'shell']
+    remote_hosts = set()
+    remote_hosts_idx = IP('remote')
+    files_hosts_words = ['microsoft-ds', 'nfs', 'ftp']
+    files_hosts = set()
+    files_hosts_idx = IP('files')
+    external_hosts = set()
+    external_hosts_idx = IP('external')
+    unknown_hosts = set()
+    unknwon_hosts_idx = IP('unknown')
 
+    logger.info(f'\tI2C: state known hosts: {state.known_hosts}')
+    for host in state.known_hosts:
+        # Is it external
+        if not host.is_private():
+            external_hosts.add(host)
+            concept_mapping['known_hosts'][external_hosts_idx] = external_hosts
+            continue
+
+        # Does it have services?
+        elif host in list(state.known_services.keys()):
+            for service in state.known_services[host]:
+                # The rest. It is faster to add it to unknown and then take it out if necessary
+                unknown_hosts.add(host)
+                # db
+                for word in db_hosts_words:
+                    if word in service.name:
+                        db_hosts.add(host)
+                        concept_mapping['known_hosts'][db_hosts_idx] = db_hosts
+                        unknown_hosts.discard(host)
+                        break # one word is enough
+                # web
+                for word in web_hosts_words:
+                    if word in service.name:
+                        web_hosts.add(host)
+                        concept_mapping['known_hosts'][web_hosts_idx] = web_hosts
+                        unknown_hosts.discard(host)
+                        break # one word is enough
+                # remote
+                for word in remote_hosts_words:
+                    if word in service.name:
+                        remote_hosts.add(host)
+                        concept_mapping['known_hosts'][remote_hosts_idx] = remote_hosts
+                        unknown_hosts.discard(host)
+                        break # one word is enough
+                # files hosts 
+                for word in files_hosts_words:
+                    if word in service.name:
+                        files_hosts.add(host)
+                        concept_mapping['known_hosts'][files_hosts_idx] = files_hosts
+                        unknown_hosts.discard(host)
+                        break # one word is enough
+        else:
+            # Host does not have any service yet
+            unknown_hosts.add(host)
+
+        concept_mapping['known_hosts'][unknwon_hosts_idx] = unknown_hosts
+
+    # Networks
 
     # The set for my networks. Networks here you control a host
     my_networks = set()
@@ -200,13 +274,15 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
     #logger.info(f'C2IP: Action to deal with: {action}')
     #logger.info(f'\tC2IP: Action type: {action._type}')
     if action._type == ActionType.ExploitService:
+        # parameters = {"target_host": IP(parameters_dict["target_host"]["ip"]), "target_service": Service(parameters_dict["target_service"]["name"], parameters_dict["target_service"]["type"], parameters_dict["target_service"]["version"], parameters_dict["target_service"]["is_local"]), "source_host": IP(parameters_dict["source_host"]["ip"])}
         pass
     elif action._type == ActionType.ExfiltrateData:
+        # parameters = {"target_host": IP(parameters_dict["target_host"]["ip"]), "source_host": IP(parameters_dict["source_host"]["ip"]), "data": Data(parameters_dict["data"]["owner"],parameters_dict["data"]["id"])}
         pass
     elif action._type == ActionType.FindData:
+        # parameters = {"source_host": IP(parameters_dict["source_host"]["ip"]), "target_host": IP(parameters_dict["target_host"]["ip"])}
         pass
     elif action._type == ActionType.ScanNetwork:
-        #known_networks = concept_mapping['known_networks']
         target_net = action.parameters['target_network']
         for net in concept_mapping['known_networks']:
             if target_net == net:
@@ -215,6 +291,7 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
         new_src_host = action.parameters['source_host']
         action = Action(ActionType.ScanNetwork, params={"source_host": new_src_host, "target_network": new_target_network} )
     elif action._type == ActionType.FindServices:
+        # parameters = {"source_host": IP(parameters_dict["source_host"]["ip"]), "target_host": IP(parameters_dict["target_host"]["ip"])}
         pass
 
     return action
