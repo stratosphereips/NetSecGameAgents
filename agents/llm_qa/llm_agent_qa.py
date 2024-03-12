@@ -15,9 +15,14 @@ from tenacity import retry, stop_after_attempt
 
 # Set the logging
 import logging
-from torch.utils.tensorboard import SummaryWriter
-import time
+
 import numpy as np
+
+import pandas as pd
+import mlflow
+
+mlflow.set_tracking_uri("http://147.32.83.60")
+mlflow.set_experiment("LLM_QA")
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
@@ -409,8 +414,17 @@ if __name__ == "__main__":
     # env = NetworkSecurityEnvironment(args.task_config_file)
     agent = BaseAgent(args.host, args.port, "Attacker")
     # Setup tensorboard
-    run_name = f"netsecgame__llm_qa__{int(time.time())}"
-    writer = SummaryWriter(f"agents/llm_qa/logs/{run_name}")
+    # run_name = f"netsecgame__llm_qa__{int(time.time())}"
+    # writer = SummaryWriter(f"agents/llm_qa/logs/{run_name}")
+    experiment_description = "LLM QA agent. " + f"Model: {args.llm}"
+    mlflow.start_run(description=experiment_description)
+
+    params = {
+        "model": args.llm,
+        "memory_len": args.memory_buffer,
+        "episodes": args.test_episodes,
+    }
+    mlflow.log_params(params)
 
     if "zephyr" in args.llm:
         model = AutoModelForCausalLM.from_pretrained(args.llm, device_map="auto")
@@ -427,6 +441,11 @@ if __name__ == "__main__":
     num_detected_steps = []
     num_actions_repeated = []
     reward_memory = ""
+
+    states = []
+    prompts = []
+    responses = []
+    evaluations = []
     # We are still not using this, but we keep track
     is_detected = False
 
@@ -442,8 +461,8 @@ if __name__ == "__main__":
         logger.info(f"Running episode {episode}")
         print(f"Running episode {episode}")
 
+        # Reset the game at every episode and store the goal that changes
         observation = agent.request_game_reset()
-        print(observation)
         num_iterations = observation.info["max_steps"]
         goal = observation.info["goal_description"]
         current_state = observation.state
@@ -457,15 +476,13 @@ if __name__ == "__main__":
         repeated_actions = 0
 
         # Populate the instructions based on the pre-defined goal
-        # goal = copy.deepcopy(env._win_conditions)
         jinja_environment = jinja2.Environment()
         template = jinja_environment.from_string(INSTRUCTIONS_TEMPLATE)
-
-        # TODO: read this during registration
         instructions = template.render(goal=goal.lower())
 
         for i in range(num_iterations):
             good_action = False
+            states.append(observation.state.as_json())
 
             # Step 1
             status_prompt = create_status_from_state(observation.state)
@@ -491,11 +508,7 @@ if __name__ == "__main__":
                 {"role": "user", "content": memory_prompt},
                 {"role": "user", "content": Q4},
             ]
-
-            # Store the first prompt in tensorboard
-            if not save_first_prompt:
-                writer.add_text("prompt_2", f"{messages}")
-                save_first_prompt = True
+            prompts.append(messages)
 
             # Query the LLM
             if "zephyr" in args.llm:
@@ -507,6 +520,7 @@ if __name__ == "__main__":
 
             print(f"LLM (step 2): {response}")
             logger.info("LLM (step 2): %s", response)
+            responses.append(response)
 
             try:
                 # regex = r"\{+[^}]+\}\}"
@@ -536,6 +550,11 @@ if __name__ == "__main__":
                 if observation.state != current_state:
                     good_action = True
                     current_state = observation.state
+                    evaluations.append(8)
+                else:
+                    evaluations.append(3)
+            else:
+                evaluations.append(0)
 
             logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
             if observation.end or i == (
@@ -558,6 +577,7 @@ if __name__ == "__main__":
                     wins += 1
                     num_win_steps += [steps]
                     type_of_end = "win"
+                    evaluations[-1] = 10
                 elif "detected" in reason["end_reason"]:
                     detected += 1
                     num_detected_steps += [steps]
@@ -573,6 +593,21 @@ if __name__ == "__main__":
                     type_of_end = "max_steps"
                 returns += [total_reward]
                 num_steps += [steps]
+
+                # Episodic value
+                mlflow.log_metric("wins", wins, step=episode)
+                mlflow.log_metric("num_steps", steps, step=episode)
+                mlflow.log_metric("return", total_reward, step=episode)
+
+                # Running metrics
+                mlflow.log_metric("wins", wins, step=episode)
+                mlflow.log_metric("reached_max_steps", reach_max_steps, step=episode)
+                mlflow.log_metric("detected", detected, step=episode)
+
+                # Running averages
+                mlflow.log_metric("win_rate", (wins / (episode)) * 100, step=episode)
+                mlflow.log_metric("avg_returns", np.mean(returns), step=episode)
+                mlflow.log_metric("avg_steps", np.mean(num_steps), step=episode)
 
                 logger.info(
                     f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
@@ -622,6 +657,15 @@ if __name__ == "__main__":
                 # if the LLM sends a response that is not properly formatted.
                 memories.append(f"Response '{response}' was badly formatted.")
 
+    prompt_table = {
+        "state": states,
+        "prompt": prompts,
+        "response": responses,
+        "evaluation": evaluations,
+    }
+    df = pd.DataFrame(prompt_table)
+    df.to_csv("states_prompts_responses.csv", index=False)
+
     # After all episodes are done. Compute statistics
     test_win_rate = (wins / (args.test_episodes)) * 100
     test_detection_rate = (detected / (args.test_episodes)) * 100
@@ -638,20 +682,22 @@ if __name__ == "__main__":
     test_std_repeated_steps = np.std(num_actions_repeated)
     # Store in tensorboard
     tensorboard_dict = {
-        "charts/test_avg_win_rate": test_win_rate,
-        "charts/test_avg_detection_rate": test_detection_rate,
-        "charts/test_avg_max_steps_rate": test_max_steps_rate,
-        "charts/test_avg_returns": test_average_returns,
-        "charts/test_std_returns": test_std_returns,
-        "charts/test_avg_episode_steps": test_average_episode_steps,
-        "charts/test_std_episode_steps": test_std_episode_steps,
-        "charts/test_avg_win_steps": test_average_win_steps,
-        "charts/test_std_win_steps": test_std_win_steps,
-        "charts/test_avg_detected_steps": test_average_detected_steps,
-        "charts/test_std_detected_steps": test_std_detected_steps,
-        "charts/test_avg_repeated_steps": test_average_repeated_steps,
-        "charts/test_std_repeated_steps": test_std_repeated_steps,
+        "test_avg_win_rate": test_win_rate,
+        "test_avg_detection_rate": test_detection_rate,
+        "test_avg_max_steps_rate": test_max_steps_rate,
+        "test_avg_returns": test_average_returns,
+        "test_std_returns": test_std_returns,
+        "test_avg_episode_steps": test_average_episode_steps,
+        "test_std_episode_steps": test_std_episode_steps,
+        "test_avg_win_steps": test_average_win_steps,
+        "test_std_win_steps": test_std_win_steps,
+        "test_avg_detected_steps": test_average_detected_steps,
+        "test_std_detected_steps": test_std_detected_steps,
+        "test_avg_repeated_steps": test_average_repeated_steps,
+        "test_std_repeated_steps": test_std_repeated_steps,
     }
+
+    mlflow.log_metrics(tensorboard_dict)
 
     text = f"""Final test after {args.test_episodes} episodes
         Wins={wins},
@@ -665,17 +711,5 @@ if __name__ == "__main__":
         average_detected_steps={test_average_detected_steps:.3f} +- {test_std_detected_steps:.3f}
         average_repeated_steps={test_average_repeated_steps:.3f} += {test_std_repeated_steps:.3f}"""
 
-    # Text that is going to be added to the tensorboard. Put any description you want
-
-    # TODO: Fix this
-    experiment_description = (
-        "LLM QA agent. " + f"Model: {args.llm}"
-        #        + f"Conf: {args.task_config_file}"
-        #        + f"Max steps: {env._max_steps}"
-        #        + f"Seed: {env._seed}"
-    )
-
-    writer.add_text("Description", experiment_description)
-    writer.add_hparams(vars(args), tensorboard_dict)
     print(text)
     logger.info(text)
