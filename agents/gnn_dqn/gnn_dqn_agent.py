@@ -2,11 +2,13 @@
 import numpy as np
 import argparse
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import sys
 import tensorflow_gnn as tfgnn
 import tensorflow as tf
 from tensorflow_gnn.models.gcn import gcn_conv
 import random
+from datetime import datetime
 
 # This is used so the agent can see the environment and game components
 from os import path
@@ -20,7 +22,6 @@ from graph_agent_utils import state_as_graph
 from agent_utils import generate_valid_actions
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 tf.get_logger().setLevel('ERROR')
 
 
@@ -34,7 +35,7 @@ class GnnDQNAgent(BaseAgent):
         self.args = args
         graph_schema = tfgnn.read_schema(os.path.join(path.dirname(path.abspath(__file__)),"./schema.pbtxt"))
         self._example_input_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-        run_name = "netsecgame__GNN_DQN"
+        run_name = f'netsecgame__GNN_DQN_{datetime.now().strftime("%Y/%m/%d_%H:%M:%S")}'
         self._tf_writer = tf.summary.create_file_writer("./logs/"+ run_name)
         self.replay_memory = []
         self._MAE_metric = tf.keras.metrics.MeanAbsoluteError()
@@ -55,8 +56,7 @@ class GnnDQNAgent(BaseAgent):
         # Graph convolution
         for i in range(args.graph_updates):
             graph = gcn_conv.GCNHomGraphUpdate(units=128, add_self_loops=True, name=f"GCN_{i+1}")(graph)
-        #node_emb = tfgnn.keras.layers.Readout(node_set_name="nodes")(graph)
-        pooling = tfgnn.keras.layers.Pool(tfgnn.CONTEXT, "mean",node_set_name="nodes", name="pooling")(graph)
+        pooling = tfgnn.keras.layers.Pool(tfgnn.CONTEXT, "sum",node_set_name="nodes", name="pooling")(graph)
         # Two hidden layers (Following the DQN)
         hidden1 = tf.keras.layers.Dense(128, activation="relu", name="hidden1")(pooling)
         hidden2 = tf.keras.layers.Dense(64, activation="relu", name="hidden2")(hidden1)
@@ -66,8 +66,9 @@ class GnnDQNAgent(BaseAgent):
         self._target_model = tf.keras.models.clone_model(self._model)
         self._model.summary()
 
-    def _build_batch_graph(self, state_graphs):
-        print(f"Building scalar graphs from {len(state_graphs)} states")
+    def _build_batch_graph(self, state_graphs)->tfgnn.GraphTensor:
+        """Method which combines a batch of grap_tensors into a single scalar tensor"""
+        self.logger.debug(f"Building scalar graphs from {len(state_graphs)} states")
         def _gen_from_list():
             for g in state_graphs:
                 yield g
@@ -76,9 +77,9 @@ class GnnDQNAgent(BaseAgent):
         scalar_graph_tensor = graph_tensor_batch.merge_batch_to_components()
         return scalar_graph_tensor
     
-    def state_to_graph_tensor(self, state:GameState):
+    def state_to_graph_tensor(self, state:GameState)->tfgnn.GraphTensor:
+        "Method which converts GameState into GraphTensor"
         X,E = state_as_graph(state)
-
         src,trg = [x[0] for x in E],[x[1] for x in E]
         
         graph_tensor =  tfgnn.GraphTensor.from_pieces(
@@ -143,6 +144,44 @@ class GnnDQNAgent(BaseAgent):
                 self.idx_to_action[idx] = a
         return valid_actions
     
+    def evaluate_episode(self)->float:
+        """
+        Method for running agent performance evaluation.
+        """
+        observation = self.request_game_reset()
+        ret = 0
+        while not observation.end:
+            current_state = observation.state
+            action = self.predict_action(current_state, training=False)
+            observation = self.make_step(action)
+            ret += observation.reward
+        return ret, observation.reward
+    
+    def evaluate(self, num_episodes:int)->tuple:
+        returns = []
+        wins = 0
+        detections = 0
+        timeouts = 0
+        for _ in range(num_episodes):
+            ret, end_reward = self.evaluate_episode()
+            returns.append(ret)
+            if end_reward > 10:
+                    wins += 1
+            elif end_reward < -1:
+                detections += 1
+            elif end_reward == -1:
+                timeouts += 1
+        mean_ret = np.mean(returns)
+        mean_win = wins/num_episodes
+        mean_detection =  detections/num_episodes
+        mean_timeouts = timeouts/num_episodes
+        with self._tf_writer.as_default():
+            tf.summary.scalar('eval/mean_return', mean_ret, step=self._model.optimizer.iterations)
+            tf.summary.scalar('eval/mean_winrate', mean_win, step=self._model.optimizer.iterations)
+            tf.summary.scalar('eval/mean_detection_rate', mean_detection, step=self._model.optimizer.iterations)
+            tf.summary.scalar('eval/mean_timeout_rate', mean_timeouts, step=self._model.optimizer.iterations)
+        return mean_ret, mean_win, mean_detection
+    
     def train(self):
         self._MAE_metric.reset_state()
         for episode in range(self.args.episodes):
@@ -153,18 +192,27 @@ class GnnDQNAgent(BaseAgent):
                 next_observation = self.make_step(action)
                 reward = next_observation.reward
                 self.replay_memory.append((current_state, action, reward, next_observation.state, next_observation.end))
+                if reward > 0:
+                    print(action, reward)
                 observation = next_observation
             # Enough data collected, lets train
             if len(self.replay_memory) >= self.args.batch_size:
+                random.shuffle(self.replay_memory)
                 batch_transitions = random.sample(self.replay_memory, self.args.batch_size)
                 batch_inputs = self._build_batch_graph([self.state_to_graph_tensor(t[0]) for t in batch_transitions])
                 batch_actions = np.array([[i, self.actions_idx[t[1]]] for i,t in enumerate(batch_transitions)])
                 batch_targets = np.array([self.process_rewards(t) for t in batch_transitions])
                 self._make_training_step(batch_inputs, batch_actions, batch_targets)
+            # periodically re-new the replay memory
+            if len(self.replay_memory) >= self.args.rb_length:
+                self.replay_memory = []
             # update target model
             if episode > 0 and episode % self.args.update_target_each == 0:
                 self._target_model.set_weights(self._model.get_weights())
-
+            # evaluate
+            if episode % self.args.eval_each == 0:
+                returns, wins, detections = self.evaluate(self.args.eval_for)
+                print(f"Evaluation after episode {episode}: avg_ret:{returns}, avg_win:{wins}, avg_detection:{detections}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -174,17 +222,18 @@ if __name__ == '__main__':
 
     #model arguments
     parser.add_argument("--gamma", help="Sets gamma for discounting", default=0.9, type=float)
-    parser.add_argument("--batch_size", help="Batch size for NN training", type=int, default=32)
-    parser.add_argument("--epsilon", help="Batch size for NN training", type=int, default=0.2)
+    parser.add_argument("--batch_size", help="Batch size for NN training", type=int, default=48)
+    parser.add_argument("--epsilon", help="Batch size for NN training", type=int, default=0.35)
     parser.add_argument("--graph_updates", help="Number of GCN passes", type=float, default=3)
+    parser.add_argument("--rb_length", help="Number of GCN passes", type=int, default=5000)
     parser.add_argument("--lr", help="Learning rate", type=float, default=1e-3)
     
     #training arguments
-    parser.add_argument("--episodes", help="Sets number of training episodes", default=100, type=int)
+    parser.add_argument("--episodes", help="Sets number of training episodes", default=5000, type=int)
     parser.add_argument("--eval_each", help="During training, evaluate every this amount of episodes.", default=100, type=int)
-    parser.add_argument("--eval_for", help="Sets evaluation length", default=250, type=int)
+    parser.add_argument("--eval_for", help="Sets evaluation length", default=50, type=int)
     parser.add_argument("--final_eval_for", help="Sets evaluation length", default=1000, type=int)
-    parser.add_argument("--update_target_each", help="Set how often should be target model updated", type=int, default=10)
+    parser.add_argument("--update_target_each", help="Set how often should be target model updated", type=int, default=50)
 
 
     args = parser.parse_args()
