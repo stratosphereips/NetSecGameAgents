@@ -9,6 +9,7 @@ import tensorflow as tf
 from tensorflow_gnn.models.gcn import gcn_conv
 import random
 from datetime import datetime
+from collections import deque
 
 # This is used so the agent can see the environment and game components
 from os import path
@@ -37,11 +38,14 @@ class GnnDQNAgent(BaseAgent):
         self._example_input_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
         run_name = f'netsecgame__GNN_DQN_{datetime.now().strftime("%Y/%m/%d_%H:%M:%S")}'
         self._tf_writer = tf.summary.create_file_writer("./logs/"+ run_name)
-        self.replay_memory = []
+        self.replay_memory = deque(maxlen=args.rb_length)
         self._MAE_metric = tf.keras.metrics.MeanAbsoluteError()
         
+        self.epsilon = args.max_epsilon
+
         register_obs = self.register()
         num_actions = register_obs.info["num_actions"]
+        self.num_actions = num_actions
         self.actions_idx = {}
         self.idx_to_action = {}
         
@@ -58,8 +62,8 @@ class GnnDQNAgent(BaseAgent):
             graph = gcn_conv.GCNHomGraphUpdate(units=128, add_self_loops=True, name=f"GCN_{i+1}")(graph)
         pooling = tfgnn.keras.layers.Pool(tfgnn.CONTEXT, "sum",node_set_name="nodes", name="pooling")(graph)
         # Two hidden layers (Following the DQN)
-        hidden1 = tf.keras.layers.Dense(128, activation="relu", name="hidden1")(pooling)
-        hidden2 = tf.keras.layers.Dense(64, activation="relu", name="hidden2")(hidden1)
+        hidden1 = tf.keras.layers.Dense(128, activation="relu", name="hidden1",kernel_initializer=tf.keras.initializers.HeUniform())(pooling)
+        hidden2 = tf.keras.layers.Dense(64, activation="relu", name="hidden2", kernel_initializer=tf.keras.initializers.HeUniform())(hidden1)
         output = tf.keras.layers.Dense(num_actions, activation=None, name="output")(hidden2)
         self._model = tf.keras.Model(input_graph, output, name="Q1")
         self._model.compile(tf.keras.optimizers.Adam(learning_rate=args.lr))
@@ -101,7 +105,7 @@ class GnnDQNAgent(BaseAgent):
     def predict_action(self, state, training=False)-> Action:
         valid_actions = self.get_valid_actions(state)
         # random action
-        if training and np.random.uniform() < self.args.epsilon:
+        if training and np.random.uniform() < self.epsilon:
             return random.choice(valid_actions)
         else:
             valid_action_indices = tf.constant([self.actions_idx[a] for a in valid_actions], dtype=tf.int32)
@@ -111,18 +115,21 @@ class GnnDQNAgent(BaseAgent):
             max_idx = np.argmax(tf.gather(model_output, valid_action_indices))
             return self.idx_to_action[max_idx]
 
-    def _make_training_step(self, inputs, actions, y_true)->None:
+    def _make_training_step(self, inputs, y_true)->None:
         #perform training step
         with tf.GradientTape() as tape:
-            y_hat = tf.gather_nd(self._model(inputs, training=True), actions)
+            #y_hat = tf.gather_nd(self._model(inputs, training=True), actions)
+            y_hat = self._model(inputs, training=True)
             mse = tf.keras.losses.MeanSquaredError()
-            loss = mse(y_true, y_hat)
+            hubber  = tf.keras.losses.Huber()
+            loss = hubber(y_true, y_hat)
         grads = tape.gradient(loss, self._model.trainable_weights)
         #grads, _ = tf.clip_by_global_norm(grads, 5.0)
         self._model.optimizer.apply_gradients(zip(grads, self._model.trainable_weights))
         self._MAE_metric.update_state(y_true, y_hat)
         with self._tf_writer.as_default():
-            tf.summary.scalar('train/MSE_Q', loss, step=self._model.optimizer.iterations)
+            tf.summary.scalar('train/MSE_Q', mse(y_true, y_hat), step=self._model.optimizer.iterations)
+            tf.summary.scalar('train/loss_Q', loss, step=self._model.optimizer.iterations)
 
     def process_rewards(self, transition:tuple)->float:
         _,_,r,s_next,end = transition
@@ -196,24 +203,29 @@ class GnnDQNAgent(BaseAgent):
                     print(action, reward)
                 observation = next_observation
             # Enough data collected, lets train
-            if len(self.replay_memory) >= self.args.batch_size:
-                random.shuffle(self.replay_memory)
+            if len(self.replay_memory) >= 4*self.args.batch_size:
+                batch_targets = np.zeros([self.args.batch_size, self.num_actions])
                 batch_transitions = random.sample(self.replay_memory, self.args.batch_size)
-                batch_inputs = self._build_batch_graph([self.state_to_graph_tensor(t[0]) for t in batch_transitions])
-                batch_actions = np.array([[i, self.actions_idx[t[1]]] for i,t in enumerate(batch_transitions)])
-                batch_targets = np.array([self.process_rewards(t) for t in batch_transitions])
-                self._make_training_step(batch_inputs, batch_actions, batch_targets)
-            # periodically re-new the replay memory
-            if len(self.replay_memory) >= self.args.rb_length:
-                self.replay_memory = []
+                # batch_actions = [(i, self.actions_idx[t[1]]) for i,t in enumerate(batch_transitions)]
+                # batch_targets = np.array([self.process_rewards(t) for t in batch_transitions])
+                state_graphs = []
+                for i,t in enumerate(batch_transitions):
+                    as_graph = self.state_to_graph_tensor(t[0])
+                    max_future_q = self.process_rewards(t)
+                    batch_targets[i] = self._model(as_graph)
+                    batch_targets[i][self.actions_idx[t[1]]] = max_future_q
+                    state_graphs.append(as_graph)
+                batch_inputs = self._build_batch_graph(state_graphs)
+                self._make_training_step(batch_inputs, batch_targets)
             # update target model
-            if episode > 0 and episode % self.args.update_target_each == 0:
+            if episode > 0 and episode % self.args.update_target_each == 10:
                 self._target_model.set_weights(self._model.get_weights())
             # evaluate
-            if episode % self.args.eval_each == 0:
+            if episode > 0 and  episode % self.args.eval_each == 0:
                 returns, wins, detections = self.evaluate(self.args.eval_for)
                 print(f"Evaluation after episode {episode}: avg_ret:{returns}, avg_win:{wins}, avg_detection:{detections}")
-
+            # update epsilon
+            self.epsilon = self.args.min_epsilon + (self.args.max_epsilon - self.args.min_epsilon) * np.exp(-self.args.epsilon_decay * episode)
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
@@ -222,15 +234,18 @@ if __name__ == '__main__':
 
     #model arguments
     parser.add_argument("--gamma", help="Sets gamma for discounting", default=0.9, type=float)
-    parser.add_argument("--batch_size", help="Batch size for NN training", type=int, default=48)
-    parser.add_argument("--epsilon", help="Batch size for NN training", type=int, default=0.35)
+    parser.add_argument("--batch_size", help="Batch size for NN training", type=int, default=32)
     parser.add_argument("--graph_updates", help="Number of GCN passes", type=float, default=3)
-    parser.add_argument("--rb_length", help="Number of GCN passes", type=int, default=5000)
-    parser.add_argument("--lr", help="Learning rate", type=float, default=1e-3)
+    parser.add_argument("--rb_length", help="Size of the replay memory", type=int, default=5000)
+    parser.add_argument("--lr", help="Learning rate", type=float, default=1e-2)
+    parser.add_argument("--alpha", help="Learning rate", type=float, default=0.8)
+    parser.add_argument("--min_epsilon", help="Learning rate", type=float, default=0.01)
+    parser.add_argument("--max_epsilon", help="Batch size for NN training", type=int, default=1)
+    parser.add_argument("--epsilon_decay", help="Batch size for NN training", type=int, default= 0.01)
     
     #training arguments
     parser.add_argument("--episodes", help="Sets number of training episodes", default=5000, type=int)
-    parser.add_argument("--eval_each", help="During training, evaluate every this amount of episodes.", default=100, type=int)
+    parser.add_argument("--eval_each", help="During training, evaluate every this amount of episodes.", default=250, type=int)
     parser.add_argument("--eval_for", help="Sets evaluation length", default=50, type=int)
     parser.add_argument("--final_eval_for", help="Sets evaluation length", default=1000, type=int)
     parser.add_argument("--update_target_each", help="Set how often should be target model updated", type=int, default=50)
