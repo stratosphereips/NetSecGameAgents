@@ -127,8 +127,9 @@ def convert_ips_to_concepts(observation, logger):
 
     # Hosts
 
-    # Host are separated according to their services. So we only do the separation if they have services, if not, just all together.
-    # The concept of type of hosts comes from the type of data they may have inside
+    # Host are separated according to their services and function. So we only do the separation if they have services, if not, they are 'unknown'
+    # The special case are the hosts we control in the local net, those are 'mineX' with X being a counter.
+    # The concept of type of hosts comes from the type of data they may have inside or function
     db_hosts_words = ['sql', 'dbase', 'mongo', 'redis', 'database']
     db_hosts = set()
     db_hosts_idx = IP('db')
@@ -145,23 +146,55 @@ def convert_ips_to_concepts(observation, logger):
     external_hosts_idx = IP('external')
     unknown_hosts = set()
     unknown_hosts_idx = IP('unknown')
+    my_hosts = set()
 
     # To have a reverse dict of ips to concepts so we can assign the controlled hosts fast from the known hosts
     # This is a performance trick
+    # The ip can have multiple concepts ip_to_concept['1.1.1.1'] = {'web', 'db'}
     ip_to_concept = {}
 
 
-    # Convert the known hosts
-    logger.info(f'\tI2C: state known hosts: {state.known_hosts}')
-    logger.info(f'\tI2C: state controlled hosts: {state.controlled_hosts}')
+    # Convert controlled hosts    
+    # The controlled hosts due to exploiting are not the 'unknown' concept anymore. Now they are concept 'controlled'
+    counter = 0
+    for host in state.controlled_hosts:
+        # Is it external?
+        if not host.is_private():
+            external_hosts.add(host)
+            concept_mapping['controlled_hosts'][external_hosts_idx] = external_hosts
+            try:
+                ip_to_concept[host].add(external_hosts_idx)
+            except KeyError:
+                ip_to_concept[host] = {external_hosts_idx}
+            continue
+        else:
+            # It is local
+            my_hosts_idx = IP('mine'+str(counter))
+            counter += 1
+            my_hosts.add(host)
+            concept_mapping['controlled_hosts'][my_hosts_idx] = my_hosts
+            try:
+                ip_to_concept[host].add(my_hosts_idx)
+            except KeyError:
+                ip_to_concept[host] = {my_hosts_idx}
+            continue
 
-    logger.info(f'\tI2C: Converting')
+
+    # Convert the known hosts
+
+    logger.info(f'\tI2C: Real state known hosts: {state.known_hosts}')
+    logger.info(f'\tI2C: Real state controlled hosts: {state.controlled_hosts}')
+
+    #logger.info(f'\tI2C: Converting')
     for host in state.known_hosts:
         # Is it external
         if not host.is_private():
             external_hosts.add(host)
             concept_mapping['known_hosts'][external_hosts_idx] = external_hosts
-            ip_to_concept[host] = external_hosts_idx
+            try:
+                ip_to_concept[host].add(external_hosts_idx)
+            except KeyError:
+                ip_to_concept[host] = {external_hosts_idx}
             continue
 
         # Does it have services?
@@ -169,12 +202,18 @@ def convert_ips_to_concepts(observation, logger):
             for service in state.known_services[host]:
                 # First, all hosts with services are 'unknonw'. It is faster to add it to unknown and then assign a new one if necessary
                 unknown_hosts.add(host)
+
+                # The same host can have multiple services, so it can be in multiple concepts
+
                 # db
                 for word in db_hosts_words:
                     if word in service.name:
                         db_hosts.add(host)
                         concept_mapping['known_hosts'][db_hosts_idx] = db_hosts
-                        ip_to_concept[host] = db_hosts_idx
+                        try:
+                            ip_to_concept[host].add(db_hosts_idx)
+                        except KeyError:
+                            ip_to_concept[host] = {db_hosts_idx}
                         unknown_hosts.discard(host)
                         break # one word is enough
                 # web
@@ -182,7 +221,10 @@ def convert_ips_to_concepts(observation, logger):
                     if word in service.name:
                         web_hosts.add(host)
                         concept_mapping['known_hosts'][web_hosts_idx] = web_hosts
-                        ip_to_concept[host] = web_hosts_idx
+                        try:
+                            ip_to_concept[host].add(web_hosts_idx)
+                        except KeyError:
+                            ip_to_concept[host] = {web_hosts_idx}
                         unknown_hosts.discard(host)
                         break # one word is enough
                 # remote
@@ -190,7 +232,10 @@ def convert_ips_to_concepts(observation, logger):
                     if word in service.name:
                         remote_hosts.add(host)
                         concept_mapping['known_hosts'][remote_hosts_idx] = remote_hosts
-                        ip_to_concept[host] = remote_hosts_idx
+                        try:
+                            ip_to_concept[host].add(remote_hosts_idx)
+                        except KeyError:
+                            ip_to_concept[host] = {remote_hosts_idx}
                         unknown_hosts.discard(host)
                         break # one word is enough
                 # files hosts 
@@ -198,7 +243,10 @@ def convert_ips_to_concepts(observation, logger):
                     if word in service.name:
                         files_hosts.add(host)
                         concept_mapping['known_hosts'][files_hosts_idx] = files_hosts
-                        ip_to_concept[host] = files_hosts_idx
+                        try:
+                            ip_to_concept[host].add(files_hosts_idx)
+                        except KeyError:
+                            ip_to_concept[host] = {files_hosts_idx}
                         unknown_hosts.discard(host)
                         break # one word is enough
         else:
@@ -206,14 +254,31 @@ def convert_ips_to_concepts(observation, logger):
             unknown_hosts.add(host)
 
         concept_mapping['known_hosts'][unknown_hosts_idx] = unknown_hosts
-        ip_to_concept[host] = unknown_hosts_idx
-    
-    # Use the ip to concept to gather the controlled hosts concepts
-    for ip, object in ip_to_concept.items():
-        concept_mapping['controlled_hosts'][object] = concept_mapping['known_hosts'][object]
+        try:
+            ip_to_concept[host].add(unknown_hosts_idx)
+        except KeyError:
+            ip_to_concept[host] = {unknown_hosts_idx}
 
-    logger.info(f'\tI2C: New concept known_hosts: {concept_mapping['known_hosts']}')
-    logger.info(f'\tI2C: New concept controlled_hosts: {concept_mapping['controlled_hosts']}')
+    # Convert Services
+    for ip, service in state.known_services:
+        concepts_host_idx = ip_to_concept[ip]
+        concept_mapping['known_services'][concept_host_idx] = service
+
+
+
+    # state.known_services: dict. {'ip': Service object}
+    #   Service - Object
+    #       service.name 'openssh' (what in the configuration is 'type'). The service name is derived from the nmap services https://svn.nmap.org/nmap/nmap-services
+    #       service.type 'passive' | 'active' (This is added by our env when finding the )
+    #       service.version : '1.1.1.'
+    #       service.is_local: Bool
+
+
+
+    # Convert Services
+
+
+
 
     # Convert Networks
 
@@ -282,9 +347,18 @@ def convert_ips_to_concepts(observation, logger):
         concept_mapping['known_networks'][unknown_nets] = unknown_networks
         # In the future we can lost a controlling host in  a net, so if we add it to unknown, delete from other groups
 
+    logger.info(f'\tI2C: New concept known_hosts: {concept_mapping['known_hosts']}')
+    logger.info(f'\tI2C: New concept controlled_hosts: {concept_mapping['controlled_hosts']}')
+    logger.info(f'\tI2C: New concept known_nets: {concept_mapping['known_networks']}')
+
+    # Prepare to return concepts
+    state_controlled_hosts = {host for host in concept_mapping['controlled_hosts']}
+    state_known_hosts = {host for host in concept_mapping['known_hosts']}
     state_networks = {net for net in concept_mapping['known_networks']}
 
-    new_state = GameState(state.controlled_hosts, state.known_hosts, state.known_services, state.known_data, state_networks)
+    # TODO: Check what happens when the concepts get empty. If there are no more unknown hosts, we should delete that 
+
+    new_state = GameState(state_controlled_hosts, state_known_hosts, state.known_services, state.known_data, state_networks)
     new_observation = Observation(new_state, reward, end, info)
     return new_observation, concept_mapping
 
@@ -308,13 +382,15 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
         pass
     elif action._type == ActionType.ScanNetwork:
         target_net = action.parameters['target_network']
-        for net in concept_mapping['known_networks']:
-            if target_net == net:
-                new_target_network = random.choice(list(concept_mapping['known_networks'][net]))
+        for net_concept in concept_mapping['known_networks']:
+            if target_net == net_concept:
+                new_target_network = random.choice(list(concept_mapping['known_networks'][net_concept]))
                 break
         # Change the src host from concept to ip
-        #new_src_host = action.parameters['source_host']
-        new_src_host = concept_mapping['known_hosts'][action.parameters['source_host']]
+        src_host_concept = action.parameters['source_host']
+        for host_concept in concept_mapping['controlled_hosts']:
+            if src_host_concept == host_concept:
+                new_src_host = random.choice(list(concept_mapping['controlled_hosts'][host_concept]))
         action = Action(ActionType.ScanNetwork, params={"source_host": new_src_host, "target_network": new_target_network} )
     elif action._type == ActionType.FindServices:
         # parameters = {"source_host": IP(parameters_dict["source_host"]["ip"]), "target_host": IP(parameters_dict["target_host"]["ip"])}
