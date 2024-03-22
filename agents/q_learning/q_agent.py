@@ -137,8 +137,10 @@ class QAgent(BaseAgent):
                 actions_logger.info(f"\tEnd:{observation_concept.end}")
                 actions_logger.info(f"\tInfo:{observation_concept.info}")
                 actions_logger.info(f"\t\tConcept Action selected:{action_concept}")
+            self.logger.info(f"Concept Action selected:{action_concept}")
             # Convert the action on a concept to the action in IPs
             action_ip = convert_concepts_to_actions(action_concept, concept_mapping, agent._logger)
+            self.logger.info(f"Real Action selected:{action_ip}")
             # Perform the action and observe next observation
             observation_ip = self.make_step(action_ip)
             #self.logger.info(f'After make step with action with IPs: {observation_ip}')
