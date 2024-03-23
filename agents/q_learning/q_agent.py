@@ -181,7 +181,7 @@ if __name__ == '__main__':
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=5000, type=int)
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
-    parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 0.95 (95 perc)", required=False, default=0.95, type=float)
+    parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95% perc)", required=False, default=95, type=float)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
@@ -448,7 +448,7 @@ if __name__ == '__main__':
                             mlflow.log_metric("current_episode", episode, step=episode)
 
                             if test_win_rate >= args.early_stop_threshold:
-                                agent.logger(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
+                                agent.logger.error(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
                                 early_stop = True
 
             
