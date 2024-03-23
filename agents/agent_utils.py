@@ -25,7 +25,7 @@ def generate_valid_actions(state: GameState)->list:
                 if type(network.ip) == str:
                     # It is a concept, so check that we scan networks we dont know yet. 
                     # Ignore the rest because we already scan them
-                    if 'unkown' in network.ip:
+                    if 'unknown' in network.ip:
                         valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": source_host,}))
                 else:
                     valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": source_host,}))
@@ -35,7 +35,7 @@ def generate_valid_actions(state: GameState)->list:
             if host.is_private() and source_host.is_private():
                 if type(host.ip) == str:
                     # We only scan services in unknown hosts.
-                    if host.ip == 'unknown':
+                    if 'unknown' in host.ip:
                         valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": source_host,}))
                 else:
                     valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": source_host,}))
@@ -285,14 +285,16 @@ def convert_ips_to_concepts(observation, logger):
                             concept_mapping['controlled_hosts'][files_hosts_idx] = host
                         break # one word is enough
         else:
-            # Is it also controlled?
+            # These are all the devices without services
+            # A device can be controlled (specially in the first state from the env)
             if host in state.controlled_hosts:
                 # Yes it is controlled
-                unknown_hosts_idx = IP(unknown_hosts_concept+str(counter))
-                concept_mapping['controlled_hosts'][unknown_hosts_idx] = host
-                ip_to_concept[host] = {unknown_hosts_idx}
+                my_hosts_idx = IP(my_hosts_concept+str(counter))
+                concept_mapping['controlled_hosts'][my_hosts_idx] = host
+                concept_mapping['known_hosts'][my_hosts_idx] = host
+                ip_to_concept[host] = {my_hosts_idx}
             else:
-                # Host does not have any service yet
+                # Not controlled and Host does not have any service yet
                 unknown_hosts.add(host)
                 # The unknown do not change concept so they are all together
                 unknown_hosts_idx = IP(unknown_hosts_concept)
@@ -439,7 +441,7 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
         # Change the target host from concept to ip
         target_host_concept = action.parameters['target_host']
         for host_concept in concept_mapping['known_hosts']:
-            if target_host_concept == host_concept and host_concept.ip == 'unknown':
+            if target_host_concept == host_concept and 'unknown' in host_concept.ip:
              new_target_host = random.choice(list(concept_mapping['known_hosts'][host_concept]))
             elif target_host_concept == host_concept:
                 new_target_host = concept_mapping['known_hosts'][host_concept]
@@ -464,24 +466,19 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
 
         # Change the target host from concept to ip
         target_host_concept = action.parameters['target_host']
-        # In Exfiltrate the target should be a controlled host and not only a known host. However, 
-        # In the concepts processing, all the concepts for services are stored better in known_hosts ('web3') because it is
-        # processed after the controlled host. So eventough this should be controlled_hosts, it is correct to use known_hosts
-        # Also, here it is not necessary to do this double checking that the target is a controlled_host because the action
-        # selection function must do that. 
-        for host_concept in concept_mapping['known_hosts']:
-            if target_host_concept == host_concept and host_concept.ip == 'unknown':
-                new_target_host = random.choice(list(concept_mapping['known_hosts'][host_concept]))
-                break
-            elif target_host_concept == host_concept:
-                new_target_host = concept_mapping['known_hosts'][host_concept]
+        for host_concept in concept_mapping['controlled_hosts']:
+            #if target_host_concept == host_concept and 'unkown' in host_concept.ip:
+                #new_target_host = random.choice(list(concept_mapping['known_hosts'][host_concept]))
+                #break
+            if target_host_concept == host_concept:
+                new_target_host = concept_mapping['controlled_hosts'][host_concept]
                 break
 
         # Change the src host from concept to ip
         src_host_concept = action.parameters['source_host']
-        for host_concept in concept_mapping['known_hosts']:
+        for host_concept in concept_mapping['controlled_hosts']:
             if src_host_concept == host_concept:
-                new_src_host = concept_mapping['known_hosts'][host_concept]
+                new_src_host = concept_mapping['controlled_hosts'][host_concept]
 
         # TODO: Change dat
         data_concept = action.parameters['data']
@@ -497,9 +494,9 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
         # Change the target host from concept to ip
         target_host_concept = action.parameters['target_host']
         for host_concept in concept_mapping['controlled_hosts']:
-            if target_host_concept == host_concept and 'unknown' in host_concept.ip:
-                new_target_host = random.choice(list(concept_mapping['controlled_hosts'][host_concept]))
-            elif target_host_concept == host_concept:
+            #if target_host_concept == host_concept and 'unknown' in host_concept.ip:
+                #new_target_host = random.choice(list(concept_mapping['controlled_hosts'][host_concept]))
+            if target_host_concept == host_concept:
                 new_target_host = concept_mapping['controlled_hosts'][host_concept]
 
         # Change the src host from concept to ip
