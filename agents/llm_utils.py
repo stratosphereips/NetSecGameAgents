@@ -126,8 +126,7 @@ def create_action_from_response(llm_response: dict, state: GameState) -> tuple:
         action = None
         action_str = llm_response["action"]
         action_params = llm_response["parameters"]
-        if isinstance(action_params, str):
-            action_params = eval(action_params)
+
         if valid:
             match action_str:
                 case "ScanNetwork":
@@ -167,6 +166,7 @@ def create_action_from_response(llm_response: dict, state: GameState) -> tuple:
                                     "source_host": IP(src_host),
                                 }
                                 action = Action(ActionType.ExploitService, parameters)
+                                break
                     else:
                         action = None
                 case "FindData":
@@ -200,7 +200,6 @@ def create_action_from_response(llm_response: dict, state: GameState) -> tuple:
                     return False, action
 
     except SyntaxError:
-        # logger.error(f"Cannol parse the response from the LLM: {llm_response}")
         valid = False
 
     return valid, action

@@ -25,10 +25,6 @@ from llm_utils import (
 )
 
 
-config = dotenv_values(".env")
-client = OpenAI(api_key=config["OPENAI_API_KEY"])
-
-
 local_services = ["can_attack_start_here"]
 
 ACTION_MAPPER = {
@@ -76,7 +72,13 @@ Q4 = """Provide the best next action in the correct JSON format. Action: """
 
 
 @retry(stop=stop_after_attempt(3))
-def openai_query(msg_list, max_tokens=60, model="gpt-3.5-turbo", fmt={"type": "text"}):
+def openai_query(
+    client: OpenAI,
+    msg_list: list,
+    max_tokens: int = 60,
+    model: str = "gpt-3.5-turbo",
+    fmt={"type": "text"},
+):
     """Send messages to OpenAI API and return the response."""
     llm_response = client.chat.completions.create(
         model=model,
@@ -93,10 +95,16 @@ class LLMAssistant:
     An assistant that takes a state and returns an action to the user.
     """
 
-    def __init__(self, model_name: str, goal: str, memory_len: int = 10):
+    def __init__(self, model_name: str, goal: str, memory_len: int = 10, api_url=None):
         self.model = model_name
+
+        if "gpt" in self.model:
+            config = dotenv_values(".env")
+            self.client = OpenAI(api_key=config["OPENAI_API_KEY"])
+        else:
+            self.client = OpenAI(base_url=api_url, api_key="ollama")
         self.memory_len = memory_len
-        self.memories = []
+        # self.memories = []
         self.logger = logging.getLogger("Interactive-TUI-agent")
         # Create the instructions from the template
         # Once in every instantiation
@@ -118,10 +126,14 @@ class LLMAssistant:
     def parse_response(self, llm_response: str, state: Observation.state):
         try:
             response = json.loads(llm_response)
+        except:
+            self.logger(f"JSON excpetion {type(llm_response)}")
+            return llm_response, None
 
+        try:
             action_str = response["action"]
             action_params = response["parameters"]
-            self.memories.append((action_str, action_params))
+            # self.memories.append((action_str, action_params))
 
             _, action = create_action_from_response(response, state)
             if action_str == "ScanServices":
@@ -129,7 +141,6 @@ class LLMAssistant:
             action_output = (
                 f"You can take action {action_str} with parameters {action_params}"
             )
-
             return action_output, action
         except:
             return llm_response, None
@@ -150,7 +161,9 @@ class LLMAssistant:
         ]
         self.logger.info(f"Text sent to the LLM: {messages}")
 
-        response = openai_query(messages, max_tokens=1024, model=self.model)
+        response = openai_query(
+            self.client, messages, max_tokens=1024, model=self.model
+        )
         self.logger.info(f"(Stage 1) Response from LLM: {response}")
 
         # Stage 2
@@ -166,9 +179,13 @@ class LLMAssistant:
         ]
 
         response = openai_query(
-            messages, max_tokens=80, model=self.model, fmt={"type": "json_object"}
+            self.client,
+            messages,
+            max_tokens=80,
+            model=self.model,
+            fmt={"type": "json_object"},
         )
         self.logger.info(f"(Stage 2) Response from LLM: {response}")
-        action_str, action = self.parse_response(response, observation)
+        action_str, action = self.parse_response(response, observation.state)
 
         return action_str, action
