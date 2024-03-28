@@ -5,6 +5,7 @@ from textual.app import App, ComposeResult, Widget
 from textual.widgets import Tree, Button, Log, Select, Input
 from textual.containers import Vertical, VerticalScroll, Horizontal
 from textual.validation import Function
+from textual.message import Message
 from textual import on
 
 import sys
@@ -116,7 +117,14 @@ class InteractiveTUI(App):
     CSS_PATH = "layout.tcss"
 
     def __init__(
-        self, host: str, port: int, role: str, mode: str, llm: str, memory_len: int
+        self,
+        host: str,
+        port: int,
+        role: str,
+        mode: str,
+        llm: str,
+        api_url: str,
+        memory_len: int,
     ):
         super().__init__()
         self.returns = 0
@@ -135,6 +143,7 @@ class InteractiveTUI(App):
         # and how many to send to the assistant for the prompt creation
         self.memory_len = memory_len
         self.memory_buf = []
+        self.repetitions = 0
 
         if llm != "None":
             self.model = llm
@@ -143,7 +152,10 @@ class InteractiveTUI(App):
 
         if self.model is not None:
             self.assistant = LLMAssistant(
-                self.model, self.current_obs.info["goal_description"]
+                self.model,
+                self.current_obs.info["goal_description"],
+                memory_len,
+                api_url,
             )
 
     def compose(self) -> ComposeResult:
@@ -202,7 +214,8 @@ class InteractiveTUI(App):
         yield Log(classes="box", id="textarea")
         yield Horizontal(
             Button("Take Action", variant="primary", id="act"),
-            Button("Assistant", variant="primary", id="help"),
+            Button("Hack the Planet", variant="warning", id="help"),
+            # Button("Hack the Planet", variant="primary", id="hack"),
         )
         # yield Footer()
 
@@ -350,10 +363,34 @@ class InteractiveTUI(App):
             self.update_tree(tree)
         else:
             if self.model is not None:
-                act_str, _ = self.assistant.get_action_from_obs_react(
+                act_str, action = self.assistant.get_action_from_obs_react(
                     self.current_obs, self.memory_buf[-self.memory_len :]
                 )
-                log.write_line(f"Assistant proposes: {act_str}")
+                if action is not None:
+                    # To remove the discrepancy between scan and find services
+                    msg = f"Assistant proposes: {str(action)}"
+                    # if event.button.id == "hack":
+                    self.update_state(action)
+                    self.memory_buf.append(action)
+
+                    tree_state = self.query_one(TreeState)
+                    tree = tree_state.children[0]
+                    self.update_tree(tree)
+                else:
+                    msg = f"Assistant proposes (invalid): {act_str}"
+                log.write_line(msg)
+                self.notify(
+                    message=msg, title="LLM Action", timeout=20, severity="warning"
+                )
+
+                # Redo if hack the planet
+                # if event.button.id == "hack":
+                #     if self.repetitions < 2:
+                #         self.repetitions += 1
+                #         self.post_message(Button.Pressed(Button(id="hack")))
+                #         return
+                #     else:
+                #         self.repetitions = 0
             else:
                 log.write_line("No assistant is available at the moment.")
 
@@ -591,14 +628,27 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--llm",
-        choices=["gpt-4-turbo-preview", "gpt-3.5-turbo", "None"],
+        choices=[
+            "gpt-4-turbo-preview",
+            "gpt-3.5-turbo",
+            "netsec4bit",
+            "netsec_full",
+            "None",
+        ],
         default="None",
     )
+    parser.add_argument("--api_url", type=str, default="http://127.0.0.1:11434/v1/")
     parser.add_argument("--memory_len", type=int, default=10)
     args = parser.parse_args()
 
     logger.info("Creating the agent")
     app = InteractiveTUI(
-        args.host, args.port, args.role, args.mode, args.llm, args.memory_len
+        args.host,
+        args.port,
+        args.role,
+        args.mode,
+        args.llm,
+        args.api_url,
+        args.memory_len,
     )
     app.run()
