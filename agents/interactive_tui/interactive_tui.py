@@ -5,7 +5,6 @@ from textual.app import App, ComposeResult, Widget
 from textual.widgets import Tree, Button, Log, Select, Input
 from textual.containers import Vertical, VerticalScroll, Horizontal
 from textual.validation import Function
-from textual.message import Message
 from textual import on
 
 import sys
