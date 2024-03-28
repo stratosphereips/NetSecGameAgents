@@ -104,7 +104,7 @@ class LLMAssistant:
         else:
             self.client = OpenAI(base_url=api_url, api_key="ollama")
         self.memory_len = memory_len
-        self.memories = []
+        # self.memories = []
         self.logger = logging.getLogger("Interactive-TUI-agent")
         # Create the instructions from the template
         # Once in every instantiation
@@ -126,10 +126,14 @@ class LLMAssistant:
     def parse_response(self, llm_response: str, state: Observation.state):
         try:
             response = json.loads(llm_response)
+        except:
+            self.logger(f"JSON excpetion {type(llm_response)}")
+            return llm_response, None
 
+        try:
             action_str = response["action"]
             action_params = response["parameters"]
-            self.memories.append((action_str, action_params))
+            # self.memories.append((action_str, action_params))
 
             _, action = create_action_from_response(response, state)
             if action_str == "ScanServices":
@@ -182,6 +186,6 @@ class LLMAssistant:
             fmt={"type": "json_object"},
         )
         self.logger.info(f"(Stage 2) Response from LLM: {response}")
-        action_str, action = self.parse_response(response, observation)
+        action_str, action = self.parse_response(response, observation.state)
 
         return action_str, action
