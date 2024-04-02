@@ -30,6 +30,7 @@ local_services = ["can_attack_start_here"]
 ACTION_MAPPER = {
     "ScanNetwork": ActionType.ScanNetwork,
     "ScanServices": ActionType.FindServices,
+    "FindServices": ActionType.FindServices,
     "FindData": ActionType.FindData,
     "ExfiltrateData": ActionType.ExfiltrateData,
     "ExploitService": ActionType.ExploitService,
@@ -119,8 +120,11 @@ class LLMAssistant:
         """Summarize a list of memories into a few sentences."""
         prompt = ""
         if len(memory_list) > 0:
-            for memory in memory_list:
-                prompt += f"You have taken action {str(memory)} in the past.\n"
+            for memory, goodness in memory_list:
+                if goodness:
+                    prompt += f"You have taken action {str(memory)} in the past. This action was helpful.\n"
+                else:
+                    prompt += f"You have taken action {str(memory)} in the past. This action was not helpful.\n"
         return prompt
 
     def parse_response(self, llm_response: str, state: Observation.state):
@@ -136,8 +140,8 @@ class LLMAssistant:
             # self.memories.append((action_str, action_params))
 
             _, action = create_action_from_response(response, state)
-            if action_str == "ScanServices":
-                action_str = "FindServices"
+            # if action_str == "ScanServices":
+            #     action_str = "FindServices"
             action_output = (
                 f"You can take action {action_str} with parameters {action_params}"
             )
