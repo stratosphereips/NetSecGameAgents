@@ -89,7 +89,7 @@ def validate_action_in_state(llm_response: dict, state: GameState) -> bool:
             case "ScanNetwork":
                 if action_params["target_network"] in known_nets:
                     valid = True
-            case "ScanServices":
+            case "ScanServices" | "FindServices":
                 if (
                     action_params["target_host"] in known_hosts
                     or action_params["target_host"] in contr_hosts
@@ -139,7 +139,7 @@ def create_action_from_response(llm_response: dict, state: GameState) -> tuple:
                             "source_host": IP(src_host),
                         },
                     )
-                case "ScanServices":
+                case "ScanServices" | "FindServices":
                     src_host = action_params["source_host"]
                     action = Action(
                         ActionType.FindServices,
@@ -154,7 +154,7 @@ def create_action_from_response(llm_response: dict, state: GameState) -> tuple:
                     src_host = action_params["source_host"]
                     if len(list(state.known_services[IP(target_ip)])) > 0:
                         for serv in state.known_services[IP(target_ip)]:
-                            if serv.name == target_service:
+                            if serv.name == target_service.lower():
                                 parameters = {
                                     "target_host": IP(target_ip),
                                     "target_service": Service(
