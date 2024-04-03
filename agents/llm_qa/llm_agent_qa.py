@@ -60,8 +60,8 @@ Known services for host 1.1.1.1 are "openssh"
 
 Here are some examples of actions:
 Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24", "source_host": "2.2.2.2"}}
-Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3"}, "source_host': '2.2.2.2"}}
-Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh"}, "source_host": "1.1.1.2"}}
+Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3", "source_host': '2.2.2.2"}}
+Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh", "source_host": "1.1.1.2"}}
 Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1", "source_host": "1.1.1.2"}}
 Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": {"owner":"User1", "id":"WebData"}, "source_host": "1.1.1.2"}}
 End of example.

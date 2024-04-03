@@ -6,6 +6,7 @@ from textual.widgets import Tree, Button, RichLog, Select, Input
 from textual.containers import Vertical, VerticalScroll, Horizontal
 from textual.validation import Function
 from textual import on
+from textual.reactive import reactive
 
 import sys
 from os import path
@@ -13,6 +14,7 @@ import os
 import logging
 import ipaddress
 import argparse
+import asyncio
 
 from assistant import LLMAssistant
 
@@ -58,13 +60,17 @@ def is_valid_net(net_addr: str) -> bool:
 
 
 class TreeState(Widget):
+    tree = reactive(Tree("State", classes="box"))
+
     def __init__(self, obs: Observation):
         super().__init__()
         self.init_obs = obs
+        # self.tree =
 
     def _create_tree_from_obs(self, observation: Observation) -> Tree:
-        tree: Tree[dict] = Tree("State", classes="box")
-        tree.root.expand()
+        # tree: Tree[dict] = Tree("State", classes="box")
+        # tree = self.tree
+        self.tree.root.expand()
         state = observation.state
 
         contr_host_list = [host for host in state.controlled_hosts]
@@ -72,11 +78,11 @@ class TreeState(Widget):
             host for host in state.known_hosts if host not in contr_host_list
         ]
 
-        networks = tree.root.add("Known Networks", expand=True)
+        networks = self.tree.root.add("Known Networks", expand=True)
         for network in state.known_networks:
             networks.add(str(network))
 
-        known_hosts = tree.root.add("Known Hosts", expand=True)
+        known_hosts = self.tree.root.add("Known Hosts", expand=True)
         for host in known_host_list:
             h = known_hosts.add(str(host))
             for s_host in state.known_services:
@@ -85,7 +91,7 @@ class TreeState(Widget):
                     for service in state.known_services[s_host]:
                         node.add_leaf(service.name)
 
-        owned_hosts = tree.root.add("Controlled Hosts", expand=True)
+        owned_hosts = self.tree.root.add("Controlled Hosts", expand=True)
         for host in contr_host_list:
             h = owned_hosts.add(str(host))
 
@@ -102,11 +108,11 @@ class TreeState(Widget):
                     for datum in state.known_data[host]:
                         node.add_leaf(f"{datum.owner} - {datum.id}")
 
-        return tree
+        # return tree
 
     def compose(self) -> ComposeResult:
-        tree = self._create_tree_from_obs(self.init_obs)
-        yield tree
+        self._create_tree_from_obs(self.init_obs)
+        yield self.tree
 
 
 class InteractiveTUI(App):
@@ -221,8 +227,7 @@ class InteractiveTUI(App):
             Button("Assist", variant="primary", id="assist"),
             Button("Assist & Play", variant="warning", id="play"),
         )
-        yield Button("Hack the Future", variant="primary", id="hack")
-        # yield Footer()
+        yield Button("Hack the Future", variant="error", id="hack")
 
     @on(Select.Changed)
     def select_changed(self, event: Select.Changed) -> None:
@@ -351,7 +356,7 @@ class InteractiveTUI(App):
             self.data_input = event.value
 
     @on(Button.Pressed)
-    def do_something(self, event: Button.Pressed) -> None:
+    async def do_something(self, event: Button.Pressed) -> None:
         """
         Handles the button events.
         """
@@ -367,55 +372,73 @@ class InteractiveTUI(App):
             self.update_tree(tree)
         elif event.button.id == "assist":
             if self.model is not None:
-                act_str, action = self.assistant.get_action_from_obs_react(
-                    self.current_obs, self.memory_buf[-self.memory_len :]
-                )
-                if action is not None:
-                    if action.type.name == "FindServices":
-                        action_name = "ScanServices"
-                    else:
-                        action_name = action.type.name
+                log.write("Waiting for the LLM...")
 
-                    msg = f"[bold yellow]:robot: Assistant proposed:[/bold yellow] {action_name} with {action.parameters}"
-                    log.write(msg)
-                else:
-                    msg = f"[bold red]:robot: Assistant proposed (invalid):[/bold red] {act_str}"
-                    log.write(msg)
+                async def do_ask_llm():
+                    (
+                        act_str,
+                        action,
+                    ) = await self.assistant.get_action_from_obs_react(
+                        self.current_obs, self.memory_buf[-self.memory_len :]
+                    )
+
+                    if action is not None:
+                        if action.type.name == "FindServices":
+                            action_name = "ScanServices"
+                        else:
+                            action_name = action.type.name
+
+                        msg = f"[bold yellow]:robot: Assistant proposed:[/bold yellow] {action_name} with {action.parameters}"
+                        log.write(msg)
+                        log.write(":hourglass: LLM finished.")
+                    else:
+                        msg = f"[bold red]:robot: Assistant proposed (invalid):[/bold red] {act_str}"
+                        log.write(msg)
+                        log.write(":hourglass: LLM finished.")
+
+                asyncio.create_task(do_ask_llm())
         else:
             if self.model is not None:
-                act_str, action = self.assistant.get_action_from_obs_react(
-                    self.current_obs, self.memory_buf[-self.memory_len :]
-                )
-                if action is not None:
-                    # To remove the discrepancy between scan and find services
-                    if action.type.name == "FindServices":
-                        action_name = "ScanServices"
-                    else:
-                        action_name = action.type.name
-                    msg = f"[bold yellow]:robot: Assistant played:[/bold yellow] {action_name} with {action.parameters}"
-                    log.write(msg)
-                    # if event.button.id == "hack":
-                    self.update_state(action)
-                    # self.memory_buf.append(action)
+                log.write(":hourglass: Waiting for the LLM...")
 
-                    tree_state = self.query_one(TreeState)
-                    tree = tree_state.children[0]
-                    self.update_tree(tree)
-                else:
-                    msg = f"[bold red]:robot: Assistant proposed (invalid):[/bold red] {act_str}"
-                    log.write(msg)
-                self.notify(
-                    message=msg, title="LLM Action", timeout=15, severity="warning"
-                )
+                async def do_ask_llm():
+                    act_str, action = await self.assistant.get_action_from_obs_react(
+                        self.current_obs, self.memory_buf[-self.memory_len :]
+                    )
 
-                # Redo if hack the planet
-                if event.button.id == "hack":
-                    if self.repetitions < self.max_repetitions:
-                        self.repetitions += 1
-                        self.post_message(Button.Pressed(Button(id="hack")))
-                        return
+                    if action is not None:
+                        # To remove the discrepancy between scan and find services
+                        if action.type.name == "FindServices":
+                            action_name = "ScanServices"
+                        else:
+                            action_name = action.type.name
+                        msg = f"[bold yellow]:robot: Assistant played:[/bold yellow] {action_name} with {action.parameters}"
+                        log.write(msg)
+                        log.write(":hourglass: LLM finished.")
+                        # if event.button.id == "hack":
+                        self.update_state(action)
+
+                        tree_state = self.query_one(TreeState)
+                        tree = tree_state.children[0]
+                        self.update_tree(tree)
                     else:
-                        self.repetitions = 1
+                        msg = f"[bold red]:robot: Assistant proposed (invalid):[/bold red] {act_str}"
+                        log.write(msg)
+                        log.write(":hourglass: LLM finished.")
+                    # self.notify(
+                    #     message=msg, title="LLM Action", timeout=15, severity="warning"
+                    # )
+
+                    # Redo if hack the planet
+                    if event.button.id == "hack":
+                        if self.repetitions < self.max_repetitions:
+                            self.repetitions += 1
+                            self.post_message(Button.Pressed(Button(id="hack")))
+                            return
+                        else:
+                            self.repetitions = 1
+
+                asyncio.create_task(do_ask_llm())
             else:
                 log.write(
                     "[bold red]No assistant is available at the moment.[/bold red]"
@@ -501,65 +524,6 @@ class InteractiveTUI(App):
                     for datum in new_state.known_data[host]:
                         node.add_leaf(f"{datum.owner} - {datum.id}")
 
-    # def _generate_valid_actions(self, state: GameState) -> list:
-    #     # Generate the list of all valid actions in the current state
-    #     valid_actions = set()
-    #     for src_host in state.controlled_hosts:
-    #         # Network Scans
-    #         for network in state.known_networks:
-    #             valid_actions.add(
-    #                 Action(
-    #                     ActionType.ScanNetwork,
-    #                     params={"target_network": network, "source_host": src_host},
-    #                 )
-    #             )
-    #         # Service Scans
-    #         for host in state.known_hosts:
-    #             valid_actions.add(
-    #                 Action(
-    #                     ActionType.FindServices,
-    #                     params={"target_host": host, "source_host": src_host},
-    #                 )
-    #             )
-    #         # Service Exploits
-    #         for host, service_list in state.known_services.items():
-    #             for service in service_list:
-    #                 valid_actions.add(
-    #                     Action(
-    #                         ActionType.ExploitService,
-    #                         params={
-    #                             "target_host": host,
-    #                             "target_service": service,
-    #                             "source_host": src_host,
-    #                         },
-    #                     )
-    #                 )
-    #         # Data Scans
-    #         for host in state.controlled_hosts:
-    #             valid_actions.add(
-    #                 Action(
-    #                     ActionType.FindData,
-    #                     params={"target_host": host, "source_host": src_host},
-    #                 )
-    #             )
-
-    #     # Data Exfiltration
-    #     for src_host, data_list in state.known_data.items():
-    #         for data in data_list:
-    #             for trg_host in state.controlled_hosts:
-    #                 if trg_host != src_host:
-    #                     valid_actions.add(
-    #                         Action(
-    #                             ActionType.ExfiltrateData,
-    #                             params={
-    #                                 "target_host": trg_host,
-    #                                 "source_host": src_host,
-    #                                 "data": data,
-    #                             },
-    #                         )
-    #                     )
-    #     return list(valid_actions)
-
     def generate_action(self, state: GameState) -> Action:
         """Generate a valid action from the user inputs"""
         action = None
@@ -619,17 +583,17 @@ class InteractiveTUI(App):
             )
             logger.info(f"Random action due to error: {str(action)}")
 
-        log.write(
-            f"[bold blue]:woman: Action selected:[/bold blue] {action.type.name} with {action.parameters}"
-        )
-        logger.info(f"User selected action: {str(action)}")
+        else:
+            if action.type.name == "FindServices":
+                action_name = "ScanServices"
+            else:
+                action_name = action.type.name
+            log.write(
+                f"[bold blue]:woman: Action selected:[/bold blue] {action_name} with {action.parameters}"
+            )
+            logger.info(f"User selected action: {str(action)}")
 
         return action
-
-    # def _random_move(self, state: GameState) -> Action:
-    #     # Randomly choose from the available actions
-    #     valid_actions = self._generate_valid_actions(state)
-    #     return choice(valid_actions)
 
     def _clear_state(self) -> None:
         """Reset the state and variables"""

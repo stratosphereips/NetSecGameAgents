@@ -3,7 +3,8 @@ from os import path
 import json
 import logging
 
-from openai import OpenAI
+# from openai import OpenAI
+from openai import AsyncOpenAI
 from dotenv import dotenv_values
 
 import jinja2
@@ -73,15 +74,15 @@ Q4 = """Provide the best next action in the correct JSON format. Action: """
 
 
 @retry(stop=stop_after_attempt(3))
-def openai_query(
-    client: OpenAI,
+async def openai_query(
+    client: AsyncOpenAI,
     msg_list: list,
     max_tokens: int = 60,
     model: str = "gpt-3.5-turbo",
     fmt={"type": "text"},
 ):
     """Send messages to OpenAI API and return the response."""
-    llm_response = client.chat.completions.create(
+    llm_response = await client.chat.completions.create(
         model=model,
         messages=msg_list,
         max_tokens=max_tokens,
@@ -101,9 +102,9 @@ class LLMAssistant:
 
         if "gpt" in self.model:
             config = dotenv_values(".env")
-            self.client = OpenAI(api_key=config["OPENAI_API_KEY"])
+            self.client = AsyncOpenAI(api_key=config["OPENAI_API_KEY"])
         else:
-            self.client = OpenAI(base_url=api_url, api_key="ollama")
+            self.client = AsyncOpenAI(base_url=api_url, api_key="ollama")
         self.memory_len = memory_len
         # self.memories = []
         self.logger = logging.getLogger("Interactive-TUI-agent")
@@ -149,7 +150,7 @@ class LLMAssistant:
         except:
             return llm_response, None
 
-    def get_action_from_obs_react(
+    async def get_action_from_obs_react(
         self, observation: Observation, memory_buf: list
     ) -> tuple:
         """
@@ -165,7 +166,7 @@ class LLMAssistant:
         ]
         self.logger.info(f"Text sent to the LLM: {messages}")
 
-        response = openai_query(
+        response = await openai_query(
             self.client, messages, max_tokens=1024, model=self.model
         )
         self.logger.info(f"(Stage 1) Response from LLM: {response}")
@@ -182,7 +183,7 @@ class LLMAssistant:
             {"role": "user", "content": Q4},
         ]
 
-        response = openai_query(
+        response = await openai_query(
             self.client,
             messages,
             max_tokens=80,
