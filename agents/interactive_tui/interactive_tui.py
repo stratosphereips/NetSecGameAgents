@@ -370,13 +370,17 @@ class InteractiveTUI(App):
                 act_str, action = self.assistant.get_action_from_obs_react(
                     self.current_obs, self.memory_buf[-self.memory_len :]
                 )
-                if action.type.name == "FindServices":
-                    action_name = "ScanServices"
-                else:
-                    action_name = action.type.name
+                if action is not None:
+                    if action.type.name == "FindServices":
+                        action_name = "ScanServices"
+                    else:
+                        action_name = action.type.name
 
-                msg = f"[bold yellow]:robot: Assistant proposed:[/bold yellow] {action_name} with {action.parameters}"
-                log.write(msg)
+                    msg = f"[bold yellow]:robot: Assistant proposed:[/bold yellow] {action_name} with {action.parameters}"
+                    log.write(msg)
+                else:
+                    msg = f"[bold red]:robot: Assistant proposed (invalid):[/bold red] {act_str}"
+                    log.write(msg)
         else:
             if self.model is not None:
                 act_str, action = self.assistant.get_action_from_obs_react(
