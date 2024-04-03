@@ -27,9 +27,16 @@ Screen {
 
 #act {
     dock: left;
+}
+
+#assist {
     margin: 0 1;
 }
 
-#help {
+#play {
+    margin: 0 1;
+}
+
+#hack {
     margin: 0 1;
 }

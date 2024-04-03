@@ -124,6 +124,7 @@ class InteractiveTUI(App):
         llm: str,
         api_url: str,
         memory_len: int,
+        max_repetitions: int,
     ):
         super().__init__()
         self.returns = 0
@@ -142,7 +143,9 @@ class InteractiveTUI(App):
         # and how many to send to the assistant for the prompt creation
         self.memory_len = memory_len
         self.memory_buf = []
-        self.repetitions = 0
+        self.repetitions = 1
+        self.stop = False
+        self.max_repetitions = max_repetitions
 
         if llm != "None":
             self.model = llm
@@ -213,9 +216,10 @@ class InteractiveTUI(App):
         yield RichLog(classes="box", id="textarea", highlight=True, markup=True)
         yield Horizontal(
             Button("Take Action", variant="primary", id="act"),
-            Button("Hack the Future", variant="warning", id="help"),
-            # Button("Hack the Planet", variant="primary", id="hack"),
+            Button("Assist", variant="primary", id="assist"),
+            Button("Assist & Play", variant="warning", id="play"),
         )
+        yield Button("Hack the Future", variant="primary", id="hack")
         # yield Footer()
 
     @on(Select.Changed)
@@ -360,6 +364,18 @@ class InteractiveTUI(App):
             tree_state = self.query_one(TreeState)
             tree = tree_state.children[0]
             self.update_tree(tree)
+        elif event.button.id == "assist":
+            if self.model is not None:
+                act_str, action = self.assistant.get_action_from_obs_react(
+                    self.current_obs, self.memory_buf[-self.memory_len :]
+                )
+                if action.type.name == "FindServices":
+                    action_name = "ScanServices"
+                else:
+                    action_name = action.type.name
+
+                msg = f"[bold yellow]:robot: Assistant proposed:[/bold yellow] {action_name} with {action.parameters}"
+                log.write(msg)
         else:
             if self.model is not None:
                 act_str, action = self.assistant.get_action_from_obs_react(
@@ -367,7 +383,12 @@ class InteractiveTUI(App):
                 )
                 if action is not None:
                     # To remove the discrepancy between scan and find services
-                    msg = f"[bold yellow]:robot: Assistant proposes:[/bold yellow] {str(action)}"
+                    if action.type.name == "FindServices":
+                        action_name = "ScanServices"
+                    else:
+                        action_name = action.type.name
+                    msg = f"[bold yellow]:robot: Assistant played:[/bold yellow] {action_name} with {action.parameters}"
+                    log.write(msg)
                     # if event.button.id == "hack":
                     self.update_state(action)
                     # self.memory_buf.append(action)
@@ -376,20 +397,20 @@ class InteractiveTUI(App):
                     tree = tree_state.children[0]
                     self.update_tree(tree)
                 else:
-                    msg = f"[bold red]:robot: Assistant proposes (invalid):[/bold red] {act_str}"
-                log.write(msg)
+                    msg = f"[bold red]:robot: Assistant proposed (invalid):[/bold red] {act_str}"
+                    log.write(msg)
                 self.notify(
                     message=msg, title="LLM Action", timeout=15, severity="warning"
                 )
 
                 # Redo if hack the planet
-                # if event.button.id == "hack":
-                #     if self.repetitions < 2:
-                #         self.repetitions += 1
-                #         self.post_message(Button.Pressed(Button(id="hack")))
-                #         return
-                #     else:
-                #         self.repetitions = 0
+                if event.button.id == "hack":
+                    if self.repetitions < self.max_repetitions:
+                        self.repetitions += 1
+                        self.post_message(Button.Pressed(Button(id="hack")))
+                        return
+                    else:
+                        self.repetitions = 1
             else:
                 log.write(
                     "[bold red]No assistant is available at the moment.[/bold red]"
@@ -588,7 +609,9 @@ class InteractiveTUI(App):
             log.write(f"[bold yellow]Random action:[/bold yellow] {str(action)}")
             logger.info(f"Random action due to error: {str(action)}")
 
-        log.write(f"[bold blue]:woman: Action selected:[/bold blue] {str(action)}")
+        log.write(
+            f"[bold blue]:woman: Action selected:[/bold blue] {action.type.name} with {action.parameters}"
+        )
         logger.info(f"User selected action: {str(action)}")
 
         return action
@@ -610,6 +633,7 @@ class InteractiveTUI(App):
         self.service_input = ""
         self.data_input = ""
         self.memory_buf = []
+        self.repetitions = self.max_repetitions
 
         selectors = self.query(Select)
         for selector in selectors:
@@ -655,6 +679,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--api_url", type=str, default="http://127.0.0.1:11434/v1/")
     parser.add_argument("--memory_len", type=int, default=10)
+    parser.add_argument("--max_repetitions", type=int, default=10)
     args = parser.parse_args()
 
     logger.info("Creating the agent")
@@ -666,5 +691,6 @@ if __name__ == "__main__":
         args.llm,
         args.api_url,
         args.memory_len,
+        args.max_repetitions,
     )
     app.run()
