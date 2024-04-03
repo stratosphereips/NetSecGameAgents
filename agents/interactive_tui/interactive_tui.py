@@ -367,7 +367,8 @@ class InteractiveTUI(App):
                 )
                 if action is not None:
                     # To remove the discrepancy between scan and find services
-                    msg = f"[bold yellow]:robot: Assistant proposes:[/bold yellow] {str(action)}"
+                    msg = f"[bold yellow]:robot: Assistant proposes:[/bold yellow] {action.type.name} with {action.parameters}"
+                    log.write(msg)
                     # if event.button.id == "hack":
                     self.update_state(action)
                     # self.memory_buf.append(action)
@@ -377,7 +378,7 @@ class InteractiveTUI(App):
                     self.update_tree(tree)
                 else:
                     msg = f"[bold red]:robot: Assistant proposes (invalid):[/bold red] {act_str}"
-                log.write(msg)
+                    log.write(msg)
                 self.notify(
                     message=msg, title="LLM Action", timeout=15, severity="warning"
                 )
@@ -588,7 +589,9 @@ class InteractiveTUI(App):
             log.write(f"[bold yellow]Random action:[/bold yellow] {str(action)}")
             logger.info(f"Random action due to error: {str(action)}")
 
-        log.write(f"[bold blue]:woman: Action selected:[/bold blue] {str(action)}")
+        log.write(
+            f"[bold blue]:woman: Action selected:[/bold blue] {action.type.name} with {action.parameters}"
+        )
         logger.info(f"User selected action: {str(action)}")
 
         return action
