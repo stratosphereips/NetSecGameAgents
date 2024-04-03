@@ -605,8 +605,10 @@ class InteractiveTUI(App):
             )
 
         if action is None:
-            action = self._random_move(state)
-            log.write(f"[bold yellow]Random action:[/bold yellow] {str(action)}")
+            # action = self._random_move(state)
+            log.write(
+                f"[bold red]Please select a valid action:[/bold bed] {str(action)}"
+            )
             logger.info(f"Random action due to error: {str(action)}")
 
         log.write(
