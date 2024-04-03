@@ -579,7 +579,7 @@ class InteractiveTUI(App):
 
         if action is None:
             log.write(
-                f"[bold red]Please select a valid action:[/bold bed] {str(action)}"
+                f"[bold red]Please select a valid action:[/bold red] {str(action)}"
             )
             logger.info(f"Random action due to error: {str(action)}")
 
