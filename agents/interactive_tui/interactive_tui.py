@@ -369,7 +369,12 @@ class InteractiveTUI(App):
                 act_str, action = self.assistant.get_action_from_obs_react(
                     self.current_obs, self.memory_buf[-self.memory_len :]
                 )
-                msg = f"[bold yellow]:robot: Assistant proposed:[/bold yellow] {action.type.name} with {action.parameters}"
+                if action.type.name == "FindServices":
+                    action_name = "ScanServices"
+                else:
+                    action_name = action.type.name
+
+                msg = f"[bold yellow]:robot: Assistant proposed:[/bold yellow] {action_name} with {action.parameters}"
                 log.write(msg)
         else:
             if self.model is not None:
@@ -378,7 +383,11 @@ class InteractiveTUI(App):
                 )
                 if action is not None:
                     # To remove the discrepancy between scan and find services
-                    msg = f"[bold yellow]:robot: Assistant played:[/bold yellow] {action.type.name} with {action.parameters}"
+                    if action.type.name == "FindServices":
+                        action_name = "ScanServices"
+                    else:
+                        action_name = action.type.name
+                    msg = f"[bold yellow]:robot: Assistant played:[/bold yellow] {action_name} with {action.parameters}"
                     log.write(msg)
                     # if event.button.id == "hack":
                     self.update_state(action)
