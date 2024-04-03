@@ -2,7 +2,7 @@
 # Author:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
 #
 from textual.app import App, ComposeResult, Widget
-from textual.widgets import Tree, Button, RichLog, Select, Input, LoadingIndicator
+from textual.widgets import Tree, Button, RichLog, Select, Input
 from textual.containers import Vertical, VerticalScroll, Horizontal
 from textual.validation import Function
 from textual import on
