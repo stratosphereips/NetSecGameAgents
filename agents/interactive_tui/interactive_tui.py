@@ -390,11 +390,9 @@ class InteractiveTUI(App):
 
                         msg = f"[bold yellow]:robot: Assistant proposed:[/bold yellow] {action_name} with {action.parameters}"
                         log.write(msg)
-                        log.write(":hourglass: LLM finished.")
                     else:
                         msg = f"[bold red]:robot: Assistant proposed (invalid):[/bold red] {act_str}"
                         log.write(msg)
-                        log.write(":hourglass: LLM finished.")
 
                 asyncio.create_task(do_ask_llm())
         else:
@@ -449,6 +447,8 @@ class InteractiveTUI(App):
         Take an action and receive the new state from the environment.
         """
         # Get next observation of the environment
+        log = self.query_one("RichLog")
+        log.write(":gear: Taking an action in the environment.")
         next_observation = self.agent.make_step(action)
         if next_observation.state != self.current_obs.state:
             good_action = True
