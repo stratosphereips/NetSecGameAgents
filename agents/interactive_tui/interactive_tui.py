@@ -364,12 +364,14 @@ class InteractiveTUI(App):
         if event.button.id == "act":
             action = self.generate_action(self.current_obs.state)
 
-            self.update_state(action)
+            if action is not None:
+                self.update_state(action)
 
-            # Take the first node of TreeState which contains the tree
-            tree_state = self.query_one(TreeState)
-            tree = tree_state.children[0]
-            self.update_tree(tree)
+                # Take the first node of TreeState which contains the tree
+                tree_state = self.query_one(TreeState)
+                tree = tree_state.children[0]
+                self.update_tree(tree)
+
         elif event.button.id == "assist":
             if self.model is not None:
                 log.write("Waiting for the LLM...")
