@@ -21,3 +21,9 @@ sentence-transformers
 pandas
 
 ```
+
+## How to run the agent
+
+```
+python llm_rag.py --llm gpt-3.5-turbo --test_episodes 1 --memory_buffer 10 --database_folder embeddings --embeddings_model mixedbread-ai/mxbai-embed-large-v1
+```
