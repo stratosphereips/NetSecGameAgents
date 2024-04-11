@@ -63,3 +63,14 @@ In the current version the qlearning agent implements an early stage of conceptu
 
 For now we only translate Netorks and not IPs.
 
+Regarding the hosts, they are separated in six categories:
+1. web: web services
+2. terminal: remote access and administration and terminals
+3. db: databases
+4. files: files access
+5. external: not in the local network
+6. unknown: unknown
+
+If a host does not have a service yet, then it goes into the 'unknown'. 
+After a host is added to a group that is not 'unknown', then it is taken out of 'unknown'.
+

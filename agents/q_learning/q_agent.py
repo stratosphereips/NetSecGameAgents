@@ -44,9 +44,9 @@ class QAgent(BaseAgent):
                 data = pickle.load(f)
                 self.q_values = data["q_table"]
                 self._str_to_id = data["state_mapping"]
-            self.logger.info(f'Successfully loading file {filename}')
+            self._logger.info(f'Successfully loading file {filename}')
         except Exception as e:
-            self.logger.info(f'Error loading file {filename}. {e}')
+            self._logger.info(f'Error loading file {filename}. {e}')
             sys.exit(-1)
 
     def get_state_id(self, state:GameState) -> int:
@@ -137,8 +137,10 @@ class QAgent(BaseAgent):
                 actions_logger.info(f"\tEnd:{observation_concept.end}")
                 actions_logger.info(f"\tInfo:{observation_concept.info}")
                 actions_logger.info(f"\t\tConcept Action selected:{action_concept}")
+            self.logger.info(f"Concept Action selected:{action_concept}")
             # Convert the action on a concept to the action in IPs
             action_ip = convert_concepts_to_actions(action_concept, concept_mapping, agent._logger)
+            self.logger.info(f"Real Action selected:{action_ip}")
             # Perform the action and observe next observation
             observation_ip = self.make_step(action_ip)
             #self.logger.info(f'After make step with action with IPs: {observation_ip}')
@@ -179,15 +181,18 @@ if __name__ == '__main__':
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=5000, type=int)
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
-    parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 0.95 (95 perc)", required=False, default=0.95, type=float)
+    parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95% perc)", required=False, default=95, type=float)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
         os.makedirs(args.logdir)
-    logging.basicConfig(filename=os.path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+    logging.basicConfig(filename=os.path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.ERROR)
 
-    # Log for Actions
-    actions_logger = logging.getLogger('QAgent')
+    # Create agent
+    agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes)
+
+    # Log for Actions. After agent creation
+    actions_logger = logging.getLogger('QAgentActions')
     actions_logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     actions_handler = logging.FileHandler(os.path.join(args.logdir, "q_agent_actions.log"), mode="w")
@@ -197,9 +202,6 @@ if __name__ == '__main__':
 
     # Early stop flag
     early_stop = False
-
-    # Create agent
-    agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes)
 
     # If there is a previous model passed. Always use it for both training and testing.
     if args.previous_model:
@@ -302,9 +304,9 @@ if __name__ == '__main__':
                         num_max_steps_returns += [reward]
 
                     if args.testing:
-                        agent._logger.info(f"Testing episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                        agent._logger.error(f"Testing episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
                     elif not args.testing:
-                        agent._logger.info(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                        agent._logger.error(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
 
                     # Reset the game
                     observation = agent.request_game_reset()
@@ -342,7 +344,7 @@ if __name__ == '__main__':
                                 average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
                                 epsilon={agent.current_epsilon}
                                 '''
-                            agent.logger.info(text)
+                            agent._logger.info(text)
                             mlflow.log_metric("eval_avg_win_rate", eval_win_rate, step=episode)
                             mlflow.log_metric("eval_avg_detection_rate", eval_detection_rate, step=episode)
                             mlflow.log_metric("eval_avg_returns", eval_average_returns, step=episode)
@@ -394,7 +396,7 @@ if __name__ == '__main__':
                                     test_num_max_steps_steps += [num_steps]
                                     test_num_max_steps_returns += [reward]
 
-                                agent._logger.info(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
+                                agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
 
                                 # Reset the game
                                 test_observation = agent.request_game_reset()
@@ -428,7 +430,7 @@ if __name__ == '__main__':
                                 average_max_steps_steps={test_std_max_steps_steps:.3f} +- {test_std_max_steps_steps:.3f},
                                 epsilon={agent.current_epsilon}
                                 '''
-                            agent.logger.info(text)
+                            agent._logger.info(text)
                             # Store in mlflow
                             mlflow.log_metric("test_avg_win_rate", test_win_rate, step=episode)
                             mlflow.log_metric("test_avg_detection_rate", test_detection_rate, step=episode)
@@ -446,7 +448,7 @@ if __name__ == '__main__':
                             mlflow.log_metric("current_episode", episode, step=episode)
 
                             if test_win_rate >= args.early_stop_threshold:
-                                agent.logger(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
+                                agent._logger(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
                                 early_stop = True
 
             
@@ -464,9 +466,9 @@ if __name__ == '__main__':
                 epsilon={agent.current_epsilon}
                 '''
 
-            agent.logger.info(text)
+            agent._logger.info(text)
             print(text)
-            agent._logger.info("Terminating interaction")
+            agent._logger.error("Terminating interaction")
             agent.terminate_connection()
 
     except KeyboardInterrupt:
