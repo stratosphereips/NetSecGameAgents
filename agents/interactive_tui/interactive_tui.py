@@ -649,6 +649,8 @@ if __name__ == "__main__":
             "gpt-3.5-turbo",
             "netsec4bit",
             "netsec_full",
+            "zephyr",
+            "llama2",
             "None",
         ],
         default="None",
