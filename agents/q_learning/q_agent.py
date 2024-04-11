@@ -44,9 +44,9 @@ class QAgent(BaseAgent):
                 data = pickle.load(f)
                 self.q_values = data["q_table"]
                 self._str_to_id = data["state_mapping"]
-            self.logger.info(f'Successfully loading file {filename}')
+            self._logger.info(f'Successfully loading file {filename}')
         except Exception as e:
-            self.logger.info(f'Error loading file {filename}. {e}')
+            self._logger.info(f'Error loading file {filename}. {e}')
             sys.exit(-1)
 
     def get_state_id(self, state:GameState) -> int:
@@ -344,7 +344,7 @@ if __name__ == '__main__':
                                 average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
                                 epsilon={agent.current_epsilon}
                                 '''
-                            agent.logger.error(text)
+                            agent._logger.info(text)
                             mlflow.log_metric("eval_avg_win_rate", eval_win_rate, step=episode)
                             mlflow.log_metric("eval_avg_detection_rate", eval_detection_rate, step=episode)
                             mlflow.log_metric("eval_avg_returns", eval_average_returns, step=episode)
@@ -430,7 +430,7 @@ if __name__ == '__main__':
                                 average_max_steps_steps={test_std_max_steps_steps:.3f} +- {test_std_max_steps_steps:.3f},
                                 epsilon={agent.current_epsilon}
                                 '''
-                            agent.logger.error(text)
+                            agent._logger.info(text)
                             # Store in mlflow
                             mlflow.log_metric("test_avg_win_rate", test_win_rate, step=episode)
                             mlflow.log_metric("test_avg_detection_rate", test_detection_rate, step=episode)
@@ -448,7 +448,7 @@ if __name__ == '__main__':
                             mlflow.log_metric("current_episode", episode, step=episode)
 
                             if test_win_rate >= args.early_stop_threshold:
-                                agent.logger.error(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
+                                agent._logger(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
                                 early_stop = True
 
             
@@ -466,7 +466,7 @@ if __name__ == '__main__':
                 epsilon={agent.current_epsilon}
                 '''
 
-            agent.logger.error(text)
+            agent._logger.info(text)
             print(text)
             agent._logger.error("Terminating interaction")
             agent.terminate_connection()
