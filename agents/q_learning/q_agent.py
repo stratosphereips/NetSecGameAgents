@@ -32,6 +32,7 @@ class QAgent(BaseAgent):
         self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_max_episodes = epsilon_max_episodes
+        self.current_epsilon = epsilon_start
 
     def store_q_table(self, filename):
         with open(filename, "wb") as f:
@@ -118,7 +119,9 @@ class QAgent(BaseAgent):
 
     def update_epsilon_with_decay(self, episode_number)->float:
         decay_rate = np.max([(self.epsilon_max_episodes - episode_number) / self.epsilon_max_episodes, 0])
-        return (self.epsilon_start - self.epsilon_end ) * decay_rate + self.epsilon_end
+        new_eps = (self.epsilon_start - self.epsilon_end ) * decay_rate + self.epsilon_end
+        print(f"new epsilon:{new_eps}")
+        return new_eps
     
     def play_game(self, observation, episode_num, testing=False):
         """
@@ -129,8 +132,6 @@ class QAgent(BaseAgent):
         while not observation.end:
             # Store steps so far
             num_steps += 1
-            # update epsilon value
-            self.current_epsilon = self.update_epsilon_with_decay(num_steps)
             # Get next action. If we are not training, selection is different, so pass it as argument
             action, state_id = self.select_action(observation, testing)
             if args.store_actions:
@@ -150,6 +151,9 @@ class QAgent(BaseAgent):
             actions_logger.info(f"\t State:{observation.state}")
             actions_logger.info(f"\t End:{observation.end}")
             actions_logger.info(f"\t Info:{observation.info}")
+        # update epsilon value
+        if not testing:
+            self.current_epsilon = self.update_epsilon_with_decay(episode_num)
         # Reset the episode
         _ = self.request_game_reset()
         # This will be the last observation played before the reset
@@ -164,7 +168,7 @@ if __name__ == '__main__':
     parser.add_argument("--test_for", help="Evaluate the performance for this number of episodes each time. Only during training.", default=500, type=int)
     parser.add_argument("--epsilon_start", help="Sets the start epsilon for exploration during training.", default=0.9, type=float)
     parser.add_argument("--epsilon_end", help="Sets the end epsilon for exploration during training.", default=0.1, type=float)
-    parser.add_argument("--epsilon_max_episodes", help="Max episodes for epsilon to reach maximum decay", default=5000, type=int)
+    parser.add_argument("--epsilon_max_episodes", help="Max episodes for epsilon to reach maximum decay", default=8000, type=int)
     parser.add_argument("--gamma", help="Sets gamma discount for Q-learing during training.", default=0.9, type=float)
     parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
