@@ -400,11 +400,11 @@ def convert_ips_to_concepts(observation, logger):
         concept_mapping['known_networks'][unknown_nets] = unknown_networks
         # In the future we can lost a controlling host in  a net, so if we add it to unknown, delete from other groups
 
-    logger.info(f'\tI2C: New concept known_hosts: {concept_mapping['known_hosts']}')
-    logger.info(f'\tI2C: New concept controlled_hosts: {concept_mapping['controlled_hosts']}')
-    logger.info(f'\tI2C: New concept known_nets: {concept_mapping['known_networks']}')
-    logger.info(f'\tI2C: New concept known_services: {concept_mapping['known_services']}')
-    logger.info(f'\tI2C: New concept known_data: {concept_mapping['known_data']}')
+    logger.info(f"\tI2C: New concept known_hosts: {concept_mapping['known_hosts']}")
+    logger.info(f"\tI2C: New concept controlled_hosts: {concept_mapping['controlled_hosts']}")
+    logger.info(f"\tI2C: New concept known_nets: {concept_mapping['known_networks']}")
+    logger.info(f"\tI2C: New concept known_services: {concept_mapping['known_services']}")
+    logger.info(f"\tI2C: New concept known_data: {concept_mapping['known_data']}")
 
     # Prepare to return concepts
     state_controlled_hosts = {host for host in concept_mapping['controlled_hosts']}
