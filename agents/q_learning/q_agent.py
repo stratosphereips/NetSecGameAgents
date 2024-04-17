@@ -275,7 +275,7 @@ if __name__ == '__main__':
             mlflow.set_tag("NetSecEnv commit", netsecenv_git_result)
             mlflow.set_tag("Agents commit", agents_git_result)
             # Log the env conf
-            mlflow.log_artifact(args.env_conf)
+            #mlflow.log_artifact(args.env_conf)
             agent._logger.info(f'Epsilon Start: {agent.epsilon_start}')
             agent._logger.info(f'Epsilon End: {agent.epsilon_end}')
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
