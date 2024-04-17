@@ -63,15 +63,12 @@ class QAgent(BaseAgent):
         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
         return tmp[max(tmp,key=tmp.get)] #return maximum Q_value for a given state (out of available actions)
    
-    def select_action(self, observation:Observation, episode_num, testing=False) -> tuple:
+    def select_action(self, observation:Observation, testing=False) -> tuple:
         state = observation.state
         actions = generate_valid_actions(state)
         state_id = self.get_state_id(state)
         
         # E-greedy play. If the random number is less than the e, then choose random to explore.
-        # How epsilon decays
-        decay_rate = np.max( [(self.epsilon_max_episodes - episode_num) / self.epsilon_max_episodes, 0])
-        self.current_epsilon = (self.epsilon_start - self.epsilon_end ) * decay_rate + self.epsilon_end
         # But do not do it if we are testing a model. 
         if random.uniform(0, 1) <= self.current_epsilon and not testing:
             # We are training
@@ -119,6 +116,10 @@ class QAgent(BaseAgent):
         new_observation = Observation(state, reward, end, info)
         return new_observation
 
+    def update_epsilon_with_decay(self, episode_number)->float:
+        decay_rate = np.max([(self.epsilon_max_episodes - episode_number) / self.epsilon_max_episodes, 0])
+        return (self.epsilon_start - self.epsilon_end ) * decay_rate + self.epsilon_end
+    
     def play_game(self, observation, episode_num, testing=False):
         """
         The main function for the gameplay. Handles the main interaction loop.
@@ -128,8 +129,10 @@ class QAgent(BaseAgent):
         while not observation.end:
             # Store steps so far
             num_steps += 1
+            # update epsilon value
+            self.current_epsilon = self.update_epsilon_with_decay(num_steps)
             # Get next action. If we are not training, selection is different, so pass it as argument
-            action, state_id = self.select_action(observation, episode_num, testing)
+            action, state_id = self.select_action(observation, testing)
             if args.store_actions:
                 actions_logger.info(f"\tState:{observation.state}")
                 actions_logger.info(f"\tEnd:{observation.end}")
