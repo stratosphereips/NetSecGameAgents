@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
 # with the path fixed, we can import now
 from env.game_components import Action, Observation, GameState
 from base_agent import BaseAgent
-from agent_utils import generate_valid_actions, state_as_ordered_string
+from agent_utils import generate_valid_actions, state_as_ordered_string, convert_concepts_to_actions, convert_ips_to_concepts
 import mlflow
 import subprocess
 
@@ -32,7 +32,6 @@ class QAgent(BaseAgent):
         self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_max_episodes = epsilon_max_episodes
-        self.current_epsilon = epsilon_start
 
     def store_q_table(self, filename):
         with open(filename, "wb") as f:
@@ -64,12 +63,15 @@ class QAgent(BaseAgent):
         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
         return tmp[max(tmp,key=tmp.get)] #return maximum Q_value for a given state (out of available actions)
    
-    def select_action(self, observation:Observation, testing=False) -> tuple:
+    def select_action(self, observation:Observation, episode_num, testing=False) -> Action:
         state = observation.state
         actions = generate_valid_actions(state)
         state_id = self.get_state_id(state)
         
         # E-greedy play. If the random number is less than the e, then choose random to explore.
+        # How epsilon decays
+        decay_rate = np.max( [(self.epsilon_max_episodes - episode_num) / self.epsilon_max_episodes, 0])
+        self.current_epsilon = (self.epsilon_start - self.epsilon_end ) * decay_rate + self.epsilon_end
         # But do not do it if we are testing a model. 
         if random.uniform(0, 1) <= self.current_epsilon and not testing:
             # We are training
@@ -117,47 +119,48 @@ class QAgent(BaseAgent):
         new_observation = Observation(state, reward, end, info)
         return new_observation
 
-    def update_epsilon_with_decay(self, episode_number)->float:
-        decay_rate = np.max([(self.epsilon_max_episodes - episode_number) / self.epsilon_max_episodes, 0])
-        new_eps = (self.epsilon_start - self.epsilon_end ) * decay_rate + self.epsilon_end
-        self.logger.debug(f"Updating epsilon - new value:{new_eps}")
-        return new_eps
-    
-    def play_game(self, observation, episode_num, testing=False):
+    def play_game(self, observation_ip, episode_num, testing=False):
         """
         The main function for the gameplay. Handles the main interaction loop.
         """
         num_steps = 0
+        # Convert the observation into independent of specific IPs
+        observation_concept, concept_mapping = convert_ips_to_concepts(observation_ip, agent._logger)
         # Run the whole episode
-        while not observation.end:
+        while not observation_concept.end:
             # Store steps so far
             num_steps += 1
             # Get next action. If we are not training, selection is different, so pass it as argument
-            action, state_id = self.select_action(observation, testing)
+            action_concept, state_id = self.select_action(observation_concept, episode_num, testing)
             if args.store_actions:
-                actions_logger.info(f"\tState:{observation.state}")
-                actions_logger.info(f"\tEnd:{observation.end}")
-                actions_logger.info(f"\tInfo:{observation.info}")
-            self.logger.info(f"Action selected:{action}")
+                actions_logger.info(f"\tState:{observation_concept.state}")
+                actions_logger.info(f"\tEnd:{observation_concept.end}")
+                actions_logger.info(f"\tInfo:{observation_concept.info}")
+                actions_logger.info(f"\t\tConcept Action selected:{action_concept}")
+            self.logger.info(f"Concept Action selected:{action_concept}")
+            # Convert the action on a concept to the action in IPs
+            action_ip = convert_concepts_to_actions(action_concept, concept_mapping, agent._logger)
+            self.logger.info(f"Real Action selected:{action_ip}")
             # Perform the action and observe next observation
-            observation = self.make_step(action)
-           
+            observation_ip = self.make_step(action_ip)
+            #self.logger.info(f'After make step with action with IPs: {observation_ip}')
+            # Convert the observation into independent of specific IPs
+            observation_concept, concept_mapping = convert_ips_to_concepts(observation_ip, agent._logger)
             # Recompute the rewards
-            observation = self.recompute_reward(observation)
+            observation_concept = self.recompute_reward(observation_concept)
+            if args.store_actions:
+                agent._logger.error(f"\t\t Reward:{observation_concept.reward}")
             if not testing:
                 # If we are training update the Q-table
-                self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
+                self.q_values[state_id, action_concept] += self.alpha * (observation_concept.reward + self.gamma * self.max_action_q(observation_concept)) - self.q_values[state_id, action_concept]
         if args.store_actions:
-            actions_logger.info(f"\t State:{observation.state}")
-            actions_logger.info(f"\t End:{observation.end}")
-            actions_logger.info(f"\t Info:{observation.info}")
-        # update epsilon value
-        if not testing:
-            self.current_epsilon = self.update_epsilon_with_decay(episode_num)
+            actions_logger.info(f"\t State:{observation_concept.state}")
+            actions_logger.info(f"\t End:{observation_concept.end}")
+            actions_logger.info(f"\t Info:{observation_concept.info}")
         # Reset the episode
         _ = self.request_game_reset()
         # This will be the last observation played before the reset
-        return observation, num_steps
+        return (observation_concept, num_steps)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
@@ -168,7 +171,7 @@ if __name__ == '__main__':
     parser.add_argument("--test_for", help="Evaluate the performance for this number of episodes each time. Only during training.", default=500, type=int)
     parser.add_argument("--epsilon_start", help="Sets the start epsilon for exploration during training.", default=0.9, type=float)
     parser.add_argument("--epsilon_end", help="Sets the end epsilon for exploration during training.", default=0.1, type=float)
-    parser.add_argument("--epsilon_max_episodes", help="Max episodes for epsilon to reach maximum decay", default=8000, type=int)
+    parser.add_argument("--epsilon_max_episodes", help="Max episodes for epsilon to reach maximum decay", default=5000, type=int)
     parser.add_argument("--gamma", help="Sets gamma discount for Q-learing during training.", default=0.9, type=float)
     parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
@@ -206,7 +209,7 @@ if __name__ == '__main__':
         agent._logger.info(f'Loading the previous model in file {args.previous_model}')
         try:
             agent.load_q_table(args.previous_model)
-        except FileNotFoundError:
+        except:
             message = f'Problem loading the file: {args.previous_model}'
             agent._logger.info(message)
             print(message)
@@ -214,13 +217,13 @@ if __name__ == '__main__':
 
     if not args.testing:
         # Mlflow experiment name        
-        experiment_name = "Training and Eval of Q-learning Agent"
+        experiment_name = f"Training and Eval of Q-learning Agent"
         mlflow.set_experiment(experiment_name)
     elif args.testing:
         # Evaluate the agent performance
 
         # Mlflow experiment name        
-        experiment_name = "Testing of Q-learning Agent"
+        experiment_name = f"Testing of Q-learning Agent"
         mlflow.set_experiment(experiment_name)
 
 

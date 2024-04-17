@@ -146,3 +146,6 @@ runs/*
 agents/*/runs/*
 replay_buffer.csv
 agents/*/saved_models/*
+mlruns/*
+agents/*/mlruns/*
+agents/mlruns*
