@@ -120,7 +120,7 @@ class QAgent(BaseAgent):
     def update_epsilon_with_decay(self, episode_number)->float:
         decay_rate = np.max([(self.epsilon_max_episodes - episode_number) / self.epsilon_max_episodes, 0])
         new_eps = (self.epsilon_start - self.epsilon_end ) * decay_rate + self.epsilon_end
-        print(f"new epsilon:{new_eps}")
+        self.logger.debug(f"Updating epsilon - new value:{new_eps}")
         return new_eps
     
     def play_game(self, observation, episode_num, testing=False):
@@ -206,7 +206,7 @@ if __name__ == '__main__':
         agent._logger.info(f'Loading the previous model in file {args.previous_model}')
         try:
             agent.load_q_table(args.previous_model)
-        except:
+        except FileNotFoundError:
             message = f'Problem loading the file: {args.previous_model}'
             agent._logger.info(message)
             print(message)
@@ -214,13 +214,13 @@ if __name__ == '__main__':
 
     if not args.testing:
         # Mlflow experiment name        
-        experiment_name = f"Training and Eval of Q-learning Agent"
+        experiment_name = "Training and Eval of Q-learning Agent"
         mlflow.set_experiment(experiment_name)
     elif args.testing:
         # Evaluate the agent performance
 
         # Mlflow experiment name        
-        experiment_name = f"Testing of Q-learning Agent"
+        experiment_name = "Testing of Q-learning Agent"
         mlflow.set_experiment(experiment_name)
 
 
