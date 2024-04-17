@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
 # with the path fixed, we can import now
 from env.game_components import Action, Observation, GameState
 from base_agent import BaseAgent
-from agent_utils import generate_valid_actions, state_as_ordered_string, convert_concepts_to_actions, convert_ips_to_concepts
+from agent_utils import generate_valid_actions, state_as_ordered_string
 import mlflow
 import subprocess
 
@@ -63,7 +63,7 @@ class QAgent(BaseAgent):
         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
         return tmp[max(tmp,key=tmp.get)] #return maximum Q_value for a given state (out of available actions)
    
-    def select_action(self, observation:Observation, episode_num, testing=False) -> Action:
+    def select_action(self, observation:Observation, episode_num, testing=False) -> tuple:
         state = observation.state
         actions = generate_valid_actions(state)
         state_id = self.get_state_id(state)
@@ -119,48 +119,38 @@ class QAgent(BaseAgent):
         new_observation = Observation(state, reward, end, info)
         return new_observation
 
-    def play_game(self, observation_ip, episode_num, testing=False):
+    def play_game(self, observation, episode_num, testing=False):
         """
         The main function for the gameplay. Handles the main interaction loop.
         """
         num_steps = 0
-        # Convert the observation into independent of specific IPs
-        observation_concept, concept_mapping = convert_ips_to_concepts(observation_ip, agent._logger)
         # Run the whole episode
-        while not observation_concept.end:
+        while not observation.end:
             # Store steps so far
             num_steps += 1
             # Get next action. If we are not training, selection is different, so pass it as argument
-            action_concept, state_id = self.select_action(observation_concept, episode_num, testing)
+            action, state_id = self.select_action(observation, episode_num, testing)
             if args.store_actions:
-                actions_logger.info(f"\tState:{observation_concept.state}")
-                actions_logger.info(f"\tEnd:{observation_concept.end}")
-                actions_logger.info(f"\tInfo:{observation_concept.info}")
-                actions_logger.info(f"\t\tConcept Action selected:{action_concept}")
-            self.logger.info(f"Concept Action selected:{action_concept}")
-            # Convert the action on a concept to the action in IPs
-            action_ip = convert_concepts_to_actions(action_concept, concept_mapping, agent._logger)
-            self.logger.info(f"Real Action selected:{action_ip}")
+                actions_logger.info(f"\tState:{observation.state}")
+                actions_logger.info(f"\tEnd:{observation.end}")
+                actions_logger.info(f"\tInfo:{observation.info}")
+            self.logger.info(f"Action selected:{action}")
             # Perform the action and observe next observation
-            observation_ip = self.make_step(action_ip)
-            #self.logger.info(f'After make step with action with IPs: {observation_ip}')
-            # Convert the observation into independent of specific IPs
-            observation_concept, concept_mapping = convert_ips_to_concepts(observation_ip, agent._logger)
+            observation = self.make_step(action)
+           
             # Recompute the rewards
-            observation_concept = self.recompute_reward(observation_concept)
-            if args.store_actions:
-                agent._logger.error(f"\t\t Reward:{observation_concept.reward}")
+            observation = self.recompute_reward(observation)
             if not testing:
                 # If we are training update the Q-table
-                self.q_values[state_id, action_concept] += self.alpha * (observation_concept.reward + self.gamma * self.max_action_q(observation_concept)) - self.q_values[state_id, action_concept]
+                self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
         if args.store_actions:
-            actions_logger.info(f"\t State:{observation_concept.state}")
-            actions_logger.info(f"\t End:{observation_concept.end}")
-            actions_logger.info(f"\t Info:{observation_concept.info}")
+            actions_logger.info(f"\t State:{observation.state}")
+            actions_logger.info(f"\t End:{observation.end}")
+            actions_logger.info(f"\t Info:{observation.info}")
         # Reset the episode
         _ = self.request_game_reset()
         # This will be the last observation played before the reset
-        return (observation_concept, num_steps)
+        return observation, num_steps
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
