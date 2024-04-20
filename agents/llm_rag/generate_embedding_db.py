@@ -1,7 +1,23 @@
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer
+from chromadb.utils import embedding_functions
+
 import pandas as pd
 import chromadb
 import argparse
+import json
+
+# This is used so the agent can see the BaseAgent
+import sys
+from os import path
+
+sys.path.append(
+    path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
+)
+
+from env.game_components import GameState
+
+sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
+from llm_utils import create_status_from_state
 
 
 def generate_states_actions(df: pd.DataFrame) -> tuple:
@@ -13,8 +29,15 @@ def generate_states_actions(df: pd.DataFrame) -> tuple:
     actions = grouped["action"].to_list()
 
     metadata = [{"action": "|".join(action)} for action in actions]
+    # for st in states:
 
-    return states, metadata
+    #     gs = GameState.from_json(st)
+    #     json_st = json.loads(st)
+    #     print(json_st)
+    #     print(create_status_from_state(gs))
+    states_str = [create_status_from_state(GameState.from_json(st)) for st in states]
+
+    return states_str, metadata
 
 
 if __name__ == "__main__":
@@ -30,7 +53,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    model = SentenceTransformer(args.embeddings_model)
+    # model = SentenceTransformer(args.embeddings_model)
+    sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name=args.embeddings_model
+    )
 
     df = pd.read_csv(args.replay_buffer)
     df2 = df.query("evaluation > 5")[["state", "response"]]
@@ -42,9 +68,10 @@ if __name__ == "__main__":
     assert len(states) == len(action_metadata)
 
     # Generate embeddings using sentence transformers
-    embeddings = model.encode(states)
+    # embeddings = model.encode(states)
+    embeddings = sentence_transformer_ef(states)
 
-    client = chromadb.PersistentClient(path="embeddings")
+    client = chromadb.PersistentClient(path=args.database_folder)
     # get a collection or create if it doesn't exist already
     collection = client.get_or_create_collection(
         "states", metadata={"hnsw:space": "cosine"}
