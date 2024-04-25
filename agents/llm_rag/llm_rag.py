@@ -14,15 +14,15 @@ from os import path
 import argparse
 import jinja2
 import json
-import random
 
 from openai import OpenAI
 from dotenv import dotenv_values
 from tenacity import retry, stop_after_attempt
+from rag_utils import select_best_action
 
 import mlflow
 
-mlflow.set_tracking_uri("http://147.32.83.60")
+# mlflow.set_tracking_uri("http://147.32.83.60")
 mlflow.set_experiment("mari_LLM_RAG_test")
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
@@ -40,9 +40,6 @@ from llm_utils import (
     create_status_from_state,
     create_action_from_response,
 )
-
-config = dotenv_values(".env")
-client = OpenAI(api_key=config["OPENAI_API_KEY"])
 
 # local_services = ['bash', 'powershell', 'remote desktop service', 'windows login', 'can_attack_start_here']
 local_services = ["can_attack_start_here"]
@@ -95,7 +92,9 @@ Otherwise, provide the best possible action in the correct JSON format. Action: 
 
 
 @retry(stop=stop_after_attempt(3))
-def openai_query(msg_list, max_tokens=60, model="gpt-3.5-turbo", fmt={"type": "text"}):
+def openai_query(
+    client, msg_list, max_tokens=60, model="gpt-3.5-turbo", fmt={"type": "text"}
+):
     """Send messages to OpenAI API and return the response."""
     llm_response = client.chat.completions.create(
         model=model,
@@ -144,49 +143,6 @@ def create_mem_prompt(memory_list):
     return prompt
 
 
-# def generate_states_actions(df: pd.DataFrame) -> tuple:
-#     states = df["state"].to_list()
-#     actions = df["response"].map(lambda x: str(eval(x)["action"])).to_list()
-
-#     metadata = [{"action": action} for action in actions]
-
-#     return states, metadata
-
-
-def select_best_action(results: dict[str, str]) -> str:
-    """
-    Give all the metadata resuls select the action that is the most popular
-    """
-    votes = {
-        "ScanNetwork": 0,
-        "ScanServices": 0,
-        "ExploitService": 0,
-        "FindData": 0,
-        "ExfiltrateData": 0,
-    }
-
-    for act in results:
-        actions = act["action"].split("|")
-        for a in actions:
-            votes[a] += 1
-
-    # return max(votes, key=votes.get)
-    return sample_best_action(votes)
-
-
-def sample_best_action(data: dict[str, int]) -> str:
-    total = sum(data.values())
-
-    # Calculate probability distribution
-    prob_dist = {key: value / total for key, value in data.items()}
-
-    # Sample keys based on the probability distribution
-    sampled_key = random.choices(
-        list(prob_dist.keys()), weights=list(prob_dist.values()), k=1
-    )[0]
-    return sampled_key
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -197,7 +153,11 @@ if __name__ == "__main__":
             "gpt-4-turbo",
             "gpt-3.5-turbo",
             "gpt-3.5-turbo-16k",
-            "HuggingFaceH4/zephyr-7b-beta",
+            "llama3",
+            "zephyr",
+            "netsec4bit",
+            "netsec_full",
+            "codellama",
         ],
         default="gpt-3.5-turbo",
         help="LLM used with OpenAI API",
@@ -252,6 +212,12 @@ if __name__ == "__main__":
     # Get a collection or create if it doesn't exist already
     collection = db_client.get_collection("states")
 
+    config = dotenv_values(".env")
+    if args.llm in ["llama3", "zephyr", "netsec4bit", "netsec_full", "codellama"]:
+        client = OpenAI(base_url="http://147.32.83.61:11434/v1", api_key="ollama")
+    else:
+        client = OpenAI(api_key=config["OPENAI_API_KEY"])
+
     logging.basicConfig(
         filename="llm_rag.log",
         filemode="w",
@@ -276,11 +242,6 @@ if __name__ == "__main__":
         "episodes": args.test_episodes,
     }
     mlflow.log_params(params)
-
-    if "zephyr" in args.llm:
-        model = AutoModelForCausalLM.from_pretrained(args.llm, device_map="auto")
-        tokenizer = AutoTokenizer.from_pretrained(args.llm, padding_side="left")
-        tokenizer.pad_token = tokenizer.eos_token
 
     # Run multiple episodes to compute statistics
     wins = 0
@@ -326,6 +287,9 @@ if __name__ == "__main__":
         total_reward = 0
         num_actions = 0
         repeated_actions = 0
+        good_states = []
+        good_metadata = []
+        store_data = False
 
         # Populate the instructions based on the pre-defined goal
         jinja_environment = jinja2.Environment()
@@ -346,7 +310,7 @@ if __name__ == "__main__":
             state_embedding = sentence_transformer_ef([status_prompt])
             results = collection.query(
                 query_embeddings=state_embedding,
-                n_results=3,
+                n_results=5,
             )
             # print(results)
 
@@ -368,17 +332,18 @@ if __name__ == "__main__":
             ]
             prompts.append(messages)
 
-            # Query the LLM
-            if "zephyr" in args.llm:
-                response = model_query(model, tokenizer, messages, max_tokens=80)
-            else:
-                response = openai_query(
-                    messages, max_tokens=80, model=args.llm, fmt={"type": "json_object"}
-                )
+            # Query the LLM (either GPT or ollama models)
+            response = openai_query(
+                client,
+                messages,
+                max_tokens=80,
+                model=args.llm,
+                fmt={"type": "json_object"},
+            )
 
-            print(f"LLM (step 2): {response}")
-            logger.info("LLM (step 2): %s", response)
-            responses.append(response)
+            print(f"LLM (step 2): {response.strip()}")
+            logger.info("LLM (step 2): %s", response.strip())
+            responses.append(response.strip())
 
             try:
                 # regex = r"\{+[^}]+\}\}"
@@ -389,7 +354,7 @@ if __name__ == "__main__":
                 #     print("Parsed Response:", response)
 
                 # response = eval(response)
-                response = json.loads(response)
+                response = json.loads(response.strip())
 
                 # Validate action based on current states
                 is_valid, action = create_action_from_response(
@@ -399,7 +364,7 @@ if __name__ == "__main__":
                 print("Eval failed")
                 is_valid = False
 
-            if is_valid:
+            if is_valid and action is not None:
                 observation = agent.make_step(action)
                 logger.info(f"Observation received: {observation}")
                 taken_action = action
@@ -409,72 +374,22 @@ if __name__ == "__main__":
                     good_action = True
                     current_state = observation.state
                     evaluations.append(8)
+
+                    # Store state string
+                    good_states.append(status_prompt)
+
+                    # Store action name
+                    action_str = action.type.name
+                    if action_str == "FindServices":
+                        action_str = "ScanServices"
+                    good_metadata.append({"action": action_str})
                 else:
                     evaluations.append(3)
             else:
                 evaluations.append(0)
 
             logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
-            if observation.end or i == (
-                num_iterations - 1
-            ):  # if it is the last iteration gather statistics
-                if i < (num_iterations - 1):
-                    # TODO: Fix this
-                    reason = observation.info
-                else:
-                    reason = {"end_reason": "max_iterations"}
-
-                win = 0
-                # is_detected if boolean
-                # is_detected = observation.info.detected
-                # TODO: Fix this
-                steps = i
-                epi_last_reward = observation.reward
-                num_actions_repeated += [repeated_actions]
-                if "goal_reached" in reason["end_reason"]:
-                    wins += 1
-                    num_win_steps += [steps]
-                    type_of_end = "win"
-                    evaluations[-1] = 10
-                elif "detected" in reason["end_reason"]:
-                    detected += 1
-                    num_detected_steps += [steps]
-                    type_of_end = "detection"
-                elif "max_iterations" in reason["end_reason"]:
-                    # TODO: Fix this
-                    reach_max_steps += 1
-                    type_of_end = "max_iterations"
-                    total_reward = -100
-                    steps = 100
-                else:
-                    reach_max_steps += 1
-                    type_of_end = "max_steps"
-                returns += [total_reward]
-                num_steps += [steps]
-
-                # Episodic value
-                mlflow.log_metric("wins", wins, step=episode)
-                mlflow.log_metric("num_steps", steps, step=episode)
-                mlflow.log_metric("return", total_reward, step=episode)
-
-                # Running metrics
-                mlflow.log_metric("wins", wins, step=episode)
-                mlflow.log_metric("reached_max_steps", reach_max_steps, step=episode)
-                mlflow.log_metric("detected", detected, step=episode)
-
-                # Running averages
-                mlflow.log_metric("win_rate", (wins / (episode)) * 100, step=episode)
-                mlflow.log_metric("avg_returns", np.mean(returns), step=episode)
-                mlflow.log_metric("avg_steps", np.mean(num_steps), step=episode)
-
-                logger.info(
-                    f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
-                )
-                print(
-                    f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
-                )
-                break
-
+            # Store the memory for this action
             try:
                 if not is_valid:
                     memories.append(
@@ -496,6 +411,7 @@ if __name__ == "__main__":
                                 "This action was helpful.",
                             )
                         )
+
                     else:
                         memories.append(
                             (
@@ -505,15 +421,97 @@ if __name__ == "__main__":
                             )
                         )
 
-                    # If the action was repeated count it
-                    if action in actions_took_in_episode:
-                        repeated_actions += 1
+                # If the action was repeated count it
+                if action in actions_took_in_episode:
+                    repeated_actions += 1
 
-                    # Store action in memory of all actions so far
-                    actions_took_in_episode.append(action)
+                # Store action in memory of all actions so far
+                actions_took_in_episode.append(action)
             except:
                 # if the LLM sends a response that is not properly formatted.
                 memories.append(f"Response '{response}' was badly formatted.")
+
+            if observation.end or i == (
+                num_iterations - 1
+            ):  # if it is the last iteration gather statistics
+                if i < (num_iterations - 1):
+                    # TODO: Fix this
+                    reason = observation.info
+                else:
+                    reason = {"end_reason": "max_iterations"}
+
+                win = 0
+                # is_detected if boolean
+                # is_detected = observation.info.detected
+                # TODO: Fix this
+                steps = i
+                epi_last_reward = observation.reward
+                num_actions_repeated += [repeated_actions]
+                if "goal_reached" in reason["end_reason"]:
+                    wins += 1
+                    num_win_steps += [steps]
+                    type_of_end = "win"
+                    evaluations[-1] = 10
+                    store_data = True
+                elif "detected" in reason["end_reason"]:
+                    detected += 1
+                    num_detected_steps += [steps]
+                    type_of_end = "detection"
+                elif "max_iterations" in reason["end_reason"]:
+                    # TODO: Fix this
+                    reach_max_steps += 1
+                    type_of_end = "max_iterations"
+                    total_reward = -100
+                    steps = 100
+                else:
+                    reach_max_steps += 1
+                    type_of_end = "max_steps"
+                returns += [total_reward]
+                num_steps += [steps]
+
+                # After storing metrics and memories break out of the for loop
+                break
+
+        # if store_data:
+        #     # After the episode finishes
+        #     num_docs = collection.count()
+        #     print(f"Number of stored emveddings: {num_docs})
+        #     good_embeddings = sentence_transformer_ef(good_states)
+
+        #     collection.add(
+        #         embeddings=good_embeddings,
+        #         metadatas=good_metadata,
+        #         documents=[
+        #             "doc" + str(i)
+        #             for i in range(num_docs, num_docs + len(good_metadata))
+        #         ],
+        #         ids=[
+        #             "state" + str(i)
+        #             for i in range(num_docs, num_docs + len(good_metadata))
+        #         ],
+        #     )
+
+        # Generate metrics for each episode
+        mlflow.log_metric("wins", wins, step=episode)
+        mlflow.log_metric("num_steps", steps, step=episode)
+        mlflow.log_metric("return", total_reward, step=episode)
+
+        # Running metrics
+        mlflow.log_metric("wins", wins, step=episode)
+        mlflow.log_metric("reached_max_steps", reach_max_steps, step=episode)
+        mlflow.log_metric("detected", detected, step=episode)
+
+        # Running averages
+        mlflow.log_metric("win_rate", (wins / (episode)) * 100, step=episode)
+        mlflow.log_metric("avg_returns", np.mean(returns), step=episode)
+        mlflow.log_metric("avg_steps", np.mean(num_steps), step=episode)
+
+        logger.info(
+            f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
+        )
+        print(
+            f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
+        )
 
     prompt_table = {
         "state": states,
