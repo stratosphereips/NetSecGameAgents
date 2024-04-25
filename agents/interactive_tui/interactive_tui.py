@@ -42,18 +42,22 @@ logger.info("Start")
 
 
 def is_valid_ip(ip_addr: str) -> bool:
-    """Validate if the input string is an IPv4 address"""
+    """Validate if the input string is an IPv4 or IPv6 address"""
     try:
-        ipaddress.IPv4Address(ip_addr)
+        ipaddress.ip_address(ip_addr)
         return True
-    except ipaddress.AddressValueError:
+    except ValueError:
         return False
 
 
 def is_valid_net(net_addr: str) -> bool:
     """Validate if the input string is an IPv4 or IPv6 network"""
+
+    # Do not accept empty mask
+    if "/" not in net_addr:
+        return False
     try:
-        ipaddress.ip_network(net_addr)
+        ipaddress.ip_network(net_addr, strict=True)
         return True
     except (ipaddress.NetmaskValueError, ipaddress.AddressValueError, ValueError):
         return False
@@ -202,7 +206,9 @@ class InteractiveTUI(App):
                     Input(
                         placeholder="Source Host",
                         id="src_host",
-                        validators=[Function(is_valid_ip, "This is not a valid IP.")],
+                        validators=[
+                            Function(is_valid_ip, "This is not a valid IP address."),
+                        ],
                     ),
                     Input(
                         placeholder="Network",
@@ -345,11 +351,20 @@ class InteractiveTUI(App):
         Handles the manual inputs that are types by the user.
         """
         if event._sender.id == "src_host":
-            self.src_host_input = event.value
+            if event.validation_result.is_valid:
+                self.src_host_input = event.value
+            else:
+                self.src_host_input = ""
         elif event._sender.id == "network":
-            self.network_input = event.value
+            if event.validation_result.is_valid:
+                self.network_input = event.value
+            else:
+                self.network_input = ""
         elif event._sender.id == "target_host":
-            self.target_host_input = event.value
+            if event.validation_result.is_valid:
+                self.target_host_input = event.value
+            else:
+                self.src_host_input = ""
         elif event._sender.id == "service":
             self.service_input = event.value
         elif event._sender.id == "data":
@@ -531,46 +546,58 @@ class InteractiveTUI(App):
         action = None
         log = self.query_one("RichLog")
         if self.next_action == ActionType.ScanNetwork:
-            parameters = {
-                "source_host": IP(self.src_host_input),
-                "target_network": Network(
-                    self.network_input[:-3], mask=int(self.network_input[-2:])
-                ),
-            }
-            action = Action(action_type=self.next_action, params=parameters)
+            if self.src_host_input != "" and self.network_input != "":
+                parameters = {
+                    "source_host": IP(self.src_host_input),
+                    "target_network": Network(
+                        self.network_input[:-3], mask=int(self.network_input[-2:])
+                    ),
+                }
+                action = Action(action_type=self.next_action, params=parameters)
+            else:
+                self.notify("Please provide valid inputs", severity="error")
         elif self.next_action in [ActionType.FindServices, ActionType.FindData]:
-            parameters = {
-                "source_host": IP(self.src_host_input),
-                "target_host": IP(self.target_host_input),
-            }
-            action = Action(action_type=self.next_action, params=parameters)
+            if self.src_host_input != "" and self.network_input != "":
+                parameters = {
+                    "source_host": IP(self.src_host_input),
+                    "target_host": IP(self.target_host_input),
+                }
+                action = Action(action_type=self.next_action, params=parameters)
+            else:
+                self.notify("Please provide valid inputs", severity="error")
         elif self.next_action == ActionType.ExploitService:
-            for host, service_list in state.known_services.items():
-                if IP(self.target_host_input) == host:
-                    for service in service_list:
-                        if self.service_input == service.name:
-                            parameters = {
-                                "source_host": IP(self.src_host_input),
-                                "target_host": IP(self.target_host_input),
-                                "target_service": service,
-                            }
-                            action = Action(
-                                action_type=self.next_action, params=parameters
-                            )
+            if self.src_host_input != "" and self.target_host_input != "":
+                for host, service_list in state.known_services.items():
+                    if IP(self.target_host_input) == host:
+                        for service in service_list:
+                            if self.service_input == service.name:
+                                parameters = {
+                                    "source_host": IP(self.src_host_input),
+                                    "target_host": IP(self.target_host_input),
+                                    "target_service": service,
+                                }
+                                action = Action(
+                                    action_type=self.next_action, params=parameters
+                                )
+                    else:
+                        self.notify("Please provide valid inputs", severity="error")
         elif self.next_action == ActionType.ExfiltrateData:
-            for host, data_items in state.known_data.items():
-                # log.write(f"{str(state.known_data.items())}")
-                if IP(self.src_host_input) == host:
-                    for datum in data_items:
-                        if self.data_input == datum.id:
-                            parameters = {
-                                "source_host": IP(self.src_host_input),
-                                "target_host": IP(self.target_host_input),
-                                "data": datum,
-                            }
-                            action = Action(
-                                action_type=self.next_action, params=parameters
-                            )
+            if self.src_host_input != "" and self.target_host_input != "":
+                for host, data_items in state.known_data.items():
+                    # log.write(f"{str(state.known_data.items())}")
+                    if IP(self.src_host_input) == host:
+                        for datum in data_items:
+                            if self.data_input == datum.id:
+                                parameters = {
+                                    "source_host": IP(self.src_host_input),
+                                    "target_host": IP(self.target_host_input),
+                                    "data": datum,
+                                }
+                                action = Action(
+                                    action_type=self.next_action, params=parameters
+                                )
+            else:
+                self.notify("Please provide valid inputs", severity="error")
         else:
             log.write(
                 f"[bold red]Invalid input: {self.next_action} with {parameters}[/bold red]"
