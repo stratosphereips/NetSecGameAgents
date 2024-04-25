@@ -3,6 +3,7 @@ Collection of functions used by LLM agents.
 
 author: Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
 """
+
 import sys
 import os
 
@@ -169,6 +170,7 @@ def create_action_from_response(llm_response: dict, state: GameState) -> tuple:
                                 break
                     else:
                         action = None
+                        valid = False
                 case "FindData":
                     src_host = action_params["source_host"]
                     action = Action(
