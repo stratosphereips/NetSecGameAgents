@@ -21,12 +21,12 @@ from agent_utils import generate_valid_actions
 
 class RandomBenignAgent(BaseAgent):
 
-    def __init__(self, host:str, port:int,role:str, allowed_actions:list, amp_limit:int=None) -> None:
+    def __init__(self, host:str, port:int,role:str, allowed_actions:list, apm_limit:int=None) -> None:
         super().__init__(host, port, role)
         self._allowed_actions = allowed_actions
-        self._apm_limit = amp_limit
+        self._apm_limit = apm_limit
         if self._apm_limit:
-            self.interval = 60/amp_limit
+            self.interval = 60/apm_limit
         else:
             self.interval = 0
     
@@ -86,5 +86,5 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(args.logdir, "benign_random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.DEBUG)
 
     # Create agent
-    agent = RandomBenignAgent(args.host, args.port,"Human",allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices], amp_limit=10)
+    agent = RandomBenignAgent(args.host, args.port,"Human",allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices], apm_limit=10)
     agent.play_game(args.episodes)
