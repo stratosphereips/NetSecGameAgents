@@ -21,12 +21,12 @@ from agent_utils import generate_valid_actions
 
 class RandomBenignAgent(BaseAgent):
 
-    def __init__(self, host:str, port:int,role:str, allowed_actions:list, amp_limit:int=None) -> None:
+    def __init__(self, host:str, port:int,role:str, allowed_actions:list, apm_limit:int=None) -> None:
         super().__init__(host, port, role)
         self._allowed_actions = allowed_actions
-        self._apm_limit = amp_limit
+        self._apm_limit = apm_limit
         if self._apm_limit:
-            self.interval = 60/amp_limit
+            self.interval = 60/apm_limit
         else:
             self.interval = 0
     
@@ -79,6 +79,7 @@ if __name__ == '__main__':
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
     parser.add_argument("--episodes", help="Sets number of testing episodes", default=10, type=int)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
+    parser.add_argument("--apm", help="Actions per minute", default=10, type=int, required=False)
     args = parser.parse_args()
 
     if not os.path.exists(args.logdir):
@@ -86,5 +87,5 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(args.logdir, "benign_random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.DEBUG)
 
     # Create agent
-    agent = RandomBenignAgent(args.host, args.port,"Human",allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices], amp_limit=10)
+    agent = RandomBenignAgent(args.host, args.port,"Human",allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices], apm_limit=args.apm)
     agent.play_game(args.episodes)
