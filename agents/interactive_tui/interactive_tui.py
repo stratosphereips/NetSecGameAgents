@@ -601,7 +601,10 @@ class InteractiveTUI(App):
         """Reset the state and variables"""
         logger.info("Reset the environment and state")
         self.current_obs = self.agent.request_game_reset()
-        self.assistant.update_instructions(self.current_obs.info["goal_description"])
+        if self.model is not None:
+            self.assistant.update_instructions(
+                self.current_obs.info["goal_description"]
+            )
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
