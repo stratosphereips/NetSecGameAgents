@@ -29,13 +29,34 @@ def generate_states_actions(df: pd.DataFrame) -> tuple:
     actions = grouped["action"].to_list()
 
     metadata = [{"action": "|".join(action)} for action in actions]
-    # for st in states:
 
-    #     gs = GameState.from_json(st)
-    #     json_st = json.loads(st)
-    #     print(json_st)
-    #     print(create_status_from_state(gs))
     states_str = [create_status_from_state(GameState.from_json(st)) for st in states]
+
+    return states_str, metadata
+
+
+def generate_states_actions2(df: pd.DataFrame) -> tuple:
+    # df["action"] = df["response"].map(lambda x: str(eval(x)["action"]))
+
+    # grouped = df.groupby("state").agg(list).reset_index()
+
+    # states = grouped["state"].to_list()
+    states = df["state"].to_list()
+    # actions = grouped["action"].to_list()
+    actions = df["response"].to_list()
+
+    # metadata = [{"action": "|".join(action)} for action in actions]
+    metadata = [{"action": action} for action in actions]
+
+    states_str = []
+    for i, st in enumerate(states):
+        try:
+            # print(i + 2, json.loads(st))
+            status_str = create_status_from_state(GameState.from_json(st))
+            states_str.append(status_str)
+        except:
+            print(f"problematic row {i}, {st}")
+    # states_str = [create_status_from_state(GameState.from_json(st)) for st in states]
 
     return states_str, metadata
 
@@ -63,7 +84,7 @@ if __name__ == "__main__":
     df2 = df2.sample(frac=1, random_state=42)
 
     # TODO: Handle states that are duplicates. Right now only the first one will be inserted I think (?)
-    states, action_metadata = generate_states_actions(df2)
+    states, action_metadata = generate_states_actions2(df2)
     print(action_metadata[:10])
     assert len(states) == len(action_metadata)
 
@@ -80,6 +101,7 @@ if __name__ == "__main__":
     collection.add(
         embeddings=embeddings,
         metadatas=action_metadata,
-        documents=["doc" + str(i) for i in range(len(embeddings))],
+        # documents=["doc" + str(i) for i in range(len(embeddings))],
+        documents=states,
         ids=["state" + str(i) for i in range(len(embeddings))],
     )
