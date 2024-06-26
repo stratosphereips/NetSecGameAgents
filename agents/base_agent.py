@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))
-from env.game_components import Action, GameState, Observation, ActionType, GameStatus,AgentInfo, IP, Network
+from env.game_components import Action, GameState, Observation, ActionType, GameStatus,AgentInfo, IP, Network, Data
 
 
 class BaseAgent(ABC):
@@ -151,6 +151,32 @@ if __name__ == '__main__':
     log_filename = os.path.dirname(os.path.abspath(__file__)) + '/base_agent.log'
     logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
     agent = BaseAgent(args.host, args.port, role="Attacker")
-    print(agent.register())
-    print(agent.request_game_reset())
-    print(agent.make_step(Action(ActionType.ScanNetwork, params={"source_host":IP("192.168.2.2"), "target_network":Network("192.168.1.0", 24)})))
+    obs = agent.register()
+    #obs = agent.request_game_reset()
+    for ip in obs.state.controlled_hosts:
+        if ip != IP("213.47.23.195"):
+            src = ip
+            break
+    agent.make_step(Action(ActionType.ScanNetwork, params={"source_host":src, "target_network":Network("192.168.1.0", 24)}))
+    obs = agent.make_step(Action(ActionType.FindServices, params={"source_host":src, "target_host":IP("192.168.1.2")}))
+    host, services  = [(k,v) for k,v in obs.state.known_services.items()][0]
+    service = list(services)[0]
+    agent.make_step(Action(ActionType.ExploitService, params={"source_host":src, "target_host":host, "target_service":service}))
+    agent.make_step(Action(action_type=ActionType.FindData, params={"source_host":host, "target_host":host}))
+    obs = agent.make_step(Action(action_type=ActionType.ExfiltrateData, params={
+        "source_host":host,
+        "target_host":IP("213.47.23.195"),
+        "data": Data("User1","DataFromServer1")
+        }
+    ))
+    print(obs)
+    # print("----------------------------")
+    # obs = agent.request_game_reset()
+    # print('---------------------------')
+    # obs = agent.make_step(Action(action_type=ActionType.ExfiltrateData, params={
+    #     "source_host":host,
+    #     "target_host":IP("213.47.23.195"),
+    #     "data": Data("User1","DataFromServer1")
+    #     }
+    # ))
+    # print(obs)
