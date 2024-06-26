@@ -21,7 +21,7 @@ from agent_utils import generate_valid_actions
 
 class RandomBenignAgent(BaseAgent):
 
-    def __init__(self, host:str, port:int,role:str, allowed_actions:list, apm_limit:int=None) -> None:
+    def __init__(self, host:str, port:int, role:str, allowed_actions:list, apm_limit:int=None) -> None:
         super().__init__(host, port, role)
         self._allowed_actions = allowed_actions
         self._apm_limit = apm_limit
@@ -69,6 +69,7 @@ class RandomBenignAgent(BaseAgent):
         valid_actions = generate_valid_actions(observation.state)
         # filter actions based on the allowed action types
         allowed_actions = filter(lambda action: action.type in self._allowed_actions, valid_actions)
+        allowed_actions = [a for a  in allowed_actions] + [Action(ActionType.ResetGame, params={})]
         action = choice([a for a  in allowed_actions])
         return action
 
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of testing episodes", default=10, type=int)
+    parser.add_argument("--episodes", help="Sets number of testing episodes", default=1, type=int)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
     parser.add_argument("--apm", help="Actions per minute", default=10, type=int, required=False)
     args = parser.parse_args()
@@ -87,5 +88,5 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(args.logdir, "benign_random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.DEBUG)
 
     # Create agent
-    agent = RandomBenignAgent(args.host, args.port,"Human",allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices], apm_limit=args.apm)
+    agent = RandomBenignAgent(args.host, args.port, "Benign", allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices], apm_limit=args.apm)
     agent.play_game(args.episodes)

@@ -13,7 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname( os.path.abspath(__file__) )))
 from env.game_components import Action, ActionType, GameState, Observation, Data, IP, Network
 import ipaddress
 
-def generate_valid_actions(state: GameState)->list:
+def generate_valid_actions_concepts(state: GameState)->list:
     """Function that generates a list of all valid actions in a given state"""
     valid_actions = set()
     for source_host in state.controlled_hosts:
@@ -22,23 +22,12 @@ def generate_valid_actions(state: GameState)->list:
             # TODO ADD neighbouring networks
             # Only scan local networks from local hosts
             if network.is_private() and source_host.is_private():
-                if type(network.ip) == str:
-                    # It is a concept, so check that we scan networks we dont know yet. 
-                    # Ignore the rest because we already scan them
-                    if 'unknown' in network.ip:
-                        valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": source_host,}))
-                else:
-                    valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": source_host,}))
+                valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": source_host,}))
         # Service Scans
         for host in state.known_hosts:
             # Do not try to scan a service from hosts outside local networks towards local networks
             if host.is_private() and source_host.is_private():
-                if type(host.ip) == str:
-                    # We only scan services in unknown hosts.
-                    if 'unknown' in host.ip:
-                        valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": source_host,}))
-                else:
-                    valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": source_host,}))
+                valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": source_host,}))
         # Service Exploits
         for host, service_list in state.known_services.items():
             # Only exploit local services from local hosts
@@ -60,6 +49,33 @@ def generate_valid_actions(state: GameState)->list:
                 if target_host != source_host:
                     valid_actions.add(Action(ActionType.ExfiltrateData, params={"target_host": target_host, "source_host": source_host, "data": data}))
     return list(valid_actions)
+
+def generate_valid_actions(state: GameState)->list:
+    """Function that generates a list of all valid actions in a given state"""
+    valid_actions = set()
+    for src_host in state.controlled_hosts:
+        #Network Scans
+        for network in state.known_networks:
+            # TODO ADD neighbouring networks
+            valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": src_host,}))
+        # Service Scans
+        for host in state.known_hosts:
+            valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": src_host,}))
+        # Service Exploits
+        for host, service_list in state.known_services.items():
+            for service in service_list:
+                valid_actions.add(Action(ActionType.ExploitService, params={"target_host": host,"target_service": service,"source_host": src_host,}))
+    # Data Scans
+    for host in state.controlled_hosts:
+        valid_actions.add(Action(ActionType.FindData, params={"target_host": host, "source_host": host}))
+
+    # Data Exfiltration
+    for src_host, data_list in state.known_data.items():
+        for data in data_list:
+            for trg_host in state.controlled_hosts:
+                if trg_host != src_host:
+                    valid_actions.add(Action(ActionType.ExfiltrateData, params={"target_host": trg_host, "source_host": src_host, "data": data}))
+    return list(valid_actions)    
 
 def state_as_ordered_string(state:GameState)->str:
     """Function for generating string representation of a SORTED gamestate components. Can be used as key for dictionaries."""
