@@ -163,9 +163,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of episodes to run.", default=1000, type=int)
-    parser.add_argument("--test_each", help="Evaluate the performance every this number of episodes. During training and testing.", default=500, type=int)
-    parser.add_argument("--test_for", help="Evaluate the performance for this number of episodes each time. Only during training.", default=500, type=int)
+    parser.add_argument("--episodes", help="Sets number of episodes to run.", default=15000, type=int)
+    parser.add_argument("--test_each", help="Evaluate the performance every this number of episodes. During training and testing.", default=1000, type=int)
+    parser.add_argument("--test_for", help="Evaluate the performance for this number of episodes each time. Only during training.", default=250, type=int)
     parser.add_argument("--epsilon_start", help="Sets the start epsilon for exploration during training.", default=0.9, type=float)
     parser.add_argument("--epsilon_end", help="Sets the end epsilon for exploration during training.", default=0.1, type=float)
     parser.add_argument("--epsilon_max_episodes", help="Max episodes for epsilon to reach maximum decay", default=8000, type=int)
@@ -176,7 +176,7 @@ if __name__ == '__main__':
     parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
-    parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=5000, type=int)
+    parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=2000, type=int)
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
     args = parser.parse_args()
@@ -428,6 +428,7 @@ if __name__ == '__main__':
                                 epsilon={agent.current_epsilon}
                                 '''
                             agent._logger.info(text)
+                            print(text)
                             # Store in mlflow
                             mlflow.log_metric("test_avg_win_rate", test_win_rate, step=episode)
                             mlflow.log_metric("test_avg_detection_rate", test_detection_rate, step=episode)
@@ -445,7 +446,7 @@ if __name__ == '__main__':
                             mlflow.log_metric("current_episode", episode, step=episode)
 
                             if test_win_rate >= args.early_stop_threshold:
-                                agent._logger(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
+                                agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
                                 early_stop = True
 
             
