@@ -69,6 +69,7 @@ class RandomBenignAgent(BaseAgent):
         valid_actions = generate_valid_actions(observation.state)
         # filter actions based on the allowed action types
         allowed_actions = filter(lambda action: action.type in self._allowed_actions, valid_actions)
+        allowed_actions = [a for a  in allowed_actions] + [Action(ActionType.ResetGame, params={})]
         action = choice([a for a  in allowed_actions])
         return action
 
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of testing episodes", default=10, type=int)
+    parser.add_argument("--episodes", help="Sets number of testing episodes", default=1, type=int)
     parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
     parser.add_argument("--apm", help="Actions per minute", default=10, type=int, required=False)
     args = parser.parse_args()
