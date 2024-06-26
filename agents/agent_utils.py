@@ -22,23 +22,12 @@ def generate_valid_actions(state: GameState)->list:
             # TODO ADD neighbouring networks
             # Only scan local networks from local hosts
             if network.is_private() and source_host.is_private():
-                if type(network.ip) == str:
-                    # It is a concept, so check that we scan networks we dont know yet. 
-                    # Ignore the rest because we already scan them
-                    if 'unknown' in network.ip:
-                        valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": source_host,}))
-                else:
-                    valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": source_host,}))
+                valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": source_host,}))
         # Service Scans
         for host in state.known_hosts:
             # Do not try to scan a service from hosts outside local networks towards local networks
             if host.is_private() and source_host.is_private():
-                if type(host.ip) == str:
-                    # We only scan services in unknown hosts.
-                    if 'unknown' in host.ip:
-                        valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": source_host,}))
-                else:
-                    valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": source_host,}))
+                valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": source_host,}))
         # Service Exploits
         for host, service_list in state.known_services.items():
             # Only exploit local services from local hosts
