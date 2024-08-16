@@ -540,7 +540,9 @@ class InteractiveTUI(App):
         # This is faster than looking at the delta
         tree.root.remove_children()
 
+        # Get controlled hosts
         contr_host_list = new_state.controlled_hosts
+        # Get known hosts
         known_host_list = [
             host for host in new_state.known_hosts if host not in contr_host_list
         ]
@@ -574,6 +576,18 @@ class InteractiveTUI(App):
                     node = h.add("Data", expand=True)
                     for datum in new_state.known_data[host]:
                         node.add_leaf(f"{datum.owner} - {datum.id}")
+        
+        # Add blocked hosts
+        # known_blocks is a dict. The key is the target IP where the block is done (the FW), and the value is the IP blocked.
+        blocked_host_target_list = list(new_state.known_blocks.keys())
+        blocked_hosts = tree.root.add("Known Blocks", expand=True)
+        for host in blocked_host_target_list:
+            h = blocked_hosts.add(str(host), expand=True)
+            # Now add the blocked ips on each 
+            node = h.add("Blocked IP", expand=True)
+            for blocked_host in new_state.known_blocks[host]:
+                node.add_leaf(f"{str(blocked_host)}")
+
 
     def generate_action(self, state: GameState) -> Action:
         """Generate a valid action from the user inputs"""
