@@ -721,7 +721,7 @@ if __name__ == "__main__":
         required=False,
     )
     parser.add_argument(
-        "--role", help="Role of the agent", default="Attacker", choices=["Attacker"]
+        "--role", help="Role of the agent", default="Attacker", choices=["Attacker", "Defender", "Benign"]
     )
     parser.add_argument(
         "--mode", type=str, choices=["guided", "normal"], default="normal"
