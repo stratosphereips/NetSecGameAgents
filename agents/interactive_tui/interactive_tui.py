@@ -257,6 +257,8 @@ class InteractiveTUI(App):
             case _:
                 # otherwise it is the action selector
                 self.next_action = event.value
+                # log = self.query_one("RichLog")
+                # log.write(f"Action selected {self.next_action}, {event.value}")
 
         state = self.current_obs.state
 
@@ -350,6 +352,8 @@ class InteractiveTUI(App):
         """
         Handles the manual inputs that are types by the user.
         """
+        log = self.query_one("RichLog")
+        # log.write(f"Input received: {event.value}")
         if event._sender.id == "src_host":
             if event.validation_result.is_valid:
                 self.src_host_input = event.value
@@ -545,6 +549,7 @@ class InteractiveTUI(App):
         """Generate a valid action from the user inputs"""
         action = None
         log = self.query_one("RichLog")
+        # log.write(self.next_action)
         if self.next_action == ActionType.ScanNetwork:
             if self.src_host_input != "" and self.network_input != "":
                 parameters = {
@@ -557,7 +562,7 @@ class InteractiveTUI(App):
             else:
                 self.notify("Please provide valid inputs", severity="error")
         elif self.next_action in [ActionType.FindServices, ActionType.FindData]:
-            if self.src_host_input != "" and self.network_input != "":
+            if self.src_host_input != "" and self.target_host_input != "":
                 parameters = {
                     "source_host": IP(self.src_host_input),
                     "target_host": IP(self.target_host_input),
@@ -579,8 +584,9 @@ class InteractiveTUI(App):
                                 action = Action(
                                     action_type=self.next_action, params=parameters
                                 )
-                    else:
-                        self.notify("Please provide valid inputs", severity="error")
+                                break
+            else:
+                self.notify("Please provide valid inputs", severity="error")
         elif self.next_action == ActionType.ExfiltrateData:
             if self.src_host_input != "" and self.target_host_input != "":
                 for host, data_items in state.known_data.items():
@@ -596,6 +602,8 @@ class InteractiveTUI(App):
                                 action = Action(
                                     action_type=self.next_action, params=parameters
                                 )
+                            else:
+                                parameters = self.data_input
             else:
                 self.notify("Please provide valid inputs", severity="error")
         else:
@@ -608,9 +616,9 @@ class InteractiveTUI(App):
 
         if action is None:
             log.write(
-                f"[bold red]Please select a valid action:[/bold red] {str(action)}"
+                f"[bold red]Please select a valid action and parameters[/bold red]"
             )
-            logger.info(f"Random action due to error: {str(action)}")
+            # logger.info(f"Random action due to error: {str(action)}")
 
         else:
             if action.type.name == "FindServices":
@@ -677,8 +685,8 @@ if __name__ == "__main__":
         choices=[
             "gpt-4-turbo-preview",
             "gpt-3.5-turbo",
-            "netsec4bit",
-            "netsec_full",
+            "gpt-4",
+            "gpt-4o-mini",
             "zephyr",
             "llama2",
             "None",
