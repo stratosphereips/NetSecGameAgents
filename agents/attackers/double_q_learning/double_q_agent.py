@@ -2,7 +2,7 @@
 import sys
 from os import path
 # This is used so the agent can see the environment and game components
-sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
+sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))))
 # import env.game_components as components
 
 import numpy as np
