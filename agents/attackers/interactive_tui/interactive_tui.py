@@ -112,10 +112,7 @@ class TreeState(Widget):
                     for datum in state.known_data[host]:
                         node.add_leaf(f"{datum.owner} - {datum.id}")
 
-        # Add blocks to the tree
-        known_blocks = self.tree.root.add("Known Blocks", expand=True)
-        for block in state.known_blocks:
-            known_blocks.add(str(block.ip))
+        # return tree
 
     def compose(self) -> ComposeResult:
         self._create_tree_from_obs(self.init_obs)
@@ -143,7 +140,6 @@ class InteractiveTUI(App):
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
-        self.blocked_host_input = ""
         self.network_input = ""
         self.service_input = ""
         self.data_input = ""
@@ -185,7 +181,6 @@ class InteractiveTUI(App):
                 ("ExploitService", ActionType.ExploitService),
                 ("FindData", ActionType.FindData),
                 ("ExfiltrateData", ActionType.ExfiltrateData),
-                ("BlockIP", ActionType.BlockIP),
             ],
             prompt="Select Action",
             classes="box",
@@ -194,8 +189,13 @@ class InteractiveTUI(App):
             yield Vertical(
                 VerticalScroll(Select([], prompt="Select source host", id="src_host")),
                 VerticalScroll(Select([], prompt="Select network", id="network")),
-                VerticalScroll(Select([], prompt="Select target host", id="target_host",)),
-                VerticalScroll(Select([], prompt="Select host to Block", id="blocked_host",)),
+                VerticalScroll(
+                    Select(
+                        [],
+                        prompt="Select target host",
+                        id="target_host",
+                    )
+                ),
                 VerticalScroll(Select([], prompt="Select service", id="service")),
                 VerticalScroll(Select([], prompt="Select data", id="data")),
                 classes="params",
@@ -222,11 +222,6 @@ class InteractiveTUI(App):
                         id="target_host",
                         validators=[Function(is_valid_ip, "This is not a valid IP.")],
                     ),
-                    Input(
-                        placeholder="Blocked Host",
-                        id="blocked_host",
-                        validators=[Function(is_valid_ip, "This is not a valid IP.")],
-                    ),
                     Input(placeholder="Service", id="service"),
                     Input(placeholder="Data", id="data"),
                     classes="box",
@@ -247,9 +242,6 @@ class InteractiveTUI(App):
             case "src_host":
                 self.src_host_input = event.value
                 return
-            case "blocked_host":
-                self.blocked_host_input = event.value
-                return
             case "network":
                 self.network_input = event.value
                 return
@@ -265,13 +257,14 @@ class InteractiveTUI(App):
             case _:
                 # otherwise it is the action selector
                 self.next_action = event.value
+                # log = self.query_one("RichLog")
+                # log.write(f"Action selected {self.next_action}, {event.value}")
 
         state = self.current_obs.state
 
         if self.mode == "guided":
             net_input = self.query_one("#network", Select)
             target_input = self.query_one("#target_host", Select)
-            blocked_input = self.query_one("#blocked_host", Select)
             service_input = self.query_one("#service", Select)
             data_input = self.query_one("#data", Select)
 
@@ -315,14 +308,10 @@ class InteractiveTUI(App):
                         for d in state.known_data[host]:
                             data.add((d.id, d.id))
                     data_input.set_options(data)
-                case ActionType.BlockIP:
-                    target_input.set_options(contr_hosts)
-                    blocked_input.set_options(contr_hosts)
 
         else:
             net_input = self.query_one("#network", Input)
             target_input = self.query_one("#target_host", Input)
-            blocked_input = self.query_one("#blocked_host", Input)
             service_input = self.query_one("#service", Input)
             data_input = self.query_one("#data", Input)
 
@@ -332,49 +321,39 @@ class InteractiveTUI(App):
             service_input.visible = False
             target_input.visible = False
             data_input.visible = False
-            blocked_input.visible = False
         elif event.value == ActionType.FindServices:
             net_input.visible = False
             service_input.visible = False
             target_input.visible = True
             data_input.visible = False
-            blocked_input.visible = False
         elif event.value == ActionType.ExploitService:
             net_input.visible = False
             service_input.visible = True
             target_input.visible = True
             data_input.visible = False
-            blocked_input.visible = False
         elif event.value == ActionType.FindData:
             net_input.visible = False
             service_input.visible = False
             target_input.visible = True
             data_input.visible = False
-            blocked_input.visible = False
         elif event.value == ActionType.ExfiltrateData:
             net_input.visible = False
             service_input.visible = False
             target_input.visible = True
             data_input.visible = True
-            blocked_input.visible = False
-        elif event.value == ActionType.BlockIP:
-            net_input.visible = False
-            service_input.visible = False
-            data_input.visible = False
-            target_input.visible = True
-            blocked_input.visible = True
         else:
             net_input.visible = True
             service_input.visible = True
             target_input.visible = True
             data_input.visible = True
-            blocked_input.visible = False
 
     @on(Input.Changed)
     def handle_inputs(self, event: Input.Changed) -> None:
         """
         Handles the manual inputs that are types by the user.
         """
+        log = self.query_one("RichLog")
+        # log.write(f"Input received: {event.value}")
         if event._sender.id == "src_host":
             if event.validation_result.is_valid:
                 self.src_host_input = event.value
@@ -389,12 +368,7 @@ class InteractiveTUI(App):
             if event.validation_result.is_valid:
                 self.target_host_input = event.value
             else:
-                self.target_host_input = ""
-        elif event._sender.id == "blocked_host":
-            if event.validation_result.is_valid:
-                self.blocked_host_input = event.value
-            else:
-                self.blocked_host_input = ""
+                self.src_host_input = ""
         elif event._sender.id == "service":
             self.service_input = event.value
         elif event._sender.id == "data":
@@ -536,9 +510,7 @@ class InteractiveTUI(App):
         # This is faster than looking at the delta
         tree.root.remove_children()
 
-        # Get controlled hosts
         contr_host_list = new_state.controlled_hosts
-        # Get known hosts
         known_host_list = [
             host for host in new_state.known_hosts if host not in contr_host_list
         ]
@@ -572,23 +544,12 @@ class InteractiveTUI(App):
                     node = h.add("Data", expand=True)
                     for datum in new_state.known_data[host]:
                         node.add_leaf(f"{datum.owner} - {datum.id}")
-        
-        # Add blocked hosts
-        # known_blocks is a dict. The key is the target IP where the block is done (the FW), and the value is the IP blocked.
-        blocked_host_target_list = list(new_state.known_blocks.keys())
-        blocked_hosts = tree.root.add("Known Blocks", expand=True)
-        for host in blocked_host_target_list:
-            h = blocked_hosts.add(str(host), expand=True)
-            # Now add the blocked ips on each 
-            node = h.add("Blocked IP", expand=True)
-            for blocked_host in new_state.known_blocks[host]:
-                node.add_leaf(f"{str(blocked_host)}")
-
 
     def generate_action(self, state: GameState) -> Action:
         """Generate a valid action from the user inputs"""
         action = None
         log = self.query_one("RichLog")
+        # log.write(self.next_action)
         if self.next_action == ActionType.ScanNetwork:
             if self.src_host_input != "" and self.network_input != "":
                 parameters = {
@@ -601,7 +562,7 @@ class InteractiveTUI(App):
             else:
                 self.notify("Please provide valid inputs", severity="error")
         elif self.next_action in [ActionType.FindServices, ActionType.FindData]:
-            if self.src_host_input != "" and self.network_input != "":
+            if self.src_host_input != "" and self.target_host_input != "":
                 parameters = {
                     "source_host": IP(self.src_host_input),
                     "target_host": IP(self.target_host_input),
@@ -623,8 +584,9 @@ class InteractiveTUI(App):
                                 action = Action(
                                     action_type=self.next_action, params=parameters
                                 )
-                    else:
-                        self.notify("Please provide valid inputs", severity="error")
+                                break
+            else:
+                self.notify("Please provide valid inputs", severity="error")
         elif self.next_action == ActionType.ExfiltrateData:
             if self.src_host_input != "" and self.target_host_input != "":
                 for host, data_items in state.known_data.items():
@@ -640,16 +602,10 @@ class InteractiveTUI(App):
                                 action = Action(
                                     action_type=self.next_action, params=parameters
                                 )
+                            else:
+                                parameters = self.data_input
             else:
                 self.notify("Please provide valid inputs", severity="error")
-        elif self.next_action == ActionType.BlockIP:
-            logger.info(f"Action BlockIP. Src: {self.src_host_input}, Tar: {self.target_host_input}, Blocked: {self.blocked_host_input}")
-            parameters = {
-                "source_host": IP(self.src_host_input),
-                "target_host": IP(self.target_host_input),
-                "blocked_host": IP(self.blocked_host_input),
-            }
-            action = Action(action_type=self.next_action, params=parameters)
         else:
             log.write(
                 f"[bold red]Invalid input: {self.next_action} with {parameters}[/bold red]"
@@ -660,12 +616,11 @@ class InteractiveTUI(App):
 
         if action is None:
             log.write(
-                f"[bold red]Please select a valid action:[/bold red] {str(action)}"
+                f"[bold red]Please select a valid action and parameters[/bold red]"
             )
-            logger.info(f"Random action due to error: {str(action)}")
+            # logger.info(f"Random action due to error: {str(action)}")
 
         else:
-            # We changed here the name ScanServices to FindServices because the LLM understood it better.
             if action.type.name == "FindServices":
                 action_name = "ScanServices"
             else:
@@ -688,7 +643,6 @@ class InteractiveTUI(App):
         self.next_action = None
         self.src_host_input = ""
         self.target_host_input = ""
-        self.blocked_host_input = ""
         self.network_input = ""
         self.service_input = ""
         self.data_input = ""
@@ -721,7 +675,7 @@ if __name__ == "__main__":
         required=False,
     )
     parser.add_argument(
-        "--role", help="Role of the agent", default="Attacker", choices=["Attacker", "Defender", "Benign"]
+        "--role", help="Role of the agent", default="Attacker", choices=["Attacker"]
     )
     parser.add_argument(
         "--mode", type=str, choices=["guided", "normal"], default="normal"
@@ -731,8 +685,8 @@ if __name__ == "__main__":
         choices=[
             "gpt-4-turbo-preview",
             "gpt-3.5-turbo",
-            "netsec4bit",
-            "netsec_full",
+            "gpt-4",
+            "gpt-4o-mini",
             "zephyr",
             "llama2",
             "None",
