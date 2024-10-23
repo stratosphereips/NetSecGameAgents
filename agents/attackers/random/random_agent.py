@@ -12,10 +12,9 @@ import mlflow
 sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ) ) ))))
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 # with the path fixed, we can import now
-from env.game_components import Action, Observation, GameState
+from env.game_components import Action, Observation
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions
-from datetime import datetime
 
 
 class RandomAgent(BaseAgent):
