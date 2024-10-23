@@ -2,15 +2,15 @@
 # This agents just randomnly picks actions. No learning
 import sys
 import logging
-import os
+from os import path, makedirs
 from random import choice
 import argparse
 import numpy as np
 import mlflow
 
 # This is used so the agent can see the environment and game components
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) )))
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
+sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ) ) ))))
+sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 # with the path fixed, we can import now
 from env.game_components import Action, Observation, GameState
 from base_agent import BaseAgent
@@ -64,13 +64,13 @@ if __name__ == '__main__':
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
     parser.add_argument("--episodes", help="Sets number of episodes to play or evaluate", default=100, type=int) 
     parser.add_argument("--test_each", help="Evaluate performance during testing every this number of episodes.", default=10, type=int)
-    parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
+    parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
     parser.add_argument("--evaluate", help="Evaluate the agent and report, instead of playing the game only once.", default=True)
     args = parser.parse_args()
 
-    if not os.path.exists(args.logdir):
-        os.makedirs(args.logdir)
-    logging.basicConfig(filename=os.path.join(args.logdir, "random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+    if not path.exists(args.logdir):
+        makedirs(args.logdir)
+    logging.basicConfig(filename=path.join(args.logdir, "random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
     # Create agent
     agent = RandomAgent(args.host, args.port,"Attacker", seed=42)
