@@ -11,7 +11,7 @@ import math
 
 # This is used so the agent can see the environment and game components
 from os import path
-sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
+sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))))
 
 from env.worlds.network_security_game import NetworkSecurityEnvironment
 from env.game_components import Action, ActionType

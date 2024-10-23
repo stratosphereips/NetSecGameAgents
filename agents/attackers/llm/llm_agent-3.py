@@ -4,7 +4,7 @@ Author: Maria Rigaki - maria.rigaki@fel.cvut.cz
 """
 import sys
 from os import path
-sys.path.append(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) )))
+sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))))
 
 
 from env.worlds.network_security_game import NetworkSecurityEnvironment
