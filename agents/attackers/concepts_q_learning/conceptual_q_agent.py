@@ -2,15 +2,15 @@
 #           Arti
 #           Sebastian Garcia. sebastian.garcia@agents.fel.cvut.cz
 import sys
-import os
+from os import path, makedirs
 import numpy as np
 import random
 import pickle
 import argparse
 import logging
 # This is used so the agent can see the environment and game component
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) )))
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
+sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ) ) ))))
+sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 
 # This is used so the agent can see the environment and game component
 # with the path fixed, we can import now
@@ -174,7 +174,7 @@ if __name__ == '__main__':
     parser.add_argument("--epsilon_max_episodes", help="Max episodes for epsilon to reach maximum decay", default=5000, type=int)
     parser.add_argument("--gamma", help="Sets gamma discount for Q-learing during training.", default=0.9, type=float)
     parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
-    parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
+    parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(os.path.abspath(__file__)), "logs"))
     parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", type=str)
     parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
@@ -184,9 +184,9 @@ if __name__ == '__main__':
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95% perc)", required=False, default=95, type=float)
     args = parser.parse_args()
 
-    if not os.path.exists(args.logdir):
-        os.makedirs(args.logdir)
-    logging.basicConfig(filename=os.path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.ERROR)
+    if not path.exists(args.logdir):
+        makedirs(args.logdir)
+    logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.ERROR)
 
     # Create agent
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes)
@@ -195,7 +195,7 @@ if __name__ == '__main__':
     actions_logger = logging.getLogger('QAgentActions')
     actions_logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    actions_handler = logging.FileHandler(os.path.join(args.logdir, "q_agent_actions.log"), mode="w")
+    actions_handler = logging.FileHandler(path.join(args.logdir, "q_agent_actions.log"), mode="w")
     actions_handler.setLevel(logging.INFO)  
     actions_handler.setFormatter(formatter)
     actions_logger.addHandler(actions_handler)
@@ -217,13 +217,13 @@ if __name__ == '__main__':
 
     if not args.testing:
         # Mlflow experiment name        
-        experiment_name = f"Training and Eval of Q-learning Agent"
+        experiment_name = f"Training and Eval of Conceptual Q-learning Agent"
         mlflow.set_experiment(experiment_name)
     elif args.testing:
         # Evaluate the agent performance
 
         # Mlflow experiment name        
-        experiment_name = f"Testing of Q-learning Agent"
+        experiment_name = f"Testing of ConceptualQ-learning Agent"
         mlflow.set_experiment(experiment_name)
 
 
