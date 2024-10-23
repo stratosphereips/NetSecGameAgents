@@ -8,7 +8,7 @@ from os import path
 import os
 import socket
 import json
-from abc import ABC, abstractmethod
+from abc import ABC
 
 
 # This is used so the agent can see the environment and game components
