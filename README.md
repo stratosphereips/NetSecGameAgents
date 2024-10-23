@@ -22,9 +22,37 @@ There are 4 important methods to be used for interaction with the environment:
 4. `terminate_connection()`: Should be used ONCE at the end of the interaction to properly disconnect the agent from the game server. 
 
 Examples of agents extending the BaseAgent can be found in:
-- [RandomAgent](./agents/random/random_agent.py)
-- [InteractiveAgent](./agents/interactive_tui/interactive_tui.py)
-- [Q-learningAgent](./agents/q_learning/q_agent.py) (Documentation [here](./docs/q-learning.md))
+- [RandomAgent](./agents/attackers/random/random_agent.py)
+- [InteractiveAgent](./agents/attackers/interactive_tui/interactive_tui.py)
+- [Q-learningAgent](./agents/attackers/q_learning/q_agent.py) (Documentation [here](./docs/q-learning.md))
+
+## Agent's types
+There are three types of roles an agent can play in NetSecEnv:
+1. Attacker
+2. Defender
+3. Benign
+
+Agents of each type are stored in the corresponding directory within this repository:
+```
+├── agents
+    ├── attakcers
+        ├── concepts_q_learning
+        ├── double_q_learning
+        ├── gnn_reinforce
+        ├── interactive_tui
+        ├── ...
+    ├── defenders
+        ├── random
+        ├── probabilistic
+    ├── benign
+        ├── benign_random
+```
+### Agent utils
+Utility functions in [agent_utils.py](./agents/agent_utils.py) can be used by any agent to evaluate a `GameState`, generate set of valid `Actions` in a `GameState` etc. 
+Additionally, there are several files with utils functions that can be used by any agents:
+- `[agent_utils.py](./agents/agent_utils.py) Formatting GameState and generation of valid actions
+- [graph_agent_utils.py](./agents/graph_agent_utils.py): GameState -> graph conversion
+- [llm_utils.py](./agents/llm_utils.py): utility functions for LLM-based agents
 
 ## Agents' compatibility with the environment
 
