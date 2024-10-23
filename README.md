@@ -72,11 +72,4 @@ Additionally, there are several files with utils functions that can be used by a
 Utility functions in [agent_utils.py](./agents/agent_utils.py) can be used by any agent to evaluate a `GameState`, generate set of valid `Actions` in a `GameState` etc. 
 
 ## About us
-This code was developed at the [Stratosphere Laboratory at the Czech Technical University in Prague](https://www.stratosphereips.org/).
-
-## How to visualize the results of mlflow
-### Locally
-
-1. Then run the agent code
-
-    `python NetSecGameAgents/agents/random/random_agent.py`
+This code was developed at the [Stratosphere Laboratory at the Czech Technical University in Prague](https://www.stratosphereips.org/) as part of the AIDojo Project.
