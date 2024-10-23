@@ -1,0 +1,42 @@
+Screen {
+    layout: grid;
+    grid-size: 3;
+    grid-columns: 1fr 1fr 1fr;
+}
+
+#textarea {
+    height: 100%;
+    border: solid green;
+    column-span: 3;
+}
+
+#tree {
+    row-span: 2;
+    border: none;
+}
+
+.box {
+    height: 100%;
+    border: solid green;
+}
+
+.params {
+    height: 100%;
+    border: solid green;
+}
+
+#act {
+    dock: left;
+}
+
+#assist {
+    margin: 0 1;
+}
+
+#play {
+    margin: 0 1;
+}
+
+#hack {
+    margin: 0 1;
+}

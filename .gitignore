@@ -151,4 +151,4 @@ agents/*/mlruns/*
 agents/mlruns*
 
 agents/*/*/mlruns/
-agents/*/*/
+agents/*/*/logs
