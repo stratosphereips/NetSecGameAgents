@@ -5,7 +5,6 @@ import argparse
 import logging
 
 from os import path
-import os
 import socket
 import json
 from abc import ABC
@@ -148,7 +147,7 @@ if __name__ == '__main__':
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
     
     args = parser.parse_args()
-    log_filename = os.path.dirname(os.path.abspath(__file__)) + '/base_agent.log'
+    log_filename = path.dirname(path.abspath(__file__)) + '/base_agent.log'
     logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
    
     # # #######################################
