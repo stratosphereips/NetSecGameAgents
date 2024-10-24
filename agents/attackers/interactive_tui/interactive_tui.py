@@ -352,7 +352,7 @@ class InteractiveTUI(App):
         """
         Handles the manual inputs that are types by the user.
         """
-        log = self.query_one("RichLog")
+        # log = self.query_one("RichLog")
         # log.write(f"Input received: {event.value}")
         if event._sender.id == "src_host":
             if event.validation_result.is_valid:
