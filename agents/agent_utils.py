@@ -7,10 +7,10 @@ author: Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 """
 import random
 import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname( os.path.abspath(__file__) )))
+from os import path
+sys.path.append(path.dirname(path.dirname(path.dirname( path.abspath(__file__) ))))
 #with the path fixed, we can import now
-from env.game_components import Action, ActionType, GameState, Observation, Data, IP, Network
+from env.game_components import Action, ActionType, GameState, Observation, IP, Network
 import ipaddress
 
 def generate_valid_actions_concepts(state: GameState)->list:
@@ -75,6 +75,14 @@ def generate_valid_actions(state: GameState)->list:
             for trg_host in state.controlled_hosts:
                 if trg_host != src_host:
                     valid_actions.add(Action(ActionType.ExfiltrateData, params={"target_host": trg_host, "source_host": src_host, "data": data}))
+    
+    # BlockIP
+    for src_host in state.controlled_hosts:
+        for target_host in state.controlled_hosts:
+            for blocked_ip in state.known_hosts:
+                valid_actions.add(Action(ActionType.BlockIP, {"target_host":target_host, "source_host":src_host, "blocked_host":blocked_ip}))
+
+                    
     return list(valid_actions)    
 
 def state_as_ordered_string(state:GameState)->str:

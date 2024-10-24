@@ -5,10 +5,9 @@ import argparse
 import logging
 
 from os import path
-import os
 import socket
 import json
-from abc import ABC, abstractmethod
+from abc import ABC
 
 
 # This is used so the agent can see the environment and game components
@@ -148,31 +147,264 @@ if __name__ == '__main__':
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
     
     args = parser.parse_args()
-    log_filename = os.path.dirname(os.path.abspath(__file__)) + '/base_agent.log'
+    log_filename = path.dirname(path.abspath(__file__)) + '/base_agent.log'
     logging.basicConfig(filename=log_filename, filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
-    agent = BaseAgent(args.host, args.port, role="Attacker")
-    obs = agent.register()
-    #obs = agent.request_game_reset()
-    for ip in obs.state.controlled_hosts:
-        if ip != IP("213.47.23.195"):
-            src = ip
-            break
-    agent.make_step(Action(ActionType.ScanNetwork, params={"source_host":src, "target_network":Network("192.168.1.0", 24)}))
-    obs = agent.make_step(Action(ActionType.FindServices, params={"source_host":src, "target_host":IP("192.168.1.2")}))
-    host, services  = [(k,v) for k,v in obs.state.known_services.items()][0]
-    service = list(services)[0]
-    agent.make_step(Action(ActionType.ExploitService, params={"source_host":src, "target_host":host, "target_service":service}))
-    agent.make_step(Action(action_type=ActionType.FindData, params={"source_host":host, "target_host":host}))
-    obs = agent.make_step(Action(action_type=ActionType.ExfiltrateData, params={
-        "source_host":host,
-        "target_host":IP("213.47.23.195"),
-        "data": Data("User1","DataFromServer1")
-        }
-    ))
-    print(obs)
-    # print("----------------------------")
-    # obs = agent.request_game_reset()
-    # print('---------------------------')
+   
+    # # #######################################
+    # # ATTACKER X ATTACKER 
+    # # #######################################
+    
+    # #register both agents
+    # agent1 = BaseAgent(args.host, args.port, role="Attacker")
+    # obs1 = agent1.register()
+    # agent2 = BaseAgent(args.host, args.port, role="Attacker")
+    # obs2 = agent2.register()
+
+    # # network scans - both agents
+    # obs1 = agent1.make_step(Action(
+    #     ActionType.ScanNetwork,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+    #         "target_network":Network("192.168.1.0", 24)
+    #         }
+    #     )
+    # )
+    # obs2 = agent2.make_step(Action(
+    #     ActionType.ScanNetwork,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs2.state.controlled_hosts))[0],
+    #         "target_network":Network("192.168.1.0", 24)
+    #         }
+    #     )
+    # )
+    # # service scans - both agents
+    # obs1 = agent1.make_step(Action(
+    #     ActionType.FindServices,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+    #         "target_host":IP("192.168.1.2")
+    #         }
+    #     )
+    # )
+    # obs2 = agent2.make_step(Action(
+    #     ActionType.FindServices,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs2.state.controlled_hosts))[0],
+    #         "target_host":IP("192.168.1.2")
+    #         }
+    #     )
+    # )
+    # # agent 1 exploit
+    # host, services  = [(k,v) for k,v in obs1.state.known_services.items()][0]
+    # obs1 = agent1.make_step(Action(
+    #     ActionType.ExploitService,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+    #         "target_host":host,
+    #         "target_service":list(services)[0]
+    #         }
+    #     )
+    # )
+    # # agent 1 find data
+    # obs1 = agent1.make_step(Action(
+    #     ActionType.FindData,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+    #         "target_host":host,
+    #         }
+    #     )
+    # )
+
+    # # agent 1 exfiltrate data to C&C
+    # obs1 = agent1.make_step(Action(
+    #     ActionType.ExfiltrateData,
+    #     params={
+    #         "source_host": host,
+    #         "target_host": IP("213.47.23.195"),
+    #         "data": Data("User1","DataFromServer1")
+    #         }
+    #     )
+    # )
+
+    # # agent 2 find data
+    # obs2 = agent2.make_step(Action(
+    #     ActionType.FindData,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs2.state.controlled_hosts))[0],
+    #         "target_host":host,
+    #         }
+    #     )
+    # )
+    # # agent 2 find data in C&C
+    # obs2 = agent2.make_step(Action(
+    #     ActionType.FindData,
+    #     params={
+    #         "source_host": IP("213.47.23.195"),
+    #         "target_host": IP("213.47.23.195"),
+    #         }
+    #     )
+    # )
+    # print(obs1)
+    # print(obs2)
+
+
+    ########################################
+    # ATTACKER X DEFENDER 
+    ########################################
+
+    # # register both agents
+    # agent1 = BaseAgent(args.host, args.port, role="Attacker")
+    # obs1 = agent1.register()
+    # agent2 = BaseAgent(args.host, args.port, role="Defender")
+    # obs2 = agent2.register()
+
+    # # attacker - scan net
+    # obs1 = agent1.make_step(Action(
+    #     ActionType.ScanNetwork,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+    #         "target_network":Network("192.168.1.0", 24)
+    #         }
+    #     )
+    # )
+    
+    # # attacker - scan services
+    # obs1 = agent1.make_step(Action(
+    #     ActionType.FindServices,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+    #         "target_host":IP("192.168.1.2")
+    #         }
+    #     )
+    # )
+    
+    # # agent 1 exploit
+    # host, services  = [(k,v) for k,v in obs1.state.known_services.items()][0]
+    # obs1 = agent1.make_step(Action(
+    #     ActionType.ExploitService,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+    #         "target_host":host,
+    #         "target_service":list(services)[0]
+    #         }
+    #     )
+    # )
+    # # agent 1 find data
+    # obs1 = agent1.make_step(Action(
+    #     ActionType.FindData,
+    #     params={
+    #         "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+    #         "target_host":host,
+    #         }
+    #     )
+    # )
+    # # agent 2 block connection to C&C
+    # obs2 = agent2.make_step(Action(
+    #     ActionType.BlockIP,
+    #     params={
+    #         "source_host": host,
+    #         "target_host": host,
+    #         "blocked_host": IP("213.47.23.195")
+    #         }
+    #     )
+    # )
+    # # agent 1 exfiltrate data to C&C
+    # obs1 = agent1.make_step(Action(
+    #     ActionType.ExfiltrateData,
+    #     params={
+    #         "source_host": host,
+    #         "target_host": IP("213.47.23.195"),
+    #         "data": Data("User1","DataFromServer1")
+    #         }
+    #     )
+    # )
+
+    # print(obs1)
+    # print(obs2)
+
+    # #######################################
+    # 1 ATTACKER 
+    # #######################################
+    
+    #register both agents
+    agent1 = BaseAgent(args.host, args.port, role="Attacker")
+    obs1 = agent1.register()
+    print(obs1)
+    
+    # network scans - both agents
+    obs1 = agent1.make_step(Action(
+        ActionType.ScanNetwork,
+        params={
+            "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+            "target_network":Network("192.168.1.0", 24)
+            }
+        )
+    )
+
+    # service scans - both agents
+    obs1 = agent1.make_step(Action(
+        ActionType.FindServices,
+        params={
+            "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+            "target_host":IP("192.168.1.2")
+            }
+        )
+    )
+
+    # agent 1 exploit
+    host, services  = [(k,v) for k,v in obs1.state.known_services.items()][0]
+    obs1 = agent1.make_step(Action(
+        ActionType.ExploitService,
+        params={
+            "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+            "target_host":host,
+            "target_service":list(services)[0]
+            }
+        )
+    )
+    # agent 1 find data
+    obs1 = agent1.make_step(Action(
+        ActionType.FindData,
+        params={
+            "source_host": list(filter(lambda x: x !=  IP("213.47.23.195"), obs1.state.controlled_hosts))[0],
+            "target_host":host,
+            }
+        )
+    )
+
+    # agent 1 exfiltrate data to C&C
+    obs1 = agent1.make_step(Action(
+        ActionType.ExfiltrateData,
+        params={
+            "source_host": host,
+            "target_host": IP("213.47.23.195"),
+            "data": Data("User1","DataFromServer1")
+            }
+        )
+    )
+
+    print(obs1)
+
+
+
+
+
+    obs1 = agent1.request_game_reset()
+    #obs2 = agent2.request_game_reset()
+    print("------------------")
+    print(obs1)
+    #print(obs2)
+    # #obs = agent.request_game_reset()
+    # for ip in obs.state.controlled_hosts:
+    #     if ip != IP("213.47.23.195"):
+    #         src = ip
+    #         break
+    # agent.make_step(Action(ActionType.ScanNetwork, params={"source_host":src, "target_network":Network("192.168.1.0", 24)}))
+    # obs = agent.make_step(Action(ActionType.FindServices, params={"source_host":src, "target_host":IP("192.168.1.2")}))
+    # host, services  = [(k,v) for k,v in obs.state.known_services.items()][0]
+    # service = list(services)[0]
+    # agent.make_step(Action(ActionType.ExploitService, params={"source_host":src, "target_host":host, "target_service":service}))
+    # agent.make_step(Action(action_type=ActionType.FindData, params={"source_host":host, "target_host":host}))
     # obs = agent.make_step(Action(action_type=ActionType.ExfiltrateData, params={
     #     "source_host":host,
     #     "target_host":IP("213.47.23.195"),
@@ -180,3 +412,14 @@ if __name__ == '__main__':
     #     }
     # ))
     # print(obs)
+    # # print("----------------------------")
+    # # obs = agent.request_game_reset()
+    # # print('---------------------------')
+    # # obs = agent.make_step(Action(action_type=ActionType.ExfiltrateData, params={
+    # #     "source_host":host,
+    # #     "target_host":IP("213.47.23.195"),
+    # #     "data": Data("User1","DataFromServer1")
+    # #     }
+    # # ))
+    # # print(obs)
+
