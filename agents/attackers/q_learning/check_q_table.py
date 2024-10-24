@@ -1,7 +1,6 @@
 import argparse
-from math import inf
 import pickle
-from colorama import Fore, Style, init
+from colorama import Fore, init
 
 #q_values = {}
 #states = {}
