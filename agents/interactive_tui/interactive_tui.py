@@ -38,7 +38,7 @@ logging.basicConfig(
     level=logging.DEBUG,
 )
 logger = logging.getLogger("Interactive-TUI-agent")
-logger.info("Start")
+logger.info("Start the TUI Agent")
 
 
 def is_valid_ip(ip_addr: str) -> bool:
@@ -149,7 +149,14 @@ class InteractiveTUI(App):
         self.data_input = ""
         self.agent = BaseAgent(host, port, role)
         self.agent.register()
-        self.current_obs = self.agent.request_game_reset()
+        try:
+            self.current_obs = self.agent.request_game_reset()
+        except BrokenPipeError:
+            logger.error(f"The agent coudn't connect to the server. Maybe the server's port is down?")
+            print(f"The agent coudn't connect to the server. Maybe the server's port is down?")
+            sys.exit(-1)
+
+            
         self.mode = mode
 
         # Keep track of the actions played previously
@@ -735,6 +742,7 @@ if __name__ == "__main__":
             "netsec_full",
             "zephyr",
             "llama2",
+            "llama3.2",
             "None",
         ],
         default="None",
