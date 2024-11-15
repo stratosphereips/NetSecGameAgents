@@ -1,0 +1,15 @@
+{
+    "population_size": 2500,
+    "num_generations": 55,
+    "replacement": true,
+    "num_replace": 50,
+    "num_per_tournament": 5,
+    "n_points": true,
+    "num_points": 6,
+    "p_value": 0.5,
+    "cross_prob": 1.0,
+    "parameter_mutation": false,
+    "mutation_prob": 0.0333,
+    "initialization_with_random_agent": 0.1,
+    "reward_threshold": 17500
+}
