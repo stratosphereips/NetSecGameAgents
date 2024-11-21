@@ -59,8 +59,9 @@ class GeneticAgent(BaseAgent):
 
   
     def select_action_random_agent(self, observation: Observation) -> Action:
-        valid_actions = generate_valid_actions(observation.state)
-        action = choice(valid_actions)
+        # Select a random action from the valid actions, except block actions
+        action = choice([a for a in generate_valid_actions(observation.state) if a.type != ActionType.BlockIP])
+        #print(f"Selected action: {action}")
         return action
     
     def play_game_random_agent(self, observation):
@@ -84,6 +85,7 @@ class GeneticAgent(BaseAgent):
 
         # select random actions to fill the rest of the list
         while len(actions) < 100:
+            #print("Filling the rest of the list")
             valid_action = agent.select_action_random_agent(observation)
             actions.append(valid_action)
         
@@ -262,8 +264,8 @@ class GeneticAgent(BaseAgent):
                     parsed_individual_result.append([individual[i], individual_result[i][1]])
                     i += 1
                     if individual_result[i - 1][1] == 9:
+                        agent.append_to_parsed_population(parsed_individual_result)
                         break
-                agent.append_to_parsed_population(parsed_individual_result)
 
             return return_reward, num_good_actions, num_boring_actions, num_bad_actions, num_steps, won
         
@@ -296,8 +298,9 @@ class GeneticAgent(BaseAgent):
                     ExploitService_list.append(all_actions[i])
                 elif ActionType.FindData==all_actions[i].type:
                     FindData_list.append(all_actions[i])
-                else:
+                elif ActionType.ExfiltrateData==all_actions[i].type:
                     ExfiltrateData_list.append(all_actions[i])
+                    #print("Action: ", all_actions[i])
             all_actions_by_type["ActionType.ScanNetwork"] = ScanNetwork_list
             all_actions_by_type["ActionType.FindServices"] = FindServices_list
             all_actions_by_type["ActionType.ExploitService"] = ExploitService_list
@@ -357,6 +360,7 @@ class GeneticAgent(BaseAgent):
         # the given percentage of the population is initialized with Random Agent behavior
         for i in range(int(population_size * initialization_with_random_agent)):
             population[i] = agent.play_game_random_agent(agent.request_game_reset())
+            print("Random Agent behavior initialized: ", i)
 
 
         #print("Best initial fitness: ", max([fitness_eval_v02(individual, agent.request_game_reset(),False, 0)[0] for individual in population]))
