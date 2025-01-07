@@ -5,7 +5,7 @@ Authors:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
 """
 import logging
 import argparse
-from NetSecGame_dec2024.NetSecGameAgents.agents.attackers.llm_qa.llm_action_planner import LLMActionPlanner
+from llm_action_planner import LLMActionPlanner
 import logging
 import numpy as np
 import pandas as pd
