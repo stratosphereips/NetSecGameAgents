@@ -234,7 +234,8 @@ if __name__ == "__main__":
                     reach_max_steps += 1
                     type_of_end = "max_iterations"
                     total_reward = -100
-                    steps = observation.info["max_steps"]
+                    #steps = observation.info["max_steps"] #this fails
+                    steps = num_iterations
                 else:
                     reach_max_steps += 1
                     type_of_end = "max_steps"
