@@ -100,10 +100,11 @@ if __name__ == "__main__":
     num_actions_repeated = []
     reward_memory = ""
 
-    states = []
-    prompts = []
-    responses = []
-    evaluations = []
+ 
+    # Create an empty DataFrame for storing prompts and responses, and evaluations
+    prompt_table = pd.DataFrame(columns=["state", "prompt", "response", "evaluation"])
+    
+    
     # We are still not using this, but we keep track
     is_detected = False
 
@@ -113,7 +114,7 @@ if __name__ == "__main__":
     print("Done")
     for episode in range(1, args.test_episodes + 1):
         actions_took_in_episode = []
-
+        evaluations = [] # used for prompt table storage.
         logger.info(f"Running episode {episode}")
         print(f"Running episode {episode}")
 
@@ -138,9 +139,7 @@ if __name__ == "__main__":
         for i in range(num_iterations):
             good_action = False
             #is_json_ok = True
-            states.append(observation.state.as_json())
             is_valid, response_dict, action = llm_query.get_action_from_obs_react(observation, memories)
-
             if is_valid:
                 observation = agent.make_step(action)
                 logger.info(f"Observation received: {observation}")
@@ -265,7 +264,16 @@ if __name__ == "__main__":
                 )
                 break
 
-
+        episode_prompt_table = {
+            "state": llm_query.get_states(),
+            "prompt": llm_query.get_prompts(),
+            "response": llm_query.get_responses(),
+            "evaluation": evaluations,
+        }
+        episode_prompt_table = pd.DataFrame(episode_prompt_table)
+        prompt_table = pd.concat([prompt_table,episode_prompt_table],axis=0,ignore_index=True)
+        
+    prompt_table.to_csv("states_prompts_responses_new.csv", index=False)
 
     # After all episodes are done. Compute statistics
     test_win_rate = (wins / (args.test_episodes)) * 100
