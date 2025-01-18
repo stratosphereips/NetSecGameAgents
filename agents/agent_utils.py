@@ -114,7 +114,7 @@ def recompute_reward(self, observation: Observation) -> Observation:
 
     # The rewards hare are the originals from the env. 
     # Each agent can do this differently
-    if info and info['end_reason'] == 'detected':
+    if info and info['end_reason'] == 'blocked':
         # Reward when we are detected
         reward = -100
     elif info and info['end_reason'] == 'goal_reached':
