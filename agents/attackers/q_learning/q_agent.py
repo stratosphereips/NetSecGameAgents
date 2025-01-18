@@ -103,7 +103,7 @@ class QAgent(BaseAgent):
         end = observation.end
         info = observation.info
 
-        if info and info['end_reason'] == 'detected':
+        if info and info['end_reason'] == 'blocked':
             # Reward when we are detected
             reward = -1000
         elif info and info['end_reason'] == 'goal_reached':
@@ -288,7 +288,7 @@ if __name__ == '__main__':
                     end = observation.end
                     info = observation.info
 
-                    if observation.info and observation.info['end_reason'] == 'detected':
+                    if observation.info and observation.info['end_reason'] == 'blocked':
                         detected +=1
                         num_detected_steps += [num_steps]
                         num_detected_returns += [reward]
@@ -381,7 +381,7 @@ if __name__ == '__main__':
                                 test_end = test_observation.end
                                 test_info = test_observation.info
 
-                                if test_info and test_info['end_reason'] == 'detected':
+                                if test_info and test_info['end_reason'] == 'blocked':
                                     test_detected +=1
                                     test_num_detected_steps += [num_steps]
                                     test_num_detected_returns += [reward]
