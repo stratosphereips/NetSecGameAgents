@@ -381,7 +381,7 @@ if __name__ == "__main__":
                 if 'goal_reached' in reason['end_reason']:
                     wins += 1
                     num_win_steps += [steps]
-                elif 'detected' in reason['end_reason']:
+                elif 'blocked' in reason['end_reason']:
                     detected += 1
                     num_detected_steps += [steps]
                 elif 'max_iterations' in reason['end_reason']:
