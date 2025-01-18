@@ -402,7 +402,7 @@ if __name__ == "__main__":
                     wins += 1
                     num_win_steps += [steps]
                     type_of_end = 'win'
-                elif 'detected' in reason['end_reason']:
+                elif 'blocked' in reason['end_reason']:
                     detected += 1
                     num_detected_steps += [steps]
                     type_of_end = 'detection'
