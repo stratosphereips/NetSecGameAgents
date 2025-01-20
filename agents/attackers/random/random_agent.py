@@ -125,7 +125,7 @@ if __name__ == '__main__':
                 end = observation.end
                 info = observation.info
 
-                if observation.info and observation.info['end_reason'] == 'detected':
+                if observation.info and observation.info['end_reason'] == 'blocked':
                     detected +=1
                     num_detected_steps += [num_steps]
                     num_detected_returns += [reward]
