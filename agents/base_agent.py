@@ -101,7 +101,7 @@ class BaseAgent(ABC):
             return GameStatus.from_string(status), observation, message
         
         if isinstance(data, Action):
-            data = data.as_json()
+            data = data.to_json()
             print(data)
         else:
             raise ValueError("Incorrect data type! Data should be ONLY of type Action")
