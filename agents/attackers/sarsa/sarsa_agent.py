@@ -104,7 +104,9 @@ class SARSAAgent(BaseAgent):
                     testing_returns = []
                     for _ in range(args.eval_for):
                         testing_returns.append(np.sum(self.play_episode(testing=True)))
-                    self._logger.info(f"Eval after {episode} episodes: ={np.mean(testing_returns)}±{np.std(testing_returns)}")                
+                    self._logger.info(f"Eval after {episode} episodes: ={np.mean(testing_returns)}±{np.std(testing_returns)}")
+                if episode % args.store_models_every == 0 and episode != 0:
+                    self.store_q_table(f'sarsa_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')           
         returns = []
         for _ in range(args.eval_for):
             returns.append(np.sum(self.play_episode(testing=True)))
@@ -116,14 +118,17 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of testing episodes", default=5, type=int)
-    parser.add_argument("--eval_each", help="Sets periodic evaluation during training", default=250, type=int)
-    parser.add_argument("--eval_for", help="Sets length of periodic evaluation", default=200, type=int)
+    parser.add_argument("--episodes", help="Sets number of testing episodes", default=25000, type=int)
+    parser.add_argument("--eval_each", help="Sets periodic evaluation during training", default=5000, type=int)
+    parser.add_argument("--eval_for", help="Sets length of periodic evaluation", default=5000, type=int)
     parser.add_argument("--epsilon", help="Sets epsilon for exploration", default=0.2, type=float)
     parser.add_argument("--gamma", help="Sets gamma for Q learing", default=0.9, type=float)
-    parser.add_argument("--alpha", help="Sets alpha for learning rate", default=0.8, type=float)
+    parser.add_argument("--alpha", help="Sets alpha for learning rate", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
     parser.add_argument("--test_only", help="Only run testing", default=False, action='store_true')
+    parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='sarsa_006_coordinatorV3', type=str)
+    parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=2000, type=int)
+    parser.add_argument("--previous_model", help="Store a model to disk every these number of episodes.", type=str)
     args = parser.parse_args()
 
     if not path.exists(args.logdir):
@@ -134,8 +139,9 @@ if __name__ == '__main__':
     agent = SARSAAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon=args.epsilon)
 
     if args.test_only:
-        agent.load_q_table("./sarsa_agent_marl.pickle")
+        agent.load_q_table(args.previous_model)
         agent.play_game(args.episodes, testing=True)       
     else:
         agent.play_game(args.episodes, testing=False)
         agent.store_q_table("./sarsa_agent_marl.pickle")
+
