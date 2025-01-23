@@ -64,6 +64,7 @@ if __name__ == '__main__':
     parser.add_argument("--test_each", help="Evaluate performance during testing every this number of episodes.", default=10, type=int)
     parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
     parser.add_argument("--evaluate", help="Evaluate the agent and report, instead of playing the game only once.", default=True)
+    parser.add_argument("--mlflow_url", help="URL for mlflow tracking server. If not provided, mlflow will store locally.", default=None)
     args = parser.parse_args()
 
     if not path.exists(args.logdir):
@@ -91,7 +92,8 @@ if __name__ == '__main__':
 
         # Mlflow experiment name        
         experiment_name = "Evaluation of Random Agent"
-        mlflow.set_tracking_uri("http://127.0.0.1:8000")
+        if args.mlflow_url:
+            mlflow.set_tracking_uri(args.mlflow_url)
         mlflow.set_experiment(experiment_name)
         # Register in the game
         observation = agent.register()
@@ -201,3 +203,14 @@ if __name__ == '__main__':
             print(text)
             agent._logger.info("Terminating interaction")
             agent.terminate_connection()
+
+            # Print and log the mlflow experiment ID, run ID, and storage location
+            experiment_id = run.info.experiment_id
+            run_id = run.info.run_id
+            storage_location = "locally" if not args.mlflow_url else f"at {args.mlflow_url}"
+            print(f"MLflow Experiment ID: {experiment_id}")
+            print(f"MLflow Run ID: {run_id}")
+            print(f"Experiment saved {storage_location}")
+            agent._logger.info(f"MLflow Experiment ID: {experiment_id}")
+            agent._logger.info(f"MLflow Run ID: {run_id}")
+            agent._logger.info(f"Experiment saved {storage_location}")
