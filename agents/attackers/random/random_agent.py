@@ -2,19 +2,21 @@
 # This agents just randomnly picks actions. No learning
 import sys
 import logging
-from os import path, makedirs
+import os
 from random import choice
 import argparse
 import numpy as np
 import mlflow
 
 # This is used so the agent can see the environment and game components
-sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ) ) ))))
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) ))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ))))
+
 # with the path fixed, we can import now
-from env.game_components import Action, Observation
+from env.game_components import Action, Observation, GameState
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions
+from datetime import datetime
 
 
 class RandomAgent(BaseAgent):
@@ -63,13 +65,14 @@ if __name__ == '__main__':
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
     parser.add_argument("--episodes", help="Sets number of episodes to play or evaluate", default=100, type=int) 
     parser.add_argument("--test_each", help="Evaluate performance during testing every this number of episodes.", default=10, type=int)
-    parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
+    parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
     parser.add_argument("--evaluate", help="Evaluate the agent and report, instead of playing the game only once.", default=True)
+    parser.add_argument("--mlflow_url", help="URL for mlflow tracking server. If not provided, mlflow will store locally.", default=None)
     args = parser.parse_args()
 
-    if not path.exists(args.logdir):
-        makedirs(args.logdir)
-    logging.basicConfig(filename=path.join(args.logdir, "random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+    if not os.path.exists(args.logdir):
+        os.makedirs(args.logdir)
+    logging.basicConfig(filename=os.path.join(args.logdir, "random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
     # Create agent
     agent = RandomAgent(args.host, args.port,"Attacker", seed=42)
@@ -92,6 +95,8 @@ if __name__ == '__main__':
 
         # Mlflow experiment name        
         experiment_name = "Evaluation of Random Agent"
+        if args.mlflow_url:
+            mlflow.set_tracking_uri(args.mlflow_url)
         mlflow.set_experiment(experiment_name)
         # Register in the game
         observation = agent.register()
@@ -111,6 +116,7 @@ if __name__ == '__main__':
             mlflow.set_tag("experiment_name", experiment_name)
             # Log notes or additional information
             mlflow.set_tag("notes", "This is an evaluation")
+            mlflow.set_tag("episode_number", args.episodes)
             #mlflow.log_param("learning_rate", learning_rate)
 
             for episode in range(1, args.episodes + 1):
@@ -200,3 +206,14 @@ if __name__ == '__main__':
             print(text)
             agent._logger.info("Terminating interaction")
             agent.terminate_connection()
+
+            # Print and log the mlflow experiment ID, run ID, and storage location
+            experiment_id = run.info.experiment_id
+            run_id = run.info.run_id
+            storage_location = "locally" if not args.mlflow_url else f"at {args.mlflow_url}"
+            print(f"MLflow Experiment ID: {experiment_id}")
+            print(f"MLflow Run ID: {run_id}")
+            print(f"Experiment saved {storage_location}")
+            agent._logger.info(f"MLflow Experiment ID: {experiment_id}")
+            agent._logger.info(f"MLflow Run ID: {run_id}")
+            agent._logger.info(f"Experiment saved {storage_location}")
