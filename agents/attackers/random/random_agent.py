@@ -16,7 +16,7 @@ from agent_utils import generate_valid_actions
 from datetime import datetime
 
 
-class RandomAgent(BaseAgent):
+class RandomAttackerAgent(BaseAgent):
 
     def __init__(self, host, port,role, seed) -> None:
         super().__init__(host, port, role)
@@ -72,7 +72,7 @@ if __name__ == '__main__':
     logging.basicConfig(filename=path.join(args.logdir, "random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
     # Create agent
-    agent = RandomAgent(args.host, args.port,"Attacker", seed=42)
+    agent = RandomAttackerAgent(args.host, args.port,"Attacker", seed=42)
 
     if not args.evaluate:
         # Play the normal game
@@ -91,7 +91,7 @@ if __name__ == '__main__':
         # - At the end, report in log and mlflow and console
 
         # Mlflow experiment name        
-        experiment_name = "Evaluation of Random Agent"
+        experiment_name = "Evaluation of Random Attacker Agent"
         if args.mlflow_url:
             mlflow.set_tracking_uri(args.mlflow_url)
         mlflow.set_experiment(experiment_name)
