@@ -70,5 +70,22 @@ Additionally, there are several files with utils functions that can be used by a
 |[Random Defender](./agents/defenders/random/random_agent.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | | 👷🏼‍♀️ |
 |[Probabilistic Defender](./agents/defenders/probabilistic/probabilistic_agent.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | | 👷🏼‍♀️ |
 
+## Export to mlflow
+
+Every agent by default exports the experiment details to a local mlflow directory.
+
+If you want to see the local mlflow data do
+
+```bash
+pip install mlflow
+mlflow ui -p 5001
+```
+
+If you want to export the local mlflow to a remote mlflow you can use our util 
+
+```bash
+python utils/export_import_mlflow_exp.py --experiment_id 783457873620024898 --run_id 5f2e4a205b7745259a4ddedc12d71a74 --remote_mlflow_url http://127.0.0.1:8000 --mlruns_dir ./mlruns
+```
+
 ## About us
 This code was developed at the [Stratosphere Laboratory at the Czech Technical University in Prague](https://www.stratosphereips.org/) as part of the [AIDojo Project](https://www.stratosphereips.org/ai-dojo).
