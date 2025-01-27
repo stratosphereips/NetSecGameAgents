@@ -8,7 +8,7 @@ import pickle
 import argparse
 import logging
 
-from AIDojoCoordinator.game_components import Action, GameState, AgentStatus
+from AIDojoCoordinator.game_components import Action, GameState
 # importing agent utils and base agent
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 # with the path fixed, we can import now
