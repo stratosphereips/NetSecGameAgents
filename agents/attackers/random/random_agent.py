@@ -2,17 +2,15 @@
 # This agents just randomnly picks actions. No learning
 import sys
 import logging
-from os import path, makedirs
-from random import choice
 import argparse
 import numpy as np
 import mlflow
+from os import path, makedirs
+from random import choice
+from AIDojoCoordinator.game_components import Action, Observation, AgentStatus
 
-# This is used so the agent can see the environment and game components
-sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ) ) ))))
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 # with the path fixed, we can import now
-from env.game_components import Action, Observation
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions
 
@@ -125,15 +123,15 @@ if __name__ == '__main__':
                 end = observation.end
                 info = observation.info
 
-                if observation.info and observation.info['end_reason'] == 'detected':
+                if observation.info and observation.info['end_reason'] == AgentStatus.Fail:
                     detected +=1
                     num_detected_steps += [num_steps]
                     num_detected_returns += [reward]
-                elif observation.info and observation.info['end_reason'] == 'goal_reached':
+                elif observation.info and observation.info['end_reason'] == AgentStatus.Success:
                     wins += 1
                     num_win_steps += [num_steps]
                     num_win_returns += [reward]
-                elif observation.info and observation.info['end_reason'] == 'max_steps':
+                elif observation.info and observation.info['end_reason'] == AgentStatus.TimeoutReached:
                     max_steps += 1
                     num_max_steps_steps += [num_steps]
                     num_max_steps_returns += [reward]
