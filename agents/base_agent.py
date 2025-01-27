@@ -10,8 +10,7 @@ from abc import ABC
 
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))
-from AIDojoCoordinator.game_components import Action, GameState, Observation, ActionType, GameStatus,AgentInfo, IP, Network, Data
-from agent_utils import state_as_ordered_string
+from AIDojoCoordinator.game_components import Action, GameState, Observation, ActionType, GameStatus,AgentInfo
 
 class BaseAgent(ABC):
     """
