@@ -8,16 +8,10 @@ import pickle
 import argparse
 import logging
 
-# This is used so the agent can see the environment and game components
-sys.path.append(
-    path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__))))))
-)
+from AIDojoCoordinator.game_components import Action, GameState, AgentStatus
 # importing agent utils and base agent
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
-
-# This is used so the agent can see the environment and game component
 # with the path fixed, we can import now
-from env.game_components import Action, GameState
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions, state_as_ordered_string
 
