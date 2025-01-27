@@ -5,13 +5,27 @@ Authors:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
 """
 import logging
 import argparse
-from llm_action_planner import LLMActionPlanner
 import logging
 import numpy as np
 import pandas as pd
 import mlflow
+import sys
+from llm_action_planner import LLMActionPlanner
+from os import path
 
-from env.game_components import ActionType
+mlflow.set_tracking_uri("http://147.32.83.60")
+mlflow.set_experiment("LLM_QA")
+
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+
+sys.path.append(
+    path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
+)
+
+from AIDojoCoordinator.game_components import ActionType, Action, IP, Data, Network, Service
+
+# This is used so the agent can see the BaseAgent
+sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
 from base_agent import BaseAgent
 
 mlflow.set_tracking_uri("http://147.32.83.60")

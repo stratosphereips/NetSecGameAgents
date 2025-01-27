@@ -14,8 +14,8 @@ from timeit import default_timer as timer
 import logging
 from torch.utils.tensorboard import SummaryWriter
 import time
-from env.worlds.network_security_game import NetworkSecurityEnvironment
-from env.game_components import Action, Observation, GameState
+from AIDojoCoordinator.worlds.network_security_game import NetworkSecurityEnvironment
+from AIDojoCoordinator.game_components import Action, Observation, GameState
 
 class DoubleQAgent:
 

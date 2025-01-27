@@ -18,7 +18,7 @@ from os import path
 sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))))
 
 #with the path fixed, we can import now
-from env.worlds.network_security_game import NetworkSecurityEnvironment
+from AIDojoCoordinator.worlds.network_security_game import NetworkSecurityEnvironment
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'

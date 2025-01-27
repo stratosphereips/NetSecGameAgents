@@ -1,29 +1,20 @@
 #
 # Author:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
-#
+
+import sys
+import os
+import logging
+import ipaddress
+import argparse
+import asyncio
 from textual.app import App, ComposeResult, Widget
 from textual.widgets import Tree, Button, RichLog, Select, Input
 from textual.containers import Vertical, VerticalScroll, Horizontal
 from textual.validation import Function
 from textual import on
 from textual.reactive import reactive
-
-import sys
-from os import path
-import os
-import logging
-import ipaddress
-import argparse
-import asyncio
-
 from assistant import LLMAssistant
-
-# This is used so the agent can see the environment and game components
-sys.path.append(
-    path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__))))))
-)
-from env.game_components import Network, IP
-from env.game_components import ActionType, Action, GameState, Observation
+from AIDojoCoordinator.game_components import Network, IP, ActionType, Action, GameState, Observation
 
 # This is used so the agent can see the BaseAgent
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -558,7 +549,7 @@ class InteractiveTUI(App):
                         self.network_input[:-3], mask=int(self.network_input[-2:])
                     ),
                 }
-                action = Action(action_type=self.next_action, params=parameters)
+                action = Action(action_type=self.next_action, parameters=parameters)
             else:
                 self.notify("Please provide valid inputs", severity="error")
         elif self.next_action in [ActionType.FindServices, ActionType.FindData]:
@@ -567,7 +558,7 @@ class InteractiveTUI(App):
                     "source_host": IP(self.src_host_input),
                     "target_host": IP(self.target_host_input),
                 }
-                action = Action(action_type=self.next_action, params=parameters)
+                action = Action(action_type=self.next_action, parameters=parameters)
             else:
                 self.notify("Please provide valid inputs", severity="error")
         elif self.next_action == ActionType.ExploitService:
@@ -582,7 +573,7 @@ class InteractiveTUI(App):
                                     "target_service": service,
                                 }
                                 action = Action(
-                                    action_type=self.next_action, params=parameters
+                                    action_type=self.next_action, parameters=parameters
                                 )
                                 break
             else:
@@ -600,7 +591,7 @@ class InteractiveTUI(App):
                                     "data": datum,
                                 }
                                 action = Action(
-                                    action_type=self.next_action, params=parameters
+                                    action_type=self.next_action, parameters=parameters
                                 )
                             else:
                                 parameters = self.data_input

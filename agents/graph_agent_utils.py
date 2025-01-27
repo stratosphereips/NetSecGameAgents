@@ -12,7 +12,7 @@ import numpy as np
 
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 #with the path fixed, we can import now
-from env.game_components import GameState, IP, Network, Data, Service
+from AIDojoCoordinator.game_components import GameState, IP, Network, Data, Service
 
 def state_as_graph(state:GameState) -> tuple:
     node_types = {
