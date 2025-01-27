@@ -4,11 +4,9 @@ import logging
 from os import path
 import time
 
-sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))))
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
-
-#with the path fixed, we can import now
 from AIDojoCoordinator.game_components import Action, ActionType, IP, Network
+sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
+#with the path fixed, we can import now
 from base_agent import BaseAgent
 
 def winning_strat(host, port, delay=10):

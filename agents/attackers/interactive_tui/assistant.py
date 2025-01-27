@@ -10,13 +10,8 @@ from dotenv import dotenv_values
 import jinja2
 from tenacity import retry, stop_after_attempt
 
-sys.path.append(
-    path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__))))))
-)
-from env.game_components import (
-    ActionType,
-    Observation,
-)
+
+from AIDojoCoordinator.game_components import ActionType, Observation
 
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 
