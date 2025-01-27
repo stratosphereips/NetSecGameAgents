@@ -10,7 +10,7 @@ import sys
 from os import path
 sys.path.append(path.dirname(path.dirname(path.dirname( path.abspath(__file__) ))))
 #with the path fixed, we can import now
-from env.game_components import Action, ActionType, GameState, Observation, IP, Network
+from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, IP, Network
 import ipaddress
 
 def generate_valid_actions_concepts(state: GameState)->list:
