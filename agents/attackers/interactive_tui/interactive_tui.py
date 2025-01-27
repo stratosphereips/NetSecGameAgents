@@ -1,21 +1,18 @@
 #
 # Author:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
-#
+
+import sys
+import os
+import logging
+import ipaddress
+import argparse
+import asyncio
 from textual.app import App, ComposeResult, Widget
 from textual.widgets import Tree, Button, RichLog, Select, Input
 from textual.containers import Vertical, VerticalScroll, Horizontal
 from textual.validation import Function
 from textual import on
 from textual.reactive import reactive
-
-import sys
-from os import path
-import os
-import logging
-import ipaddress
-import argparse
-import asyncio
-
 from assistant import LLMAssistant
 from AIDojoCoordinator.game_components import Network, IP, ActionType, Action, GameState, Observation
 
