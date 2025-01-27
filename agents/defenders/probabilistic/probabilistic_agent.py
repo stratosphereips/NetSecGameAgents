@@ -69,7 +69,7 @@ class ProbabilisticDefenderAgent(BaseAgent):
         valid_actions = generate_valid_actions(observation.state)
         # filter actions based on the allowed action types
         allowed_actions = filter(lambda action: action.type in self._allowed_actions, valid_actions)
-        allowed_actions = [a for a  in allowed_actions] + [Action(ActionType.ResetGame, params={})]
+        allowed_actions = [a for a  in allowed_actions] + [Action(ActionType.ResetGame, parameters={})]
         action = choice([a for a  in allowed_actions])
         return action
 
