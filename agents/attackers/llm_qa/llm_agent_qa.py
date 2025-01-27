@@ -30,7 +30,7 @@ sys.path.append(
     path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 )
 
-from env.game_components import ActionType, Action, IP, Data, Network, Service
+from AIDojoCoordinator.game_components import ActionType, Action, IP, Data, Network, Service
 
 # This is used so the agent can see the BaseAgent
 sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))

@@ -13,8 +13,8 @@ import math
 from os import path
 sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))))
 
-from env.worlds.network_security_game import NetworkSecurityEnvironment
-from env.game_components import Action, ActionType
+from AIDojoCoordinator.worlds.network_security_game import NetworkSecurityEnvironment
+from AIDojoCoordinator.game_components import Action, ActionType
 from sentence_transformers import SentenceTransformer
 
 import numpy as np
