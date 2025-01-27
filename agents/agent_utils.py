@@ -10,7 +10,7 @@ import sys
 from os import path
 sys.path.append(path.dirname(path.dirname(path.dirname( path.abspath(__file__) ))))
 #with the path fixed, we can import now
-from env.game_components import Action, ActionType, GameState, Observation, IP, Network
+from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, IP, Network
 import ipaddress
 
 def generate_valid_actions_concepts(state: GameState)->list:
@@ -22,12 +22,12 @@ def generate_valid_actions_concepts(state: GameState)->list:
             # TODO ADD neighbouring networks
             # Only scan local networks from local hosts
             if network.is_private() and source_host.is_private():
-                valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": source_host,}))
+                valid_actions.add(Action(ActionType.ScanNetwork, parameters={"target_network": network, "source_host": source_host,}))
         # Service Scans
         for host in state.known_hosts:
             # Do not try to scan a service from hosts outside local networks towards local networks
             if host.is_private() and source_host.is_private():
-                valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": source_host,}))
+                valid_actions.add(Action(ActionType.FindServices, parameters={"target_host": host, "source_host": source_host,}))
         # Service Exploits
         for host, service_list in state.known_services.items():
             # Only exploit local services from local hosts
@@ -37,52 +37,65 @@ def generate_valid_actions_concepts(state: GameState)->list:
                     for service in service_list:
                         # Do not consider local services, which are internal to the host
                         if not service.is_local:
-                            valid_actions.add(Action(ActionType.ExploitService, params={"target_host": host,"target_service": service,"source_host": source_host,}))
+                            valid_actions.add(Action(ActionType.ExploitService, parameters={"target_host": host,"target_service": service,"source_host": source_host,}))
     # Find Data Scans
     for host in state.controlled_hosts:
-        valid_actions.add(Action(ActionType.FindData, params={"target_host": host, "source_host": host}))
+        valid_actions.add(Action(ActionType.FindData, parameters={"target_host": host, "source_host": host}))
 
     # Data Exfiltration
     for source_host, data_list in state.known_data.items():
         for data in data_list:
             for target_host in state.controlled_hosts:
                 if target_host != source_host:
-                    valid_actions.add(Action(ActionType.ExfiltrateData, params={"target_host": target_host, "source_host": source_host, "data": data}))
+                    valid_actions.add(Action(ActionType.ExfiltrateData, parameters={"target_host": target_host, "source_host": source_host, "data": data}))
     return list(valid_actions)
 
-def generate_valid_actions(state: GameState)->list:
+def generate_valid_actions(state: GameState, include_blocks=False)->list:
     """Function that generates a list of all valid actions in a given state"""
     valid_actions = set()
+    def is_fw_blocked(state, src_ip, dst_ip)->bool:
+        blocked = False
+        try:
+            blocked = dst_ip in state.known_blocks[src_ip]
+        except KeyError:
+            pass #this src ip has no known blocks
+        return blocked 
+
     for src_host in state.controlled_hosts:
         #Network Scans
         for network in state.known_networks:
             # TODO ADD neighbouring networks
-            valid_actions.add(Action(ActionType.ScanNetwork, params={"target_network": network, "source_host": src_host,}))
+            valid_actions.add(Action(ActionType.ScanNetwork, parameters={"target_network": network, "source_host": src_host,}))
         # Service Scans
         for host in state.known_hosts:
-            valid_actions.add(Action(ActionType.FindServices, params={"target_host": host, "source_host": src_host,}))
+            if not is_fw_blocked(state, src_host,host):
+                valid_actions.add(Action(ActionType.FindServices, parameters={"target_host": host, "source_host": src_host,}))
         # Service Exploits
         for host, service_list in state.known_services.items():
-            for service in service_list:
-                valid_actions.add(Action(ActionType.ExploitService, params={"target_host": host,"target_service": service,"source_host": src_host,}))
+            if not is_fw_blocked(state, src_host,host):
+                for service in service_list:
+                    valid_actions.add(Action(ActionType.ExploitService, parameters={"target_host": host,"target_service": service,"source_host": src_host,}))
     # Data Scans
     for host in state.controlled_hosts:
-        valid_actions.add(Action(ActionType.FindData, params={"target_host": host, "source_host": host}))
+        if not is_fw_blocked(state, src_host,host):
+            valid_actions.add(Action(ActionType.FindData, parameters={"target_host": host, "source_host": host}))
 
     # Data Exfiltration
     for src_host, data_list in state.known_data.items():
         for data in data_list:
             for trg_host in state.controlled_hosts:
                 if trg_host != src_host:
-                    valid_actions.add(Action(ActionType.ExfiltrateData, params={"target_host": trg_host, "source_host": src_host, "data": data}))
+                    if not is_fw_blocked(state, src_host,trg_host):
+                        valid_actions.add(Action(ActionType.ExfiltrateData, parameters={"target_host": trg_host, "source_host": src_host, "data": data}))
     
-    # BlockIP
-    for src_host in state.controlled_hosts:
-        for target_host in state.controlled_hosts:
-            for blocked_ip in state.known_hosts:
-                valid_actions.add(Action(ActionType.BlockIP, {"target_host":target_host, "source_host":src_host, "blocked_host":blocked_ip}))
-
-                    
+    if include_blocks:
+        # BlockIP
+        if include_blocks:
+            for src_host in state.controlled_hosts:
+                for target_host in state.controlled_hosts:
+                    if not is_fw_blocked(state, src_host,target_host):
+                        for blocked_ip in state.known_hosts:
+                            valid_actions.add(Action(ActionType.BlockIP, {"target_host":target_host, "source_host":src_host, "blocked_host":blocked_ip}))
     return list(valid_actions)    
 
 def state_as_ordered_string(state:GameState)->str:
@@ -97,6 +110,9 @@ def state_as_ordered_string(state:GameState)->str:
     ret += "},data:{"
     for host in sorted(state.known_data.keys()):
         ret += f"{host}:[{','.join([str(x) for x in sorted(state.known_data[host])])}]"
+    ret += "},blocks:{"
+    for host in sorted(state.known_blocks.keys()):
+        ret += f"{host}:[{','.join([str(x) for x in sorted(state.known_blocks[host])])}]"
     ret += "}"
     return ret   
 
@@ -480,7 +496,7 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
             if src_host_concept == host_concept:
                 new_src_host = concept_mapping['controlled_hosts'][host_concept]
 
-        action = Action(ActionType.ExploitService, params={"target_host": new_target_host, "target_service": new_target_service, "source_host": new_src_host})
+        action = Action(ActionType.ExploitService, parameters={"target_host": new_target_host, "target_service": new_target_service, "source_host": new_src_host})
 
     elif action._type == ActionType.ExfiltrateData:
         # parameters = {
@@ -508,7 +524,7 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
         data_concept = action.parameters['data']
         new_data = data_concept
 
-        action = Action(ActionType.ExfiltrateData, params={"target_host": new_target_host, "source_host": new_src_host, "data": new_data})
+        action = Action(ActionType.ExfiltrateData, parameters={"target_host": new_target_host, "source_host": new_src_host, "data": new_data})
 
     elif action._type == ActionType.FindData:
         # parameters = {
@@ -529,7 +545,7 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
             if src_host_concept == host_concept:
                 new_src_host = concept_mapping['controlled_hosts'][host_concept]
         
-        action = Action(ActionType.FindData, params={"target_host": new_target_host, "source_host": new_src_host})
+        action = Action(ActionType.FindData, parameters={"target_host": new_target_host, "source_host": new_src_host})
 
     elif action._type == ActionType.ScanNetwork:
         target_net_concept = action.parameters['target_network']
@@ -545,7 +561,7 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
         for host_concept in concept_mapping['controlled_hosts']:
             if src_host_concept == host_concept:
                 new_src_host = concept_mapping['controlled_hosts'][host_concept]
-        action = Action(ActionType.ScanNetwork, params={"source_host": new_src_host, "target_network": new_target_network} )
+        action = Action(ActionType.ScanNetwork, parameters={"source_host": new_src_host, "target_network": new_target_network} )
 
     elif action._type == ActionType.FindServices:
         # parameters = {
@@ -565,6 +581,6 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
         for host_concept in concept_mapping['controlled_hosts']:
             if src_host_concept == host_concept:
                 new_src_host = concept_mapping['controlled_hosts'][host_concept]
-        action = Action(ActionType.FindServices, params={"source_host": new_src_host, "target_host": new_target_host} )
+        action = Action(ActionType.FindServices, parameters={"source_host": new_src_host, "target_host": new_target_host} )
 
     return action

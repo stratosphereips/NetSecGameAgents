@@ -4,17 +4,19 @@
 import sys
 import logging
 import os
-from random import choice
 import argparse
-from random import uniform
 import numpy as np
 import time
-
+from random import choice
+from random import uniform
 # This is used so the agent can see the environment and game components
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ) ) )))
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__) )))
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+)
 # with the path fixed, we can import now
-from env.game_components import Action, Observation, ActionType
+from AIDojoCoordinator.game_components import Action, Observation, ActionType
+# importing agent utils and base agent
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ))))
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions
 
@@ -67,7 +69,7 @@ class ProbabilisticDefenderAgent(BaseAgent):
         valid_actions = generate_valid_actions(observation.state)
         # filter actions based on the allowed action types
         allowed_actions = filter(lambda action: action.type in self._allowed_actions, valid_actions)
-        allowed_actions = [a for a  in allowed_actions] + [Action(ActionType.ResetGame, params={})]
+        allowed_actions = [a for a  in allowed_actions] + [Action(ActionType.ResetGame, parameters={})]
         action = choice([a for a  in allowed_actions])
         return action
 

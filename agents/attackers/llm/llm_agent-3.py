@@ -7,8 +7,8 @@ from os import path
 sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))))
 
 
-from env.worlds.network_security_game import NetworkSecurityEnvironment
-from env.game_components import ActionType, Action, IP, Data, Network, Service
+from AIDojoCoordinator.worlds.network_security_game import NetworkSecurityEnvironment
+from AIDojoCoordinator.game_components import ActionType, Action, IP, Data, Network, Service
 
 import openai
 from tenacity import retry, stop_after_attempt

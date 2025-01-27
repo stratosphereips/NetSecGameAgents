@@ -8,7 +8,7 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # with the path fixed, we can import now
-from env.game_components import (
+from AIDojoCoordinator.game_components import (
     ActionType,
     Action,
     IP,

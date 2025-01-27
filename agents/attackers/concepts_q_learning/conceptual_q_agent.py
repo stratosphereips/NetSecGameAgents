@@ -2,24 +2,21 @@
 #           Arti
 #           Sebastian Garcia. sebastian.garcia@agents.fel.cvut.cz
 import sys
-from os import path, makedirs
 import numpy as np
 import random
 import pickle
 import argparse
 import logging
-# This is used so the agent can see the environment and game component
-sys.path.append(path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ) ) ))))
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
+import mlflow
+import subprocess
+from os import path, makedirs
+from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus
 
 # This is used so the agent can see the environment and game component
 # with the path fixed, we can import now
-from env.game_components import Action, Observation, GameState
+sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions, state_as_ordered_string, convert_concepts_to_actions, convert_ips_to_concepts
-import mlflow
-import subprocess
-
 
 class QAgent(BaseAgent):
 
@@ -383,15 +380,15 @@ if __name__ == '__main__':
                                 test_end = test_observation.end
                                 test_info = test_observation.info
 
-                                if test_info and test_info['end_reason'] == 'blocked':
+                                if test_info and test_info['end_reason'] == AgentStatus.Fail:
                                     test_detected +=1
                                     test_num_detected_steps += [num_steps]
                                     test_num_detected_returns += [reward]
-                                elif test_info and test_info['end_reason'] == 'goal_reached':
+                                elif test_info and test_info['end_reason'] == AgentStatus.Success:
                                     test_wins += 1
                                     test_num_win_steps += [num_steps]
                                     test_num_win_returns += [reward]
-                                elif test_info and test_info['end_reason'] == 'max_steps':
+                                elif test_info and test_info['end_reason'] == AgentStatus.TimeoutReached:
                                     test_max_steps += 1
                                     test_num_max_steps_steps += [num_steps]
                                     test_num_max_steps_returns += [reward]
