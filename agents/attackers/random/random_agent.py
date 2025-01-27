@@ -13,6 +13,7 @@ sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))
 # with the path fixed, we can import now
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions
+from datetime import datetime
 
 
 class RandomAgent(BaseAgent):
@@ -90,6 +91,7 @@ if __name__ == '__main__':
 
         # Mlflow experiment name        
         experiment_name = "Evaluation of Random Agent"
+        mlflow.set_tracking_uri("http://127.0.0.1:8000")
         mlflow.set_experiment(experiment_name)
         # Register in the game
         observation = agent.register()
@@ -109,6 +111,7 @@ if __name__ == '__main__':
             mlflow.set_tag("experiment_name", experiment_name)
             # Log notes or additional information
             mlflow.set_tag("notes", "This is an evaluation")
+            mlflow.set_tag("episode_number", args.episodes)
             #mlflow.log_param("learning_rate", learning_rate)
 
             for episode in range(1, args.episodes + 1):
