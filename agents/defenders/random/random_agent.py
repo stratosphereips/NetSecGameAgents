@@ -11,10 +11,7 @@ import time
 import mlflow
 from os import path
 
-# This is used so the agent can see the environment and game components
-sys.path.append(
-    path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__))))))
-)
+
 # importing agent utils and base agent
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 # with the path fixed, we can import now

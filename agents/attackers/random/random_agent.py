@@ -10,6 +10,7 @@ from random import choice
 from AIDojoCoordinator.game_components import Action, Observation, AgentStatus
 
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
+
 # with the path fixed, we can import now
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions
@@ -62,14 +63,14 @@ if __name__ == '__main__':
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
     parser.add_argument("--episodes", help="Sets number of episodes to play or evaluate", default=100, type=int) 
     parser.add_argument("--test_each", help="Evaluate performance during testing every this number of episodes.", default=10, type=int)
-    parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
+    parser.add_argument("--logdir", help="Folder to store logs", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
     parser.add_argument("--evaluate", help="Evaluate the agent and report, instead of playing the game only once.", default=True)
     parser.add_argument("--mlflow_url", help="URL for mlflow tracking server. If not provided, mlflow will store locally.", default=None)
     args = parser.parse_args()
 
-    if not path.exists(args.logdir):
-        makedirs(args.logdir)
-    logging.basicConfig(filename=path.join(args.logdir, "random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+    if not os.path.exists(args.logdir):
+        os.makedirs(args.logdir)
+    logging.basicConfig(filename=os.path.join(args.logdir, "random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
     # Create agent
     agent = RandomAttackerAgent(args.host, args.port,"Attacker", seed=42)
