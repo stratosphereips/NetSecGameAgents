@@ -10,7 +10,7 @@ from abc import ABC
 
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))
-from AIDojoCoordinator.game_components import Action, GameState, Observation, ActionType, GameStatus,AgentInfo
+from AIDojoCoordinator.game_components import Action, GameState, Observation, ActionType, GameStatus, AgentInfo, ProtocolConfig
 
 class BaseAgent(ABC):
     """
@@ -86,7 +86,19 @@ class BaseAgent(ABC):
             Receive data from server
             """
             # Receive data from the server
-            data = socket.recv(8192).decode()
+            data = b""  # Initialize an empty byte string
+
+            while True:
+                chunk = socket.recv(ProtocolConfig.BUFFER_SIZE)  # Receive a chunk
+                if not chunk:  # If no more data, break (connection closed)
+                    break
+                data += chunk
+                if ProtocolConfig.END_OF_MESSAGE in data:  # Check if EOF marker is present
+                    break
+            if ProtocolConfig.END_OF_MESSAGE not in data:
+                raise ConnectionError("Unfinished connection.")
+            data = data.replace(ProtocolConfig.END_OF_MESSAGE, b"")  # Remove EOF marker
+            data = data.decode() 
             self._logger.debug(f"Data received from env: {data}")
             # extract data from string representation
             data_dict = json.loads(data)
@@ -124,12 +136,12 @@ class BaseAgent(ABC):
         except Exception as e:
             self._logger.error(f'Exception in register(): {e}')
     
-    def request_game_reset(self)->Observation:
+    def request_game_reset(self, request_trajectory=False)->Observation:
         """
         Method for requesting restart of the game.
         """
         self._logger.debug("Requesting game reset")
-        status, observation_dict, message = self.communicate(Action(ActionType.ResetGame, {}))
+        status, observation_dict, message = self.communicate(Action(ActionType.ResetGame, parameters={"request_trajectory":request_trajectory}))
         if status:
             self._logger.debug('\tReset successful')
             return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"], message)
