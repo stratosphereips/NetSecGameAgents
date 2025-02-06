@@ -6,6 +6,7 @@ import logging
 from os import path
 import socket
 import json
+import struct
 from abc import ABC 
 
 # This is used so the agent can see the environment and game components
@@ -86,7 +87,20 @@ class BaseAgent(ABC):
             Receive data from server
             """
             # Receive data from the server
-            data = socket.recv(8192).decode()
+            # data = socket.recv(8192).decode()
+            buffer_size = 8192  # Read in chunks
+            data = b""  # Initialize an empty byte string
+
+            while True:
+                chunk = socket.recv(buffer_size)  # Receive a chunk
+                if not chunk:  # If no more data, break (connection closed)
+                    break
+                data += chunk
+                if b"EOF" in data:  # Check if EOF marker is present
+                    break
+
+            data = data.replace(b"EOF", b"")  # Remove EOF marker
+            data = data.decode() 
             self._logger.debug(f"Data received from env: {data}")
             # extract data from string representation
             data_dict = json.loads(data)
@@ -124,12 +138,12 @@ class BaseAgent(ABC):
         except Exception as e:
             self._logger.error(f'Exception in register(): {e}')
     
-    def request_game_reset(self)->Observation:
+    def request_game_reset(self, request_trajectory=False)->Observation:
         """
         Method for requesting restart of the game.
         """
         self._logger.debug("Requesting game reset")
-        status, observation_dict, message = self.communicate(Action(ActionType.ResetGame, {}))
+        status, observation_dict, message = self.communicate(Action(ActionType.ResetGame, parameters={"request_trajectory":request_trajectory}))
         if status:
             self._logger.debug('\tReset successful')
             return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"], message)
