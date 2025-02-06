@@ -6,12 +6,11 @@ import logging
 from os import path
 import socket
 import json
-import struct
 from abc import ABC 
 
 # This is used so the agent can see the environment and game components
 sys.path.append(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))
-from AIDojoCoordinator.game_components import Action, GameState, Observation, ActionType, GameStatus,AgentInfo
+from AIDojoCoordinator.game_components import Action, GameState, Observation, ActionType, GameStatus, AgentInfo, ProtocolConfig
 
 class BaseAgent(ABC):
     """
@@ -87,19 +86,18 @@ class BaseAgent(ABC):
             Receive data from server
             """
             # Receive data from the server
-            # data = socket.recv(8192).decode()
-            buffer_size = 8192  # Read in chunks
             data = b""  # Initialize an empty byte string
 
             while True:
-                chunk = socket.recv(buffer_size)  # Receive a chunk
+                chunk = socket.recv(ProtocolConfig.BUFFER_SIZE)  # Receive a chunk
                 if not chunk:  # If no more data, break (connection closed)
                     break
                 data += chunk
-                if b"EOF" in data:  # Check if EOF marker is present
+                if ProtocolConfig.END_OF_MESSAGE in data:  # Check if EOF marker is present
                     break
-
-            data = data.replace(b"EOF", b"")  # Remove EOF marker
+            if ProtocolConfig.END_OF_MESSAGE not in data:
+                raise ConnectionError("Unfinished connection.")
+            data = data.replace(ProtocolConfig.END_OF_MESSAGE, b"")  # Remove EOF marker
             data = data.decode() 
             self._logger.debug(f"Data received from env: {data}")
             # extract data from string representation
