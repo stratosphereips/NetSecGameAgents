@@ -31,7 +31,7 @@ sys.path.append(
 )
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 
-from env.game_components import ActionType, Observation
+from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, IP, Network
 from llm_utils import create_action_from_response, create_status_from_state
 
 class ConfigLoader:
@@ -145,7 +145,7 @@ class LLMActionPlanner:
         Q1 = self.config['questions'][0]['text']
         Q4 = self.config['questions'][3]['text']
         COT_PROMPT = self.config['prompts']['COT_PROMPT']
-        print(memory_buf)
+        #print(memory_buf)
         memory_prompt = self.create_mem_prompt(memory_buf)
         messages = [
             {"role": "user", "content": self.instructions},
@@ -153,7 +153,7 @@ class LLMActionPlanner:
             {"role": "user", "content": memory_prompt},
             {"role": "user", "content": Q1},
         ]
-        print(messages)
+        #print(messages)
         self.logger.info(f"Text sent to the LLM: {messages}")
         response = self.openai_query(messages, max_tokens=1024)
         self.logger.info(f"(Stage 1) Response from LLM: {response}")
@@ -171,4 +171,5 @@ class LLMActionPlanner:
 
         response = self.openai_query(messages, max_tokens=80, fmt={"type": "json_object"})
         self.logger.info(f"(Stage 2) Response from LLM: {response}")
+        print(f"(Stage 2) Response from LLM: {response}")
         return self.parse_response(response, observation.state) 

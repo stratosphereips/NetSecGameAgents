@@ -22,8 +22,7 @@ sys.path.append(
     path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 )
 
-from AIDojoCoordinator.game_components import ActionType, Action, IP, Data, Network, Service
-
+from AIDojoCoordinator.game_components import AgentStatus
 # This is used so the agent can see the BaseAgent
 sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
 from base_agent import BaseAgent
@@ -168,7 +167,7 @@ if __name__ == "__main__":
                 else:
                     evaluations.append(3)
             else:
-                print("Invalid action")
+                print("Invalid action: ")
                 evaluations.append(0)
 
             try:
@@ -180,6 +179,8 @@ if __name__ == "__main__":
                             "not valid based on your status."
                         )
                     )
+                    print("not valid based on your status.")
+
                 else:
                     # This is based on the assumption that more valid actions in the state are better/more helpful.
                     # But we could a manual evaluation based on the prior knowledge and weight the different components.
@@ -192,6 +193,7 @@ if __name__ == "__main__":
                                 "helpful."
                             )
                         )
+                        print("Helpful")
                     else:
                         memories.append(
                             (
@@ -200,7 +202,7 @@ if __name__ == "__main__":
                                 "not helpful."
                             )
                         )
-
+                        print("Not Helpful")
                     # If the action was repeated count it
                     if action in actions_took_in_episode:
                         repeated_actions += 1
@@ -214,6 +216,7 @@ if __name__ == "__main__":
                                 response_dict["parameters"]),
                                 "badly formated."
                 )
+                print("badly formated")
             
            # logger.info(f"Iteration: {i} JSON: {is_json_ok} Valid: {is_valid} Good: {good_action}")
             logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
@@ -225,7 +228,7 @@ if __name__ == "__main__":
                     # TODO: Fix this
                     reason = observation.info
                 else:
-                    reason = {"end_reason": "max_iterations"}
+                    reason = {"end_reason": AgentStatus.TimeoutReached }
 
                 win = 0
                 # is_detected if boolean
@@ -234,16 +237,16 @@ if __name__ == "__main__":
                 steps = i
                 epi_last_reward = observation.reward
                 num_actions_repeated += [repeated_actions]
-                if "goal_reached" in reason["end_reason"]:
+                if AgentStatus.Success == reason["end_reason"]:
                     wins += 1
                     num_win_steps += [steps]
                     type_of_end = "win"
                     evaluations[-1] = 10
-                elif "detected" in reason["end_reason"]:
+                elif AgentStatus.Fail == reason["end_reason"]:
                     detected += 1
                     num_detected_steps += [steps]
                     type_of_end = "detection"
-                elif "max_iterations" in reason["end_reason"]:
+                elif AgentStatus.TimeoutReached == reason["end_reason"]:
                     # TODO: Fix this
                     reach_max_steps += 1
                     type_of_end = "max_iterations"
