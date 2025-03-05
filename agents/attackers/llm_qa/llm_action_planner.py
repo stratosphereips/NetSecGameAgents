@@ -74,7 +74,27 @@ class LLMActionPlanner:
         self.memory_len = memory_len
         self.logger = logging.getLogger("REACT-agent")
         self.update_instructions(goal.lower())
+        self.prompts = []
+        self.states = []
+        self.responses = []
 
+    def get_prompts(self) -> list:
+        """
+        Returns the list of prompts sent to the LLM."""
+        return self.prompts
+
+    def get_responses(self) -> list:
+        """
+        Returns the list of responses received from the LLM. Only Stage 2 responses are included.
+        """
+        return self.responses
+    
+    def get_states(self) -> list:
+        """
+        Returns the list of states received from the LLM. In JSON format.
+        """
+        return self.states
+    
     def update_instructions(self, new_goal: str) -> None:
         template = jinja2.Environment().from_string(self.config['prompts']['INSTRUCTIONS_TEMPLATE'])
         self.instructions = template.render(goal=new_goal)
@@ -141,6 +161,8 @@ class LLMActionPlanner:
     
     
     def get_action_from_obs_react(self, observation: Observation, memory_buf: list) -> tuple:
+        self.states.append(observation.state.as_json())
+        
         status_prompt = create_status_from_state(observation.state)
         Q1 = self.config['questions'][0]['text']
         Q4 = self.config['questions'][3]['text']
@@ -168,8 +190,10 @@ class LLMActionPlanner:
             {"role": "user", "content": memory_prompt},
             {"role": "user", "content": Q4},
         ]
-
+        self.prompts.append(messages)
+        
         response = self.openai_query(messages, max_tokens=80, fmt={"type": "json_object"})
+        self.responses.append(response)
         self.logger.info(f"(Stage 2) Response from LLM: {response}")
         print(f"(Stage 2) Response from LLM: {response}")
         return self.parse_response(response, observation.state) 
