@@ -1,6 +1,8 @@
 # Authors:  Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 #           Arti
 #           Sebastian Garcia. sebastian.garcia@agents.fel.cvut.cz
+#           Diefo Forni - forni.diego@uncuyo.edu.ar
+
 import sys
 import numpy as np
 import random
@@ -13,10 +15,12 @@ import subprocess
 from os import path, makedirs
 # with the path fixed, we can import now
 from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus
-from NetSecGameAgents.agents.base_agent import BaseAgent
-from NetSecGameAgents.agents.agent_utils import generate_valid_actions, state_as_ordered_string
+sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
+from base_agent import BaseAgent
+from agent_utils import generate_valid_actions, state_as_ordered_string
+import json
 
-class QAgent(BaseAgent):
+class InitializedQAgent(BaseAgent):
 
     def __init__(self, host, port, role="Attacker", alpha=0.1, gamma=0.6, epsilon_start=0.9, epsilon_end=0.1, epsilon_max_episodes=5000) -> None:
         super().__init__(host, port, role)
@@ -28,6 +32,95 @@ class QAgent(BaseAgent):
         self.epsilon_end = epsilon_end
         self.epsilon_max_episodes = epsilon_max_episodes
         self.current_epsilon = epsilon_start
+
+        # New attribute to store parsed solutions
+        self.transition_probabilities = None
+
+    def count_actions(self, observation):
+        # Extract state from the observation
+        state = observation.state
+        
+        # Initialize action counters
+        action_counts = {
+            'ActionType.ScanNetwork': 0,
+            'ActionType.FindServices': 0,
+            'ActionType.FindData': 0,
+            'ActionType.ExploitService': 0,
+            'ActionType.ExfiltrateData': 0,
+        }
+        
+        # Criteria 1: ScanNetwork
+        # Each scan is assumed to add an average of 3 known hosts.
+        initial_known_hosts = len(state.known_hosts) - len(state.controlled_hosts)
+        action_counts['ActionType.ScanNetwork'] = initial_known_hosts // 3
+        
+        # Criteria 2: ExploitService
+        # If there are more controlled hosts than the initial two, exploit service actions were performed.
+        extra_controlled_hosts = len(state.controlled_hosts) - 2
+        action_counts['ActionType.ExploitService'] = max(0, extra_controlled_hosts)
+        
+        # Criteria 3: FindServices
+        # For each IP with known services, one find services action is counted.
+        action_counts['ActionType.FindServices'] = len(state.known_services)
+        
+        # Criteria 4: FindData
+        # If there is known data, it means find data actions were performed.
+        total_known_data = sum(len(data) for data in state.known_data.values())
+        action_counts['ActionType.FindData'] = total_known_data
+        
+        # Criteria 5: ExfiltrateData
+        # For each known data entry, an exfiltrate data action is counted.
+        action_counts['ActionType.ExfiltrateData'] = total_known_data
+        
+        return action_counts
+    
+    def load_and_transform_json(self, file_path):
+        """
+        Load the transition probabilities JSON and transform it into a simplified dictionary.
+        
+        :param file_path: Path to the JSON file.
+        :return: Simplified dictionary.
+        """
+        try:
+            with open(file_path, 'r') as json_file:
+                data = json.load(json_file)
+
+            # Transform the data into the desired format
+            transformed_data = {
+                entry["Action"]: {key: value for key, value in entry.items() if key != "Action"}
+                for entry in data["transition_probabilities"]
+            }
+            self.transition_probabilities = transformed_data
+            return transformed_data
+        except Exception as e:
+            print(f"Error loading or transforming JSON file: {e}")
+            return None
+
+    def initialize_q_value(self, action_counts, action_type):
+        """
+        Initialize the Q-value based on previous actions and transition probabilities.
+        """
+        action_type_str = str(action_type).split('.')[-1] 
+
+        #print(f"Initializing Q-value for action type {action_type_str} with action counts: {action_counts}")
+
+        # Handle the case where all action counts are zero
+        if all(count == 0 for count in action_counts.values()):
+            return self.transition_probabilities["Initial Action"].get(action_type_str, 0)
+        
+
+        # Calculate the weighted sum of transition probabilities
+        prob_sum = sum(
+            self.transition_probabilities.get(action.split('.')[-1], {}).get(action_type_str, 0) * count
+            for action, count in action_counts.items()
+        )
+        # sum with for loop
+        prob_sum = 0
+        for action, count in action_counts.items():
+            action_type_str = action.split('.')[-1]
+            prob_sum += self.transition_probabilities.get(action_type_str, {}).get(action_type_str, 0) * count
+            
+        return prob_sum * 5
 
     def store_q_table(self, filename):
         with open(filename, "wb") as f:
@@ -71,12 +164,15 @@ class QAgent(BaseAgent):
             # Random choose an ation from the list of actions?
             action = random.choice(list(actions))
             if (state_id, action) not in self.q_values:
-                self.q_values[state_id, action] = 0
+                # Initialize the q-value for this state-action pair
+                action_counts = self.count_actions(observation)
+                self.q_values[state_id, action] = self.initialize_q_value(action_counts, action.type)
+
+                # print(f"Initialized Q-value for state {state_id} and action {action} to {self.q_values[state_id, action]}")
             return action, state_id
         else: 
             # Here we can be during training outside the e-greede, or during testing
             # Select the action with highest q_value, or random pick to break the ties
-            # The default initial q-value for a (state, action) pair is 0.
             initial_q_value = 0
             tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
             ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], random.random()))
@@ -98,10 +194,13 @@ class QAgent(BaseAgent):
         info = observation.info
 
         if info and info['end_reason'] == AgentStatus.Fail:
+            # Reward when we are detected/blocked/fail
             reward = -1000
         elif info and info['end_reason'] == AgentStatus.Success:
+            # Reward when we win
             reward = 1000
         elif info and info['end_reason'] == AgentStatus.TimeoutReached:
+            # Reward when we hit max steps
             reward = -100
         else:
             reward = -1
@@ -120,12 +219,16 @@ class QAgent(BaseAgent):
         The main function for the gameplay. Handles the main interaction loop.
         """
         num_steps = 0
+        current_solution = []
+
         # Run the whole episode
         while not observation.end:
             # Store steps so far
             num_steps += 1
             # Get next action. If we are not training, selection is different, so pass it as argument
             action, state_id = self.select_action(observation, testing)
+            current_solution.append([action, None])
+
             if args.store_actions:
                 actions_logger.info(f"\tState:{observation.state}")
                 actions_logger.info(f"\tEnd:{observation.end}")
@@ -171,6 +274,8 @@ if __name__ == '__main__':
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=2000, type=int)
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
+    parser.add_argument("--transition_path", help="Path where the transition matrix json file is located", required=False, default="./transition_probabilities.json", type=str)
+
     args = parser.parse_args()
 
     if not path.exists(args.logdir):
@@ -178,13 +283,13 @@ if __name__ == '__main__':
     logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.ERROR)
 
     # Create agent
-    agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes)
+    agent = InitializedQAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes)
 
     # Log for Actions. After agent creation
-    actions_logger = logging.getLogger('QAgentActions')
+    actions_logger = logging.getLogger('InitializedQAgentActions')
     actions_logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    actions_handler = logging.FileHandler(path.join(args.logdir, "q_agent_actions.log"), mode="w")
+    actions_handler = logging.FileHandler(path.join(args.logdir, "initialized_q_agent_actions.log"), mode="w")
     actions_handler.setLevel(logging.INFO)  
     actions_handler.setFormatter(formatter)
     actions_logger.addHandler(actions_handler)
@@ -206,13 +311,13 @@ if __name__ == '__main__':
 
     if not args.testing:
         # Mlflow experiment name        
-        experiment_name = "Training and Eval of Q-learning Agent"
+        experiment_name = "Training and Eval of Initialized-Q-learning Agent"
         mlflow.set_experiment(experiment_name)
     elif args.testing:
         # Evaluate the agent performance
 
         # Mlflow experiment name        
-        experiment_name = "Testing of Q-learning Agent"
+        experiment_name = "Testing of Initialized-Q-learning Agent"
         mlflow.set_experiment(experiment_name)
 
 
@@ -268,6 +373,11 @@ if __name__ == '__main__':
             agent._logger.info(f'Epsilon Start: {agent.epsilon_start}')
             agent._logger.info(f'Epsilon End: {agent.epsilon_end}')
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
+
+
+            # Initialize transition probabilities
+            file_path = args.transition_path
+            transition_probabilities = agent.load_and_transform_json(file_path)
 
             for episode in range(1, args.episodes + 1):
                 if not early_stop:
