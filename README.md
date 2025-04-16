@@ -1,6 +1,36 @@
 # NetSecGameAgents
 Agents located in this repository should be used in the [Network Security Game](https://github.com/stratosphereips/NetSecGame) environment. They are intended for navigation and problem solving in the adversarial network-security based environment where they play the role of attackers or defenders.
 
+## Installation
+We recommend to use virtual environment when installing the agents:
+```bash
+python -m venv aidojo-agents
+```
+To activat the venv, run:
+```
+source aidojo-agents/bin/activate
+```
+This project requires components of the [Network Security Game](https://github.com/stratosphereips/NetSecGame) to run properly so make sure it is installed first.
+
+To install the all agents, run 
+```
+pip install .
+```
+It is possible to install only subset of agents with following command:
+```
+pip install -e .[<name-of-the-agent>] 
+```
+For example `pip install -e .[tui,llm]`
+
+## Runing the agent
+To run the agents, use
+```
+python3 -m <path-to-the-agent>
+```
+For example, to run the random attackers:
+```
+python3 -m agents.attackers.random.random_agent
+```
 ## BaseAgent
 All future agents should extend BaseAgent - a minimal implementation of agent capable of interaction with the environment. The base agent also implements logging capabilities for the agent via the `logging` python module. The logger can be accessed by property `logger`.
 
