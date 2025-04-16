@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import mlflow
 import sys
+import json
 from llm_action_planner import LLMActionPlanner
 from os import path
 
@@ -115,8 +116,8 @@ if __name__ == "__main__":
 
  
     # Create an empty DataFrame for storing prompts and responses, and evaluations
-    prompt_table = pd.DataFrame(columns=["state", "prompt", "response", "evaluation"])
-    
+    #prompt_table = pd.DataFrame(columns=["state", "prompt", "response", "evaluation"])
+    prompt_table = []
     
     # We are still not using this, but we keep track
     is_detected = False
@@ -136,6 +137,7 @@ if __name__ == "__main__":
         num_iterations = observation.info["max_steps"]
         current_state = observation.state
 
+        
         taken_action = None
         memories = []
         total_reward = 0
@@ -146,9 +148,10 @@ if __name__ == "__main__":
             llm_query = LLMActionPlanner(
             model_name=args.llm,
             goal=observation.info["goal_description"],
-            memory_len=args.memory_buffer
+            memory_len=args.memory_buffer,
+            api_url=args.api_url
         )
-
+        print(observation)
         for i in range(num_iterations):
             good_action = False
             #is_json_ok = True
@@ -217,9 +220,9 @@ if __name__ == "__main__":
                 )
                 print("badly formated")
             
-           # logger.info(f"Iteration: {i} JSON: {is_json_ok} Valid: {is_valid} Good: {good_action}")
+            # logger.info(f"Iteration: {i} JSON: {is_json_ok} Valid: {is_valid} Good: {good_action}")
             logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
-           
+            
             if observation.end or i == (
                 num_iterations - 1
             ):  # if it is the last iteration gather statistics
@@ -282,15 +285,23 @@ if __name__ == "__main__":
                 break
 
         episode_prompt_table = {
+            "episode": episode,
             "state": llm_query.get_states(),
             "prompt": llm_query.get_prompts(),
             "response": llm_query.get_responses(),
             "evaluation": evaluations,
+            "end_reason": str(reason["end_reason"])
         }
-        episode_prompt_table = pd.DataFrame(episode_prompt_table)
-        prompt_table = pd.concat([prompt_table,episode_prompt_table],axis=0,ignore_index=True)
+        prompt_table.append(episode_prompt_table)
         
-    prompt_table.to_csv("states_prompts_responses_new.csv", index=False)
+        #episode_prompt_table = pd.DataFrame(episode_prompt_table)
+        #prompt_table = pd.concat([prompt_table,episode_prompt_table],axis=0,ignore_index=True)
+        
+    #prompt_table.to_csv("states_prompts_responses_new.csv", index=False)
+    
+    # Save the JSON file
+    with open("episode_data.json", "w") as json_file:
+        json.dump(prompt_table, json_file, indent=4)
 
     # After all episodes are done. Compute statistics
     test_win_rate = (wins / (args.test_episodes)) * 100
