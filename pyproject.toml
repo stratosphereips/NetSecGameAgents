@@ -25,7 +25,13 @@ dev = [
     "ruff",
 ]
 
-attacker_random = [
+random = [
     "numpy",
     "mlflow",
+]
+
+q_learning = [
+    "numpy",
+    "mlflow",
+    "colorama",
 ]
