@@ -1,23 +1,16 @@
 # Author: Sebastian Garcia. sebastian.garcia@agents.fel.cvut.cz
 # This agents just randomnly blocks IP. 
-import sys
 import logging
 import os
-from random import choice
 import argparse
-from random import uniform
 import numpy as np
 import time
 import mlflow
-from os import path
 
-
-# importing agent utils and base agent
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
-# with the path fixed, we can import now
+from random import uniform, choice
 from AIDojoCoordinator.game_components import Action, Observation, ActionType
-from base_agent import BaseAgent
-from agent_utils import generate_valid_actions
+from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.agent_utils import generate_valid_actions
 
 
 class RandomDefenderAgent(BaseAgent):
