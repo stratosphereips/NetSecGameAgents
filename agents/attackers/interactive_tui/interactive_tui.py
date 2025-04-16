@@ -15,11 +15,7 @@ from textual import on
 from textual.reactive import reactive
 from assistant import LLMAssistant
 from AIDojoCoordinator.game_components import Network, IP, ActionType, Action, GameState, Observation
-
-# This is used so the agent can see the BaseAgent
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from base_agent import BaseAgent
-
+from NetSecGameAgents.agents.base_agent import BaseAgent
 log_filename = os.path.dirname(os.path.abspath(__file__)) + "/interactive_tui_agent.log"
 logging.basicConfig(
     filename=log_filename,

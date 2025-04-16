@@ -12,10 +12,7 @@ from tenacity import retry, stop_after_attempt
 
 
 from AIDojoCoordinator.game_components import ActionType, Observation
-
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
-
-from llm_utils import (
+from NetSecGameAgents.agents.llm_utils import (
     create_action_from_response,
     create_status_from_state,
 )
