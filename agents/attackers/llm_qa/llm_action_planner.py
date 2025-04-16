@@ -32,7 +32,8 @@ sys.path.append(
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 
 from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, IP, Network
-from llm_utils import create_action_from_response, create_status_from_state
+from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.llm_utils import create_action_from_response, create_status_from_state
 
 class ConfigLoader:
     """Class to handle loading YAML configurations."""
