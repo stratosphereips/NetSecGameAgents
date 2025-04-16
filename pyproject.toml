@@ -40,3 +40,19 @@ sarsa = [
     "numpy",
     "mlflow",
 ]
+
+markov_chain = [
+
+]
+
+llm_qa = [
+    "numpy",
+    "mlflow",
+    "pandas",
+    "dotenv",
+    "openai",
+    "jinja2",
+    "tenacity",
+    "PyYAML",
+    "json"
+]
