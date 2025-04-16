@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[project]
+name = "NetSecGameAgents"
+version = "0.1.0"
+description = "Collection of autonomous agents for Network Security Game"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Ondrej Lukas", email = "ondrej.lukas@aic.fel.cvut.cz" },
+    { name = "Sebastian Garcia", email = "sebastian.garcia@agents.fel.cvut.cz" },
+    { name = "Maria Rigaki", email = "maria.rigaki@aic.fel.cvut.cz" }
+]
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+
+dev = [
+    "pytest",
+    "ruff",
+]
+
+attacker_random = [
+    "numpy",
+    "mlflow",
+]
