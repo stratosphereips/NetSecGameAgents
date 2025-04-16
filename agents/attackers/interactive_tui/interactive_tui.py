@@ -1,7 +1,5 @@
 #
 # Author:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
-
-import sys
 import os
 import logging
 import ipaddress
