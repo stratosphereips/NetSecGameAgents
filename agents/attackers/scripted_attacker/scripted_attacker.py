@@ -1,13 +1,9 @@
-import sys
 import argparse
 import logging
-from os import path
 import time
-
+from os import path
 from AIDojoCoordinator.game_components import Action, ActionType, IP, Network, Service, Data
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
-#with the path fixed, we can import now
-from base_agent import BaseAgent
+from NetSecGameAgents.agents.base_agent import BaseAgent
 
 def winning_strat_CYST(host, port, delay=1):
     agent1 = BaseAgent(host, port, role="Attacker")
@@ -172,4 +168,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     log_filename = path.dirname(path.abspath(__file__)) + '/base_agent.log'
     logging.basicConfig(filename="scripted_attacker.log", filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
-    winning_strat_CYST(args.host, args.port, args.delay)
+    winning_strat(args.host, args.port, args.delay)

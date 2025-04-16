@@ -18,14 +18,8 @@ mlflow.set_experiment("LLM_QA")
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
-sys.path.append(
-    path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
-)
-
 from AIDojoCoordinator.game_components import AgentStatus
-# This is used so the agent can see the BaseAgent
-sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
-from base_agent import BaseAgent
+from NetSecGameAgents.agents.base_agent import BaseAgent
 
 mlflow.set_tracking_uri("http://147.32.83.60")
 mlflow.set_experiment("LLM_QA_netsecgame_dec2024")

@@ -6,12 +6,8 @@ directly in the agent class.
 author: Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 """
 import random
-import sys
-from os import path
-sys.path.append(path.dirname(path.dirname(path.dirname( path.abspath(__file__) ))))
-#with the path fixed, we can import now
-from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, IP, Network
 import ipaddress
+from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, IP, Network
 
 def generate_valid_actions_concepts(state: GameState)->list:
     """Function that generates a list of all valid actions in a given state"""

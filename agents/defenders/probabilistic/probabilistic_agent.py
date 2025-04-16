@@ -1,25 +1,16 @@
 # Author: Sebastian Garcia. sebastian.garcia@agents.fel.cvut.cz
 # This agents implements a simple probabilistic defender that blocks ip based on probability distribution of the logs
 
-import sys
 import logging
 import os
 import argparse
 import numpy as np
 import time
-from random import choice
-from random import uniform
-# This is used so the agent can see the environment and game components
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-)
-# with the path fixed, we can import now
-from AIDojoCoordinator.game_components import Action, Observation, ActionType
-# importing agent utils and base agent
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ))))
-from base_agent import BaseAgent
-from agent_utils import generate_valid_actions
+from random import uniform, choice
 
+from AIDojoCoordinator.game_components import Action, Observation, ActionType
+from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.agent_utils import generate_valid_actions
 
 class ProbabilisticDefenderAgent(BaseAgent):
     def __init__(self, host:str, port:int, role:str, allowed_actions:list, apm_limit:int=None) -> None:
