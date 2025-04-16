@@ -45,7 +45,7 @@ markov_chain = [
 
 ]
 
-llm_qa = [
+llm = [
     "numpy",
     "mlflow",
     "pandas",
@@ -54,5 +54,6 @@ llm_qa = [
     "jinja2",
     "tenacity",
     "PyYAML",
-    "json"
+    "json",
+    "transformers",
 ]
