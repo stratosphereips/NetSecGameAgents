@@ -54,7 +54,6 @@ llm = [
     "jinja2",
     "tenacity",
     "PyYAML",
-    "json",
     "transformers",
 ]
 
