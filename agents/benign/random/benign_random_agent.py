@@ -2,12 +2,10 @@
 # This agents just randomnly picks actions. No learning
 import logging
 import os
-from random import choice
 import argparse
-from random import uniform
 import numpy as np
 import time
-
+from random import uniform, choice
 from AIDojoCoordinator.game_components import Action, Observation, ActionType
 from NetSecGameAgents.agents.base_agent import BaseAgent
 from NetSecGameAgents.agents.agent_utils import generate_valid_actions
