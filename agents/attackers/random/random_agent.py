@@ -8,12 +8,8 @@ import mlflow
 from os import path, makedirs
 from random import choice
 from AIDojoCoordinator.game_components import Action, Observation, AgentStatus
-
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
-
-# with the path fixed, we can import now
-from base_agent import BaseAgent
-from agent_utils import generate_valid_actions
+from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.agent_utils import generate_valid_actions
 
 class RandomAttackerAgent(BaseAgent):
 
