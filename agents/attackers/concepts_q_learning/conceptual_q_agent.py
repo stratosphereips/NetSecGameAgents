@@ -11,12 +11,8 @@ import mlflow
 import subprocess
 from os import path, makedirs
 from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus
-
-# This is used so the agent can see the environment and game component
-# with the path fixed, we can import now
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
-from base_agent import BaseAgent
-from agent_utils import generate_valid_actions, state_as_ordered_string, convert_concepts_to_actions, convert_ips_to_concepts
+from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.agent_utils import generate_valid_actions, state_as_ordered_string, convert_concepts_to_actions, convert_ips_to_concepts
 
 class QAgent(BaseAgent):
 

@@ -3,11 +3,6 @@ Collection of functions used by LLM agents.
 
 author: Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
 """
-import sys
-import os
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# with the path fixed, we can import now
 from AIDojoCoordinator.game_components import (
     ActionType,
     Action,

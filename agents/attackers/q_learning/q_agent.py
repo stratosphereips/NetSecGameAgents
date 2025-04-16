@@ -13,10 +13,8 @@ import subprocess
 from os import path, makedirs
 # with the path fixed, we can import now
 from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
-from base_agent import BaseAgent
-from agent_utils import generate_valid_actions, state_as_ordered_string
-
+from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.agent_utils import generate_valid_actions, state_as_ordered_string
 
 class QAgent(BaseAgent):
 

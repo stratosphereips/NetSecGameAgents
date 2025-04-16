@@ -1,7 +1,5 @@
 #
 # Author:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
-
-import sys
 import os
 import logging
 import ipaddress
@@ -13,13 +11,9 @@ from textual.containers import Vertical, VerticalScroll, Horizontal
 from textual.validation import Function
 from textual import on
 from textual.reactive import reactive
-from assistant import LLMAssistant
+from NetSecGameAgents.agents.attackers.interactive_tui.assistant import LLMAssistant
 from AIDojoCoordinator.game_components import Network, IP, ActionType, Action, GameState, Observation
-
-# This is used so the agent can see the BaseAgent
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from base_agent import BaseAgent
-
+from NetSecGameAgents.agents.base_agent import BaseAgent
 log_filename = os.path.dirname(os.path.abspath(__file__)) + "/interactive_tui_agent.log"
 logging.basicConfig(
     filename=log_filename,
