@@ -1,6 +1,5 @@
 #Author: Ondrej Lukas, ondrej.lukas@aic.cvut.cz
 # This agents just randomnly picks actions. No learning
-import sys
 import logging
 import os
 from random import choice
@@ -10,11 +9,8 @@ import numpy as np
 import time
 
 from AIDojoCoordinator.game_components import Action, Observation, ActionType
-# importing agent utils and base agent
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__) ))))
-from base_agent import BaseAgent
-from agent_utils import generate_valid_actions
-
+from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.agent_utils import generate_valid_actions
 
 class RandomBenignAgent(BaseAgent):
 
