@@ -5,13 +5,8 @@ directly in the agent class.
 
 author: Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 """
-import sys
-from os import path
 import ipaddress
 import numpy as np
-
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
-#with the path fixed, we can import now
 from AIDojoCoordinator.game_components import GameState, IP, Network, Data, Service
 
 def state_as_graph(state:GameState) -> tuple:

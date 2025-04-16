@@ -1,9 +1,6 @@
 # Author: Ondrej Lukas, ondrej.lukas@aic.cvut.cz
 # Basic agent class that is to be extended in each agent classes
-import sys
 import logging
-
-from os import path
 import socket
 import json
 from abc import ABC 
