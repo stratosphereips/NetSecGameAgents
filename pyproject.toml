@@ -35,3 +35,8 @@ q_learning = [
     "mlflow",
     "colorama",
 ]
+
+sarsa = [
+    "numpy",
+    "mlflow",
+]
