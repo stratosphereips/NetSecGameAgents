@@ -13,10 +13,6 @@ import sys
 import json
 from llm_action_planner import LLMActionPlanner
 from os import path
-
-mlflow.set_tracking_uri("http://147.32.83.60")
-mlflow.set_experiment("LLM_QA")
-
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
 sys.path.append(
@@ -28,8 +24,8 @@ from AIDojoCoordinator.game_components import AgentStatus
 sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
 from base_agent import BaseAgent
 
-mlflow.set_tracking_uri("http://147.32.83.60")
-mlflow.set_experiment("LLM_QA_netsecgame_dec2024")
+#mlflow.set_tracking_uri("http://147.32.83.60")
+#mlflow.set_experiment("LLM_QA_netsecgame_dec2024")
 
 
 if __name__ == "__main__":
@@ -85,30 +81,69 @@ if __name__ == "__main__":
         default="http://127.0.0.1:11434/v1/"
         )
     
+    parser.add_argument(
+        "--mlflow_tracking_uri",
+        type=str,
+        default="http://147.32.83.60",
+        help="MLflow tracking server URI (default: %(default)s)",
+    )
+
+    parser.add_argument(
+        "--mlflow_experiment",
+        type=str,
+        default="LLM_QA_netsecgame_dec2024",
+        help="MLflow experiment name (default: %(default)s)",
+    )
+
+    parser.add_argument(
+        "--mlflow_description",
+        type=str,
+        default=None,
+        help="Optional description for MLflow run (default is generated)",
+    )
+
+    parser.add_argument(
+        "--disable_mlflow",
+        action="store_true",
+        help="Disable mlflow logging",
+    )
+
+    
     args = parser.parse_args()
 
     logging.basicConfig(
-        filename="llm_qa.log",
+        filename="llm_react.log",
         filemode="w",
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
         level=logging.INFO,
     )
 
-    logger = logging.getLogger("llm_qa")
+    logger = logging.getLogger("llm_react")
     logger.info("Start")
     agent = BaseAgent(args.host, args.port, "Attacker")
-    experiment_description = "LLM_QA_netsecgame_dec2024." + f"Model: {args.llm}"
-    mlflow.start_run(description=experiment_description)
+    
+    if not args.disable_mlflow:
+        mlflow.set_tracking_uri(args.mlflow_tracking_uri)
+        mlflow.set_experiment(args.mlflow_experiment)
 
-    params = {
-        "model": args.llm,
-        "memory_len": args.memory_buffer,
-        "episodes": args.test_episodes,
-    }
-    mlflow.log_params(params)
+        # Use custom description if given, otherwise build a default
+        experiment_description = args.mlflow_description or (
+            f"{args.mlflow_experiment} | Model: {args.llm}"
+        )
 
-   
+        mlflow.start_run(description=experiment_description)
+
+        params = {
+            "model": args.llm,
+            "memory_len": args.memory_buffer,
+            "episodes": args.test_episodes,
+            "host": args.host,
+            "port": args.port,
+            "api_url": args.api_url,
+        }
+        mlflow.log_params(params)
+        mlflow.set_tag("agent_role", "Attacker")
 
     # Run multiple episodes to compute statistics
     wins = 0
@@ -268,20 +303,21 @@ if __name__ == "__main__":
                 returns += [total_reward]
                 num_steps += [steps]
 
-                # Episodic value
-                mlflow.log_metric("wins", wins, step=episode)
-                mlflow.log_metric("num_steps", steps, step=episode)
-                mlflow.log_metric("return", total_reward, step=episode)
+                if not args.disable_mlflow:
+                    # Episodic value
+                    mlflow.log_metric("wins", wins, step=episode)
+                    mlflow.log_metric("num_steps", steps, step=episode)
+                    mlflow.log_metric("return", total_reward, step=episode)
 
-                # Running metrics
-                mlflow.log_metric("wins", wins, step=episode)
-                mlflow.log_metric("reached_max_steps", reach_max_steps, step=episode)
-                mlflow.log_metric("detected", detected, step=episode)
+                    # Running metrics
+                    mlflow.log_metric("wins", wins, step=episode)
+                    mlflow.log_metric("reached_max_steps", reach_max_steps, step=episode)
+                    mlflow.log_metric("detected", detected, step=episode)
 
-                # Running averages
-                mlflow.log_metric("win_rate", (wins / (episode)) * 100, step=episode)
-                mlflow.log_metric("avg_returns", np.mean(returns), step=episode)
-                mlflow.log_metric("avg_steps", np.mean(num_steps), step=episode)
+                    # Running averages
+                    mlflow.log_metric("win_rate", (wins / (episode)) * 100, step=episode)
+                    mlflow.log_metric("avg_returns", np.mean(returns), step=episode)
+                    mlflow.log_metric("avg_steps", np.mean(num_steps), step=episode)
 
                 logger.info(
                     f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
@@ -341,7 +377,8 @@ if __name__ == "__main__":
         "test_std_repeated_steps": test_std_repeated_steps,
     }
 
-    mlflow.log_metrics(tensorboard_dict)
+    if not args.disable_mlflow:
+        mlflow.log_metrics(tensorboard_dict)
 
     text = f"""Final test after {args.test_episodes} episodes
         Wins={wins},
