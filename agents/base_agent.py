@@ -8,8 +8,6 @@ import socket
 import json
 from abc import ABC 
 
-# This is used so the agent can see the environment and game components
-sys.path.append(path.dirname(path.dirname( path.dirname( path.abspath(__file__) ) ) ))
 from AIDojoCoordinator.game_components import Action, GameState, Observation, ActionType, GameStatus, AgentInfo, ProtocolConfig
 
 class BaseAgent(ABC):
