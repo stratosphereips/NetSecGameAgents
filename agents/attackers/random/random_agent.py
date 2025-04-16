@@ -1,6 +1,5 @@
 #Author: Ondrej Lukas, ondrej.lukas@aic.cvut.cz
 # This agents just randomnly picks actions. No learning
-import sys
 import logging
 import argparse
 import numpy as np
