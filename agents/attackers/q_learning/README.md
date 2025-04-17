@@ -5,7 +5,7 @@ This agent implements the Q learning algorithm
 To install the random agent, follow the installation guide in the NetSecGameAgents with `[q_learning]` option:
 
 ```
-pip install -e .[sarsa]
+pip install -e .[q_learning]
 ```
 It is recommended to install the agent in a virtual environment.
 
