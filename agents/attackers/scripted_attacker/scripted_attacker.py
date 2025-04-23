@@ -172,4 +172,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     log_filename = path.dirname(path.abspath(__file__)) + '/base_agent.log'
     logging.basicConfig(filename="scripted_attacker.log", filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s',  datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG)
-    winning_strat_CYST(args.host, args.port, args.delay)
+    #winning_strat_CYST(args.host, args.port, args.delay)
+    winning_strat(args.host, args.port, args.delay)
