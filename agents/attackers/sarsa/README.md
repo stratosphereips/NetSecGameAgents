@@ -2,7 +2,7 @@
 This agent implements the State–action–reward–state–action (SARSA) algorithm
 
 ## Installation
-To install the random agent, follow the installation guide in the NetSecGameAgents with `[sarsa]` option:
+To install the SARSA agent, follow the installation guide in the NetSecGameAgents with `[sarsa]` option:
 
 ```
 pip install -e .[sarsa]
