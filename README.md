@@ -117,5 +117,12 @@ If you want to export the local mlflow to a remote mlflow you can use our util
 python utils/export_import_mlflow_exp.py --experiment_id 783457873620024898 --run_id 5f2e4a205b7745259a4ddedc12d71a74 --remote_mlflow_url http://127.0.0.1:8000 --mlruns_dir ./mlruns
 ```
 
+## Install
+
+- create new env
+- install numpy
+- install coor `pip install -e ..`
+- optionally install mlflow
+
 ## About us
 This code was developed at the [Stratosphere Laboratory at the Czech Technical University in Prague](https://www.stratosphereips.org/) as part of the [AIDojo Project](https://www.stratosphereips.org/ai-dojo).
