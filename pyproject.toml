@@ -61,4 +61,5 @@ tui = [
     "asyncio",
     "ipaddress",
     "textual",
+    textual[dev],
 ]
