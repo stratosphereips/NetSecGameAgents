@@ -663,7 +663,7 @@ if __name__ == "__main__":
         "--role", help="Role of the agent", default="Attacker", choices=["Attacker"]
     )
     parser.add_argument(
-        "--mode", type=str, choices=["guided", "normal"], default="normal"
+        "--mode", type=str, choices=["guided", "normal"], default="guided"
     )
     parser.add_argument(
         "--llm",
