@@ -72,7 +72,7 @@ class StochasticRandomDefenderAgent(BaseAgent):
     
     def select_action(self, observation:Observation)->Action:
         """ Select an action based on the allowed actions and the current state """
-        valid_actions = generate_valid_actions(observation.state)
+        valid_actions = generate_valid_actions(observation.state, include_blocks=True)
 
         # Filter actions based on the allowed action types
         allowed_actions = filter(lambda action: action.type in self._allowed_actions, valid_actions)
