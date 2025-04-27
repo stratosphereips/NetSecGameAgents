@@ -153,15 +153,15 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
 
             # Check the apm (actions per minute)
-                if self._apm_limit:
-                    elapsed_time = time.time() - start_time
-                    remaining_time = self.inter_action_interval - elapsed_time
-                    if remaining_time > 0:
-                        # We still have some time in this interval, but we can not
-                        # take more actions. So wait until the next interval starts
-                        self._logger.debug(f"Waiting for {remaining_time}s before next action.")
-                        time.sleep(remaining_time)
-                    start_time = time.time()
+            if self._apm_limit:
+                elapsed_time = time.time() - start_time
+                remaining_time = self.inter_action_interval - elapsed_time
+                if remaining_time > 0:
+                    # We still have some time in this interval, but we can not
+                    # take more actions. So wait until the next interval starts
+                    self._logger.debug(f"Waiting for {remaining_time}s before next action.")
+                    time.sleep(remaining_time)
+                start_time = time.time()
 
         if args.store_actions:
             actions_logger.info(f"\t State:{observation.state}")
