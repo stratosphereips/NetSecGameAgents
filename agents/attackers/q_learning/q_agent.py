@@ -9,6 +9,7 @@ import argparse
 import logging
 import mlflow
 import subprocess
+import time
 
 from os import path, makedirs
 # with the path fixed, we can import now
@@ -18,7 +19,7 @@ from NetSecGameAgents.agents.agent_utils import generate_valid_actions, state_as
 
 class QAgent(BaseAgent):
 
-    def __init__(self, host, port, role="Attacker", alpha=0.1, gamma=0.6, epsilon_start=0.9, epsilon_end=0.1, epsilon_max_episodes=5000) -> None:
+    def __init__(self, host, port, role="Attacker", alpha=0.1, gamma=0.6, epsilon_start=0.9, epsilon_end=0.1, epsilon_max_episodes=5000, apm_limit:int=None) -> None:
         super().__init__(host, port, role)
         self.alpha = alpha
         self.gamma = gamma
@@ -28,6 +29,11 @@ class QAgent(BaseAgent):
         self.epsilon_end = epsilon_end
         self.epsilon_max_episodes = epsilon_max_episodes
         self.current_epsilon = epsilon_start
+        self._apm_limit = apm_limit
+        if self._apm_limit:
+            self.inter_action_interval = 60/apm_limit
+        else:
+            self.inter_action_interval = 0
 
     def store_q_table(self, filename):
         with open(filename, "wb") as f:
@@ -124,6 +130,7 @@ class QAgent(BaseAgent):
         while not observation.end:
             # Store steps so far
             num_steps += 1
+            start_time = time.time()
             # Get next action. If we are not training, selection is different, so pass it as argument
             action, state_id = self.select_action(observation, testing)
             if args.store_actions:
@@ -139,6 +146,18 @@ class QAgent(BaseAgent):
             if not testing:
                 # If we are training update the Q-table
                 self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
+
+            # Check the apm (actions per minute)
+                if self._apm_limit:
+                    elapsed_time = time.time() - start_time
+                    remaining_time = self.inter_action_interval - elapsed_time
+                    if remaining_time > 0:
+                        # We still have some time in this interval, but we can not
+                        # take more actions. So wait until the next interval starts
+                        self._logger.debug(f"Waiting for {remaining_time}s before next action.")
+                        time.sleep(remaining_time)
+                    start_time = time.time()
+
         if args.store_actions:
             actions_logger.info(f"\t State:{observation.state}")
             actions_logger.info(f"\t End:{observation.end}")
@@ -171,6 +190,7 @@ if __name__ == '__main__':
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=2000, type=int)
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
+    parser.add_argument("--apm", help="Actions per minute", default=10000, type=int, required=False)
     args = parser.parse_args()
 
     if not path.exists(args.logdir):
@@ -178,7 +198,7 @@ if __name__ == '__main__':
     logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
     # Create agent
-    agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes)
+    agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes, apm_limit=args.apm)
 
     # Log for Actions. After agent creation
     actions_logger = logging.getLogger('QAgentActions')
@@ -405,7 +425,7 @@ if __name__ == '__main__':
 
                                 # store model. Use episode (training counter) and not test_episode (test counter)
                                 if episode % args.store_models_every == 0 and episode != 0:
-                                    agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')
+                                    agent.store_q_table(f'/data/AIDojo/Models/q_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')
 
                             text = f'''Tested for {test_episode} episodes after {episode} training episode.
                                 Wins={test_wins},
