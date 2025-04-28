@@ -64,4 +64,7 @@ Environments](https://arxiv.org/pdf/2308.12086)
 ### Slips defender
 
 ## Benign
+The purpose of the benign agents in the AI Dojo is to create realistic environment for the simulation. In reality, there is a majority of normal users and their activity in which the attackers might hide. Thus, to properly train and evaluate the defenders' capabilities, this normal, bening activity has to be included.
+
 ### Random benign agent
+Random benign agent is a limited version of the attacker. It can only perform a subset of action (Finding hosts and data and moving data). The agent has a APM limit which can be modified when starting.
