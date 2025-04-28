@@ -31,8 +31,7 @@ sys.path.append(
 )
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 
-from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, IP, Network
-from NetSecGameAgents.agents.base_agent import BaseAgent
+from AIDojoCoordinator.game_components import ActionType, Observation
 from NetSecGameAgents.agents.llm_utils import create_action_from_response, create_status_from_state
 
 class ConfigLoader:
@@ -165,16 +164,16 @@ class LLMActionPlanner:
         self.states.append(observation.state.as_json())
         
         status_prompt = create_status_from_state(observation.state)
-        Q1 = self.config['questions'][0]['text']
-        Q4 = self.config['questions'][3]['text']
-        COT_PROMPT = self.config['prompts']['COT_PROMPT']
+        q1 = self.config['questions'][0]['text']
+        q4 = self.config['questions'][3]['text']
+        cot_prompt = self.config['prompts']['COT_PROMPT']
         #print(memory_buf)
         memory_prompt = self.create_mem_prompt(memory_buf)
         messages = [
             {"role": "user", "content": self.instructions},
             {"role": "user", "content": status_prompt},
             {"role": "user", "content": memory_prompt},
-            {"role": "user", "content": Q1},
+            {"role": "user", "content": q1},
         ]
         #print(messages)
         self.logger.info(f"Text sent to the LLM: {messages}")
@@ -186,10 +185,10 @@ class LLMActionPlanner:
         messages = [
             {"role": "user", "content": self.instructions},
             {"role": "user", "content": status_prompt},
-            {"role": "user", "content": COT_PROMPT},
+            {"role": "user", "content": cot_prompt},
             {"role": "user", "content": response},
             {"role": "user", "content": memory_prompt},
-            {"role": "user", "content": Q4},
+            {"role": "user", "content": q4},
         ]
         self.prompts.append(messages)
         
