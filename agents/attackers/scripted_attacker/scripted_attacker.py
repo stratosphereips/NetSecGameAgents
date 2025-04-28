@@ -96,7 +96,7 @@ def winning_strat_CYST(host, port, delay=1):
     print(obs_reset)
 
 def winning_strat(host, port, delay=10):
-    agent1 = BaseAgent(host, port, role="Attacker")
+    agent1 = BaseAgent(host, port, role="Defender")
     obs1 = agent1.register()
     time.sleep(delay)
     print(obs1)

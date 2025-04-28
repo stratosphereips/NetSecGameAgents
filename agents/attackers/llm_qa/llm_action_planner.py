@@ -31,8 +31,7 @@ sys.path.append(
 )
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 
-from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, IP, Network
-from NetSecGameAgents.agents.base_agent import BaseAgent
+from AIDojoCoordinator.game_components import ActionType, Observation
 from NetSecGameAgents.agents.llm_utils import create_action_from_response, create_status_from_state
 
 class ConfigLoader:
