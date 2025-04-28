@@ -71,9 +71,9 @@ On the other hand, if an action type is associated with an episode-wide repetiti
 
 For any other actions not explicitly listed in the threshold dictionaries, detection is automatically disabled — regardless of their frequency or behavior. Additionally, if there are not enough actions yet to fill the time window (i.e., if the episode is still short), the method will simply not attempt detection and return False.
 
-
 ### SLIPS defender
-SLIPS defender uses the 
+SLIPS defender is based on open-source ML-drived IDS called [Stratoshpere Linux IPS](https://github.com/stratosphereips/StratosphereLinuxIPS). It is using wide range of modules to detect suspicious behavior in the network traffic. SLIPS agent is directly connected to CYST simulation engine as it operates on Netflows, not the high-level GameState representation.
+
 ## Benign
 The purpose of the benign agents in the AI Dojo is to create realistic environment for the simulation. In reality, there is a majority of normal users and their activity in which the attackers might hide. Thus, to properly train and evaluate the defenders' capabilities, this normal, bening activity has to be included.
 
