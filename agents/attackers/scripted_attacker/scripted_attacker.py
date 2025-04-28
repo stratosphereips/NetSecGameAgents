@@ -2,10 +2,10 @@ import argparse
 import logging
 import time
 from os import path
-from AIDojoCoordinator.game_components import Action, ActionType, IP, Network, Service, Data
+from AIDojoCoordinator.game_components import Action, ActionType, IP, Network, Service
 from NetSecGameAgents.agents.base_agent import BaseAgent
 
-def winning_strat_CYST(host, port, delay=1):
+def winning_strat_cyst(host, port, delay=1):
     agent1 = BaseAgent(host, port, role="Attacker")
     obs1 = agent1.register()
     time.sleep(delay)
@@ -96,7 +96,7 @@ def winning_strat_CYST(host, port, delay=1):
     print(obs_reset)
 
 def winning_strat(host, port, delay=10):
-    agent1 = BaseAgent(host, port, role="Defender")
+    agent1 = BaseAgent(host, port, role="Attacker")
     obs1 = agent1.register()
     time.sleep(delay)
     print(obs1)

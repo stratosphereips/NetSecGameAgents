@@ -5,18 +5,13 @@ Authors:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
 """
 import logging
 import argparse
-import logging
 import numpy as np
 import pandas as pd
 import mlflow
 from llm_action_planner import LLMActionPlanner
-from os import path
 
 mlflow.set_tracking_uri("http://147.32.83.60")
 mlflow.set_experiment("LLM_QA")
-
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
-
 from AIDojoCoordinator.game_components import AgentStatus
 from NetSecGameAgents.agents.base_agent import BaseAgent
 
