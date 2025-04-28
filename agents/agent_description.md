@@ -13,10 +13,9 @@ The autocompletion provides list of available *valid* actions. The LLM assistanc
 ### Q-learning agent
 A **Q-learning agent** learns to act in an environment by **estimating the quality (Q-value)** of taking a certain action in a certain state.
 
-- It keeps a **Q-table**: a lookup table where each entry \( Q(s, a) \) stores the agent's estimate of the **expected cumulative reward** from state \( s \) after taking action \( a \).
+- It keeps a **Q-table**: a lookup table where each entry `Q(s, a)` stores the agent's estimate of the **expected cumulative reward** from state `s` after taking action `a`.
 - The agent **updates** the Q-values after each interaction with the environment, using the formula:
 
-Q(s, a) \leftarrow Q(s, a) + \alpha \left( r + \gamma \max_{a'} Q(s', a') - Q(s, a) \right)
 `Q(s, a) ← Q(s, a) + α [ r + γ max_a' Q(s', a') - Q(s, a) ]`
 
 where:
@@ -35,7 +34,7 @@ Detailed description of this agent can be found in [Catch Me If You Can: Improvi
  
 A **SARSA agent** (State-Action-Reward-State-Action) learns to act in an environment by **updating the value (Q-value)** of a state-action pair based on the action it *actually* takes, not the best possible action.
 
-- It keeps a **Q-table**: a lookup table where each entry \( Q(s, a) \) stores the agent's estimate of the **expected cumulative reward** from state \( s \) after taking action \( a \).
+- It keeps a **Q-table**: a lookup table where each entry `Q(s, a)` stores the agent's estimate of the **expected cumulative reward** from state `s` after taking action `a`.
 - The agent **updates** the Q-values after each interaction with the environment, using the formula:
 
 `Q(s, a) ← Q(s, a) + α [ r + γ Q(s', a') - Q(s, a) ]`
