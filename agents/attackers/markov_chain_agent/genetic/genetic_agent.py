@@ -11,34 +11,28 @@ while project_root.name and not (project_root / 'env').exists():
 if not project_root.name:
     raise Exception("Could not find project root (directory containing 'env/')")
 
-# Set up basePath as before
-basePath = str(project_root)
+# Set up base_path as before
+base_path = str(project_root)
 
 # Add parent directory to sys.path (where base_agent.py and agent_utils.py are)
 parent_dir = current_file.parent.parent
 sys.path.append(str(parent_dir))
 
 # Add project root to sys.path
-sys.path.append(basePath)
+sys.path.append(base_path)
 
-import logging
 import os
 import argparse
 import numpy as np
 import math
-import yaml
-import pandas as pd 
-import copy
 import json
 import csv
-import time
 import random
 from random import choice
 from env.worlds.network_security_game import NetworkSecurityEnvironment
-from env.game_components import Action, Observation, GameState, ActionType
+from env.game_components import Action, Observation, ActionType
 from NetSecGameAgents.agents.base_agent import BaseAgent
 from NetSecGameAgents.agents.agent_utils import generate_valid_actions
-from datetime import datetime
 
 
 class GeneticAgent(BaseAgent):
@@ -51,6 +45,7 @@ class GeneticAgent(BaseAgent):
     def append_to_parsed_population(self, individual):
         self.parsed_population.append(individual)
 
+    @staticmethod 
     def parse_action(action):
         return {
             "type": action.action_type.name,
@@ -98,7 +93,7 @@ class GeneticAgent(BaseAgent):
         The main function for the gameplay. Handles agent registration and the main interaction loop.
         """
 
-        DEFAULT_PATH_RESULTS = "./results"
+        default_path_results = "./results"
 
         def choose_parents_tournament(population, goal, fitness_func, num_per_tournament=2, parents_should_differ=True):
             """ Tournament selection """
@@ -134,7 +129,7 @@ class GeneticAgent(BaseAgent):
             return new_individual
 
 
-        def crossover_operator_Npoints(parent1, parent2, num_points, cross_prob):
+        def crossover_operator_n_points(parent1, parent2, num_points, cross_prob):
             if random.random() < cross_prob:
                 len_ind = len(parent1)
                 cross_points = np.sort(np.random.choice(len_ind, num_points, replace=False))
@@ -284,34 +279,34 @@ class GeneticAgent(BaseAgent):
 
         def get_all_actions_by_type(all_actions):
             all_actions_by_type = {}
-            ScanNetwork_list=[]
-            FindServices_list=[]
-            ExploitService_list=[]
-            FindData_list=[]
-            ExfiltrateData_list=[]
+            scan_network_list=[]
+            find_services_list=[]
+            exploit_service_list=[]
+            find_data_list=[]
+            exfiltrate_data_list=[]
             for i in range(len(all_actions)):
                 if ActionType.ScanNetwork==all_actions[i].type:
-                    ScanNetwork_list.append(all_actions[i])
+                    scan_network_list.append(all_actions[i])
                 elif ActionType.FindServices==all_actions[i].type:
-                    FindServices_list.append(all_actions[i])
+                    find_services_list.append(all_actions[i])
                 elif ActionType.ExploitService==all_actions[i].type:
-                    ExploitService_list.append(all_actions[i])
+                    exploit_service_list.append(all_actions[i])
                 elif ActionType.FindData==all_actions[i].type:
-                    FindData_list.append(all_actions[i])
+                    find_data_list.append(all_actions[i])
                 elif ActionType.ExfiltrateData==all_actions[i].type:
-                    ExfiltrateData_list.append(all_actions[i])
+                    exfiltrate_data_list.append(all_actions[i])
                     #print("Action: ", all_actions[i])
-            all_actions_by_type["ActionType.ScanNetwork"] = ScanNetwork_list
-            all_actions_by_type["ActionType.FindServices"] = FindServices_list
-            all_actions_by_type["ActionType.ExploitService"] = ExploitService_list
-            all_actions_by_type["ActionType.FindData"] = FindData_list
-            all_actions_by_type["ActionType.ExfiltrateData"] = ExfiltrateData_list
+            all_actions_by_type["ActionType.ScanNetwork"] = scan_network_list
+            all_actions_by_type["ActionType.FindServices"] = find_services_list
+            all_actions_by_type["ActionType.ExploitService"] = exploit_service_list
+            all_actions_by_type["ActionType.FindData"] = find_data_list
+            all_actions_by_type["ActionType.ExfiltrateData"] = exfiltrate_data_list
             return all_actions_by_type
         
         
         
 
-        env = NetworkSecurityEnvironment(path.join(basePath, 'env', 'netsecenv_conf.yaml'))
+        env = NetworkSecurityEnvironment(path.join(base_path, 'env', 'netsecenv_conf.yaml'))
         all_actions = env.get_all_actions()
         max_number_steps = env._max_steps
 
@@ -333,8 +328,8 @@ class GeneticAgent(BaseAgent):
         num_per_tournament = config["num_per_tournament"]
 
         # Crossover parameters
-        Npoints = config["n_points"]
-        if Npoints:
+        n_points = config["n_points"]
+        if n_points:
             num_points = config["num_points"]
         else:
             p_value = config["p_value"]
@@ -350,7 +345,7 @@ class GeneticAgent(BaseAgent):
         initialization_with_random_agent = config["initialization_with_random_agent"]
         reward_threshold = config["reward_threshold"]
 
-        PATH_RESULTS = DEFAULT_PATH_RESULTS
+        path_results = default_path_results
 
 
 
@@ -399,39 +394,41 @@ class GeneticAgent(BaseAgent):
 
                 #print(best_score,metrics_mean,metrics_std)
                 # save best, mean and std scores
-                with open(path.join(PATH_RESULTS, 'best_scores.csv'), 'a', newline='') as partial_file:
+                with open(path.join(path_results, 'best_scores.csv'), 'a', newline='') as partial_file:
                     writer_csv = csv.writer(partial_file)
                     writer_csv.writerow(best_score_complete)
-                with open(path.join(PATH_RESULTS, 'metrics_mean.csv'), 'a', newline='') as partial_file:
+                with open(path.join(path_results, 'metrics_mean.csv'), 'a', newline='') as partial_file:
                     writer_csv = csv.writer(partial_file)
                     writer_csv.writerow(metrics_mean)
-                with open(path.join(PATH_RESULTS, 'metrics_std.csv'), 'a', newline='') as partial_file:
+                with open(path.join(path_results, 'metrics_std.csv'), 'a', newline='') as partial_file:
                     writer_csv = csv.writer(partial_file)
                     writer_csv.writerow(metrics_std)
                 for j in range(int(population_size/2)):
-                    if j == 0 or select_parents_with_replacement:
-                        pass
-                    else:
-                        popu_crossover.remove(parent1)
-                        popu_crossover.remove(parent2)
-                    # parents selection
-
                     parent1, parent2 = choose_parents_tournament(popu_crossover, None, fitness_eval_v02, num_per_tournament, True)
-                    #print("parets_selection")
-                    # cross-over
-                    if Npoints:
-                        child1, child2 = crossover_operator_Npoints(parent1, parent2, num_points, cross_prob)
+
+                    if not select_parents_with_replacement:
+                        try:
+                            popu_crossover.remove(parent1)
+                        except ValueError:
+                            pass
+                        try:
+                            if parent1 is not parent2:
+                                popu_crossover.remove(parent2)
+                        except ValueError:
+                            pass
+
+                    if n_points:
+                        child1, child2 = crossover_operator_n_points(parent1, parent2, num_points, cross_prob)
                     else:
                         child1, child2 = crossover_operator_uniform(parent1, parent2, p_value, cross_prob)
-                    #print("crossover")
-                    # mutation
+
                     if parameter_mutation:
                         child1 = mutation_operator_by_parameter(child1, all_actions_by_type, mutation_prob)
                         child2 = mutation_operator_by_parameter(child2, all_actions_by_type, mutation_prob)
                     else:
                         child1 = mutation_operator_by_action(child1, all_actions, mutation_prob)
                         child2 = mutation_operator_by_action(child2, all_actions, mutation_prob)
-                    #print("mutation")
+
                     offspring.append(child1)
                     offspring.append(child2)
 
@@ -456,13 +453,13 @@ class GeneticAgent(BaseAgent):
         metrics_mean = np.mean(last_generation_scores, axis=0)
         metrics_std = np.std(last_generation_scores, axis=0)
         # save best, mean and std scores from last generation
-        with open(path.join(PATH_RESULTS, 'best_scores.csv'), 'a', newline='') as partial_file:
+        with open(path.join(path_results, 'best_scores.csv'), 'a', newline='') as partial_file:
             writer_csv = csv.writer(partial_file)
             writer_csv.writerow(best_score_complete)
-        with open(path.join(PATH_RESULTS, 'metrics_mean.csv'), 'a', newline='') as partial_file:
+        with open(path.join(path_results, 'metrics_mean.csv'), 'a', newline='') as partial_file:
             writer_csv = csv.writer(partial_file)
             writer_csv.writerow(metrics_mean)
-        with open(path.join(PATH_RESULTS, 'metrics_std.csv'), 'a', newline='') as partial_file:
+        with open(path.join(path_results, 'metrics_std.csv'), 'a', newline='') as partial_file:
             writer_csv = csv.writer(partial_file)
             writer_csv.writerow(metrics_std)
 
@@ -506,7 +503,7 @@ class GeneticAgent(BaseAgent):
                 json.dump(outer_array, f, indent=4)
 
         # Usage
-        save_population_json(agent, os.path.join(PATH_RESULTS, 'parsed_population.json'))
+        save_population_json(agent, os.path.join(path_results, 'parsed_population.json'))
 
 if __name__ == '__main__':
 
