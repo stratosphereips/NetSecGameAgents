@@ -6,7 +6,6 @@ import numpy as np
 import mlflow  # used for evaluation logging (if needed)
 import random
 import json
-from datetime import datetime
 from os import path, makedirs
 
 
@@ -17,10 +16,9 @@ sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))
 # with the path fixed, we can import now
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions
-from datetime import datetime
 
 
-class GeneticAgent(BaseAgent):
+class MarkovChainAgent(BaseAgent):
     def __init__(self, host, port, role, episodes) -> None:
         super().__init__(host, port, role)
         np.set_printoptions(suppress=True, precision=6)
@@ -131,11 +129,11 @@ class GeneticAgent(BaseAgent):
             list(valid_exfiltrate_data)
         ]
 
-    def select_action_markov_chain_agent(self, observation: Observation, lastActionType) -> Action:
+    def select_action_markov_chain_agent(self, observation: Observation, last_action_type) -> Action:
         valid_actions = self.generate_valid_actions_separated(observation.state)
 
         # For the initial step, use the key "Initial".
-        key = "Initial" if lastActionType is None else lastActionType
+        key = "Initial" if last_action_type is None else last_action_type
 
         if key not in self.transitions:
             raise ValueError(f"Transition probabilities for key {key} not found.")
@@ -207,15 +205,15 @@ class GeneticAgent(BaseAgent):
             episodic_return = 0
             num_steps = 0
             current_solution = []
-            lastActionType = None
+            last_action_type = None
 
             observation = self.request_game_reset()
             current_state = observation.state
 
             while observation and not observation.end:
                 num_steps += 1
-                action = self.select_action_markov_chain_agent(observation, lastActionType)
-                lastActionType = action.action_type  # Using ActionType as the key for transitions
+                action = self.select_action_markov_chain_agent(observation, last_action_type)
+                last_action_type = action.action_type  # Using ActionType as the key for transitions
 
                 previous_state = current_state
                 observation = self.make_step(action)
@@ -314,7 +312,7 @@ if __name__ == '__main__':
         level=logging.INFO
     )
 
-    agent = GeneticAgent(args.host, args.port, "Attacker", args.episodes)
+    agent = MarkovChainAgent(args.host, args.port, "Attacker", args.episodes)
     observation = agent.register()
 
     if not args.evaluate:
