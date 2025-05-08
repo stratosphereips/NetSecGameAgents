@@ -232,7 +232,7 @@ if __name__ == '__main__':
         # Evaluate the agent performance
 
         # Mlflow experiment name        
-        experiment_name = "Testing of Q-learning Agent"
+        experiment_name = "Testing of Q-learning Agent against defender agent"
         mlflow.set_experiment(experiment_name)
 
 
@@ -284,7 +284,7 @@ if __name__ == '__main__':
             mlflow.set_tag("NetSecEnv commit", netsecenv_git_result)
             mlflow.set_tag("Agents commit", agents_git_result)
             # Log the env conf
-            #mlflow.log_artifact(args.env_conf)
+            mlflow.log_artifact(args.env_conf)
             agent._logger.info(f'Epsilon Start: {agent.epsilon_start}')
             agent._logger.info(f'Epsilon End: {agent.epsilon_end}')
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
@@ -322,10 +322,10 @@ if __name__ == '__main__':
 
                     eval_win_rate = (wins/episode) * 100
                     eval_detection_rate = (detected/episode) * 100
-                    eval_average_returns = np.mean(num_detected_returns+num_win_returns+num_max_steps_returns)
-                    eval_std_returns = np.std(num_detected_returns+num_win_returns+num_max_steps_returns)
-                    eval_average_episode_steps = np.mean(num_win_steps+num_detected_steps+num_max_steps_steps)
-                    eval_std_episode_steps = np.std(num_win_steps+num_detected_steps+num_max_steps_steps)
+                    eval_average_returns = np.mean(num_detected_returns + num_win_returns + num_max_steps_returns)
+                    eval_std_returns = np.std(num_detected_returns + num_win_returns + num_max_steps_returns)
+                    eval_average_episode_steps = np.mean(num_win_steps + num_detected_steps + num_max_steps_steps)
+                    eval_std_episode_steps = np.std(num_win_steps + num_detected_steps + num_max_steps_steps)
                     eval_average_win_steps = np.mean(num_win_steps)
                     eval_std_win_steps = np.std(num_win_steps)
                     eval_average_detected_steps = np.mean(num_detected_steps)
