@@ -5,3 +5,6 @@ The probabilistic defender starts with all the hosts controlled, all the hosts k
 There are many things to try in the future, such as:
 - Also block in the IPs that are not attacked, to stop future attacks.
 - Block in the src host that is doing the action too.
+
+## False Positives
+If any action done by any benign agent is blocked by the FW of the game, then it is counted as a false positive and the final reward of the defender is decreased a fixed amount per false positive.
