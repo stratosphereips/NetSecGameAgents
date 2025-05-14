@@ -9,3 +9,6 @@ The stochastic random defender is an agent that tries to defend the network by r
 4. Aidojo adds every action taken by each agent to a special file calleed 'actions.txt' with the description being `{}`
 5. However, since that is the beginning of the game, the data does not have content from action logs.
 6. Therefore the agent can decide to `find` the data in any host any time it needs and then it will `update` its view on that data.
+
+## False Positives
+If any action done by any benign agent is blocked by the FW of the game, then it is counted as a false positive and the final reward of the defender is decreased a fixed amount per false positive.
