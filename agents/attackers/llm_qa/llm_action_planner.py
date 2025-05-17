@@ -24,6 +24,7 @@ from dotenv import dotenv_values
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt
 import jinja2
+import re
 
 # Add parent directories dynamically
 sys.path.append(
@@ -61,9 +62,10 @@ ACTION_MAPPER = {
 
 
 class LLMActionPlanner:
-    def __init__(self, model_name: str, goal: str, memory_len: int = 10, api_url=None, config: dict = None):
+    def __init__(self, model_name: str, goal: str, memory_len: int = 10, api_url=None, config: dict = None, use_reasoning: bool = False):
         self.model = model_name
         self.config = config or ConfigLoader.load_config()
+        self.use_reasoning = use_reasoning
 
         if "gpt" in self.model:
             env_config = dotenv_values(".env")
@@ -158,8 +160,12 @@ class LLMActionPlanner:
         
         return valid, response_dict, action
 
-    
-    
+    def remove_reasoning(self, text):
+        match = re.search(r'</think>(.*)', text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return text
+
     def get_action_from_obs_react(self, observation: Observation, memory_buf: list) -> tuple:
         self.states.append(observation.state.as_json())
         
@@ -175,9 +181,12 @@ class LLMActionPlanner:
             {"role": "user", "content": memory_prompt},
             {"role": "user", "content": q1},
         ]
-        #print(messages)
         self.logger.info(f"Text sent to the LLM: {messages}")
+        #In case of using reasoning models, consider increasing max_tokens
         response = self.openai_query(messages, max_tokens=1024)
+        # Optional: parse response if reasoning is expected and outputs <think> ... </think>
+        if self.use_reasoning:
+            response = self.remove_reasoning(response)
         self.logger.info(f"(Stage 1) Response from LLM: {response}")
 
         #memory_prompt = self.create_mem_prompt(memory_buf)
@@ -193,6 +202,8 @@ class LLMActionPlanner:
         self.prompts.append(messages)
         
         response = self.openai_query(messages, max_tokens=80, fmt={"type": "json_object"})
+        if self.use_reasoning:
+            response = self.remove_reasoning(response)
         self.responses.append(response)
         self.logger.info(f"(Stage 2) Response from LLM: {response}")
         print(f"(Stage 2) Response from LLM: {response}")
