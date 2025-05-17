@@ -77,7 +77,13 @@ if __name__ == "__main__":
         type=str, 
         default="http://127.0.0.1:11434/v1/"
         )
-    
+
+    parser.add_argument(
+        "--use_reasoning",
+        action="store_true",
+        help="Required for models that output reasoning using <think>...</think>."
+    )
+
     parser.add_argument(
         "--mlflow_tracking_uri",
         type=str,
@@ -188,7 +194,8 @@ if __name__ == "__main__":
             model_name=args.llm,
             goal=observation.info["goal_description"],
             memory_len=args.memory_buffer,
-            api_url=args.api_url
+            api_url=args.api_url,
+            use_reasoning=args.use_reasoning
         )
         print(observation)
         for i in range(num_iterations):
