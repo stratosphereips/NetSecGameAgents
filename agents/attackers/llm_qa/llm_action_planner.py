@@ -24,7 +24,10 @@ from dotenv import dotenv_values
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt
 import jinja2
+
 import re
+from collections import Counter
+import validate_responses
 
 # Add parent directories dynamically
 sys.path.append(
@@ -200,11 +203,28 @@ class LLMActionPlanner:
             {"role": "user", "content": q4},
         ]
         self.prompts.append(messages)
-        
         response = self.openai_query(messages, max_tokens=80, fmt={"type": "json_object"})
+        
+        validated, error_msg = validate_responses.validate_agent_response(response)
+        if validated is None:
+            self.logger.info(f"Invalid response format: {response} - Error: {error_msg}")
+            try:
+                parsed_response = json.loads(response)
+            except json.JSONDecodeError:
+                parsed_response = response
+
+            response = json.dumps({
+                "action": "InvalidResponse",
+                "parameters": {
+                    "error": error_msg,
+                    "original": parsed_response
+                }
+            }, indent=2)
+
         if self.use_reasoning:
             response = self.remove_reasoning(response)
+
         self.responses.append(response)
         self.logger.info(f"(Stage 2) Response from LLM: {response}")
         print(f"(Stage 2) Response from LLM: {response}")
-        return self.parse_response(response, observation.state) 
+        return self.parse_response(response, observation.state)
