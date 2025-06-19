@@ -279,6 +279,9 @@ if __name__ == "__main__":
                                 "badly formated."
                 )
                 print("badly formated")
+            if len(memories) > args.memory_buffer:
+                # If the memory is full, remove the oldest memory
+                memories.pop(0)
             # logger.info(f"Iteration: {i} JSON: {is_json_ok} Valid: {is_valid} Good: {good_action}")
             logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
             
