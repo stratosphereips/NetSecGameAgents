@@ -85,6 +85,18 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--use_reflection",
+        action="store_true",
+        help="To use reflection prompting technique in the LLM calls."
+    )
+
+    parser.add_argument(
+        "--use_self_consistency",
+        action="store_true",
+        help="To use self-consistency prompting technique in the LLM calls."
+    )
+
+    parser.add_argument(
         "--mlflow_tracking_uri",
         type=str,
         default="http://147.32.83.60",
@@ -195,7 +207,9 @@ if __name__ == "__main__":
             goal=observation.info["goal_description"],
             memory_len=args.memory_buffer,
             api_url=args.api_url,
-            use_reasoning=args.use_reasoning
+            use_reasoning=args.use_reasoning,
+            use_reflection=args.use_reflection,
+            use_self_consistency=args.use_self_consistency
         )
         print(observation)
         for i in range(num_iterations):
@@ -265,7 +279,6 @@ if __name__ == "__main__":
                                 "badly formated."
                 )
                 print("badly formated")
-            
             # logger.info(f"Iteration: {i} JSON: {is_json_ok} Valid: {is_valid} Good: {good_action}")
             logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
             
@@ -340,12 +353,10 @@ if __name__ == "__main__":
             "end_reason": str(reason["end_reason"])
         }
         prompt_table.append(episode_prompt_table)
-        
         #episode_prompt_table = pd.DataFrame(episode_prompt_table)
         #prompt_table = pd.concat([prompt_table,episode_prompt_table],axis=0,ignore_index=True)
         
     #prompt_table.to_csv("states_prompts_responses_new.csv", index=False)
-    
     # Save the JSON file
     with open("episode_data.json", "w") as json_file:
         json.dump(prompt_table, json_file, indent=4)
