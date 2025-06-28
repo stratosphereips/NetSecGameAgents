@@ -25,6 +25,10 @@ from openai import OpenAI
 from tenacity import retry, stop_after_attempt
 import jinja2
 
+import re
+from collections import Counter
+import validate_responses
+
 # Add parent directories dynamically
 sys.path.append(
     path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__))))))
@@ -33,6 +37,7 @@ sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__))))
 
 from AIDojoCoordinator.game_components import ActionType, Observation
 from NetSecGameAgents.agents.llm_utils import create_action_from_response, create_status_from_state
+
 
 class ConfigLoader:
     """Class to handle loading YAML configurations."""
@@ -61,16 +66,19 @@ ACTION_MAPPER = {
 
 
 class LLMActionPlanner:
-    def __init__(self, model_name: str, goal: str, memory_len: int = 10, api_url=None, config: dict = None):
+    def __init__(self, model_name: str, goal: str, memory_len: int = 10, api_url=None, config: dict = None, use_reasoning: bool = False, use_reflection: bool = False, use_self_consistency: bool = False):
         self.model = model_name
         self.config = config or ConfigLoader.load_config()
+        self.use_reasoning = use_reasoning
+        self.use_reflection = use_reflection
+        self.use_self_consistency = use_self_consistency
 
         if "gpt" in self.model:
             env_config = dotenv_values(".env")
             self.client = OpenAI(api_key=env_config["OPENAI_API_KEY"])
         else:
             self.client = OpenAI(base_url=api_url, api_key="ollama")
-        
+
         self.memory_len = memory_len
         self.logger = logging.getLogger("REACT-agent")
         self.update_instructions(goal.lower())
@@ -106,12 +114,12 @@ class LLMActionPlanner:
         return prompt
 
     @retry(stop=stop_after_attempt(3))
-    def openai_query(self, msg_list: list, max_tokens: int = 60, model: str = None, fmt=None):
+    def openai_query(self, msg_list: list, max_tokens: int = 60, model: str = None, fmt=None, temperature: float = 0.0):
         llm_response = self.client.chat.completions.create(
             model=model or self.model,
             messages=msg_list,
             max_tokens=max_tokens,
-            temperature=0.0,
+            temperature=temperature,
             response_format=fmt or {"type": "text"},
         )
         return llm_response.choices[0].message.content
@@ -158,26 +166,82 @@ class LLMActionPlanner:
         
         return valid, response_dict, action
 
-    
-    
+    def remove_reasoning(self, text):
+        match = re.search(r'</think>(.*)', text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return text
+
+    def check_repetition(self, memory_list):
+        repetitions = 0
+        past_memories = []
+        for memory, goodness in memory_list:
+            if memory in past_memories:
+                repetitions += 1
+            past_memories.append(memory)
+        return repetitions
+
+    def get_self_consistent_response(self, messages, temp=0.4, max_tokens=1024, n=3):
+        candidates = []
+        for _ in range(n):
+            response = self.openai_query(messages, temperature=temp, max_tokens=max_tokens)
+            candidates.append(response.strip())
+
+        counts = Counter(candidates)
+        most_common = counts.most_common(1)
+        if most_common:
+            self.logger.info(f"Self-consistency candidates: {counts}")
+            return most_common[0][0]  # return most common answer
+        return candidates[0]  # fallback
+
     def get_action_from_obs_react(self, observation: Observation, memory_buf: list) -> tuple:
         self.states.append(observation.state.as_json())
-        
         status_prompt = create_status_from_state(observation.state)
         q1 = self.config['questions'][0]['text']
         q4 = self.config['questions'][3]['text']
         cot_prompt = self.config['prompts']['COT_PROMPT']
-        #print(memory_buf)
         memory_prompt = self.create_mem_prompt(memory_buf)
+
+        repetitions = self.check_repetition(memory_buf)
         messages = [
             {"role": "user", "content": self.instructions},
             {"role": "user", "content": status_prompt},
             {"role": "user", "content": memory_prompt},
             {"role": "user", "content": q1},
         ]
-        #print(messages)
         self.logger.info(f"Text sent to the LLM: {messages}")
-        response = self.openai_query(messages, max_tokens=1024)
+
+        if self.use_self_consistency:
+            response = self.get_self_consistent_response(messages, temp=repetitions/9, max_tokens=1024)
+        else:
+            response = self.openai_query(messages, max_tokens=1024)
+
+        if self.use_reflection:
+            reflection_prompt = [
+                {
+                    "role": "user",
+                    "content": f"""
+                    Instructions: {self.instructions}
+                    Task: {q1}
+
+                    Status: {status_prompt}
+                    Memory: {memory_prompt}
+
+                    Reasoning:
+                    {response}
+
+                    Is this reasoning valid given the Instructions, Status, and Memory?
+                    - If YES, repeat it exactly.
+                    - If NO, output the corrected reasoning only (no commentary).
+                    """
+                }
+            ]
+            response = self.openai_query(reflection_prompt, max_tokens=1024)
+        #print("response after reflection: ",response)
+
+        # Optional: parse response if reasoning is expected and outputs <think> ... </think>
+        if self.use_reasoning:
+            response = self.remove_reasoning(response)
         self.logger.info(f"(Stage 1) Response from LLM: {response}")
 
         #memory_prompt = self.create_mem_prompt(memory_buf)
@@ -191,9 +255,28 @@ class LLMActionPlanner:
             {"role": "user", "content": q4},
         ]
         self.prompts.append(messages)
-        
         response = self.openai_query(messages, max_tokens=80, fmt={"type": "json_object"})
+        
+        validated, error_msg = validate_responses.validate_agent_response(response)
+        if validated is None:
+            self.logger.info(f"Invalid response format: {response} - Error: {error_msg}")
+            try:
+                parsed_response = json.loads(response)
+            except json.JSONDecodeError:
+                parsed_response = response
+
+            response = json.dumps({
+                "action": "InvalidResponse",
+                "parameters": {
+                    "error": error_msg,
+                    "original": parsed_response
+                }
+            }, indent=2)
+
+        if self.use_reasoning:
+            response = self.remove_reasoning(response)
+
         self.responses.append(response)
         self.logger.info(f"(Stage 2) Response from LLM: {response}")
         print(f"(Stage 2) Response from LLM: {response}")
-        return self.parse_response(response, observation.state) 
+        return self.parse_response(response, observation.state)
