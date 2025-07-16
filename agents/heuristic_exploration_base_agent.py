@@ -1,4 +1,5 @@
-from AIDojoCoordinator.game_components import Action, Observation, GameState
+# Author: Ondrej Lukas, ondrej.lukas@aic.cvut.cz
+from AIDojoCoordinator.game_components import Action, Observation
 from NetSecGameAgents.agents.base_agent import BaseAgent
 from NetSecGameAgents.agents.agent_utils import heuristic_network_expansion
 
