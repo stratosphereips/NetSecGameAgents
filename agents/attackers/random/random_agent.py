@@ -7,14 +7,13 @@ import mlflow
 from os import path, makedirs
 from random import choice
 from AIDojoCoordinator.game_components import Action, Observation, AgentStatus
-from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
 from NetSecGameAgents.agents.agent_utils import generate_valid_actions
 
-class RandomAttackerAgent(BaseAgent):
+class RandomAttackerAgent(HeuristicExplorationBaseAgent):
 
-    def __init__(self, host, port,role, seed) -> None:
+    def __init__(self, host, port, role, seed) -> None:
         super().__init__(host, port, role)
-    
 
     def play_game(self, observation, num_episodes=1):
         """
