@@ -15,9 +15,10 @@ import subprocess
 from os import path, makedirs
 # with the path fixed, we can import now
 from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus
+from AIDojoCoordinator.utils import state_as_ordered_string
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 from heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
-from agent_utils import generate_valid_actions, state_as_ordered_string
+from agent_utils import generate_valid_actions
 import json
 
 class InitializedQAgent(HeuristicExplorationBaseAgent):

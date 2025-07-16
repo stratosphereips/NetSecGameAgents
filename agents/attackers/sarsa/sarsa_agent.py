@@ -7,8 +7,9 @@ import argparse
 import logging
 
 from AIDojoCoordinator.game_components import Action, GameState
+from AIDojoCoordinator.utils import state_as_ordered_string
 from NetSecGameAgents.agents.heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
-from NetSecGameAgents.agents.agent_utils import generate_valid_actions, state_as_ordered_string
+from NetSecGameAgents.agents.agent_utils import generate_valid_actions
 
 class SARSAAgent(HeuristicExplorationBaseAgent):
 
