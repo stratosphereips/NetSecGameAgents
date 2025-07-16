@@ -19,7 +19,6 @@ class HeuristicExplorationBaseAgent(BaseAgent):
         super().__init__(host, port, role)
         self._offset = net_offset
         self._explore_known_hosts = explore_known_hosts
-        self._logger.info("Heuristic exploration agent created")
     
     def make_step(self, action: Action)->Observation:
         """
