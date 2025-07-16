@@ -22,7 +22,14 @@ class HeuristicExplorationBaseAgent(BaseAgent):
     
     def make_step(self, action: Action)->Observation:
         """
+        Executes a step in the environment using the provided action.
 
+        Args:
+            action (Action): The action to perform in the environment.
+
+        Returns:
+            Observation: The observation resulting from the action, with known networks
+            expanded heuristically.
         """
         observation = super().make_step(action)
         
