@@ -9,8 +9,10 @@ from AIDojoCoordinator.game_components import Action, GameState, Observation, Ac
 
 class BaseAgent(ABC):
     """
-    Author: Ondrej Lukas, ondrej.lukas@aic.cvut.cz
-    Basic agent for the network based NetSecGame environment. Implemenets communication with the game server.
+    Base agent class for the NetSecGame environment.
+    This class implements the basic functionality for communication with the game server.
+    It provides methods for sending actions, receiving observations, and managing the connection.
+    This class should be extended by specific agent implementations.
     """
 
     def __init__(self, host, port, role:str)->None:
@@ -26,15 +28,36 @@ class BaseAgent(ABC):
         self._logger.info("Agent created")
     
     def __del__(self):
+        """
+        Destructor to ensure the socket connection is closed when the object is deleted.
+
+        If the extending class does not explicitly close the socket connection,
+        this method attempts to close it and logs the action. Any socket errors
+        encountered during closure are logged.
+
+        Returns:
+            None
+        """
         "In case the extending class did not close the connection, terminate the socket when the object is deleted."
         if self._socket:
             try:
                 self._socket.close()
                 self._logger.info("Socket closed")
             except socket.error as e:
-                print(f"Error closing socket: {e}")
+                self._logger.error(f"Error closing socket: {e}")
     
     def terminate_connection(self):
+        """
+        Gracefully terminates the network connection by closing the socket.
+
+        This method should be used by any class extending the BaseAgent to ensure
+        proper cleanup of the socket resource. If the socket is open, it attempts
+        to close it and logs the action. If an error occurs during closing, it
+        logs the error message.
+
+        Raises:
+            socket.error: If an error occurs while closing the socket.
+        """
         "Method for graceful termination of connection. Should be used by any class extending the BaseAgent."
         if self._socket:
             try:
@@ -42,7 +65,7 @@ class BaseAgent(ABC):
                 self._socket = None
                 self._logger.info("Socket closed")
             except socket.error as e:
-                print(f"Error closing socket: {e}")
+                self._logger.error(f"Error closing socket: {e}")
     @property
     def socket(self)->socket.socket:
         return self._socket
@@ -57,7 +80,13 @@ class BaseAgent(ABC):
     
     def make_step(self, action: Action)->Observation:
         """
-        Method for sendind agent's action to the server and receiving and parsing response into new observation.
+        Sends the agent's action to the server and receives the response, parsing it into a new observation.
+
+        Args:
+            action (Action): The action to send to the server.
+
+        Returns:
+            Observation: The observation received from the server after performing the action.
         """
         _, observation_dict, _ = self.communicate(action)
         if observation_dict:
@@ -66,8 +95,23 @@ class BaseAgent(ABC):
             return None
     
     def communicate(self, data:Action)-> tuple:
-        """Method for a data exchange with the server. Expect Action, dict or string as input.
-        Outputs tuple with server's response in format (status_dict, response_body, message)"""
+        """
+        Exchanges data with the server.
+
+        Args:
+            data (Action): The action to send to the server. Must be of type Action.
+
+        Returns:
+            tuple: A tuple containing:
+            - GameStatus: The status of the game returned by the server.
+            - dict: The observation dictionary from the server.
+            - str or None: An optional message from the server.
+
+        Raises:
+            ValueError: If the input data is not of type Action.
+            ConnectionError: If the connection is unfinished or data is incomplete.
+            Exception: If sending or receiving data fails.
+        """
         def _send_data(socket, data:str)->None:
             try:
                 self._logger.debug(f'Sending: {data}')
@@ -114,8 +158,12 @@ class BaseAgent(ABC):
     
     def register(self)->Observation:
         """
-        Method for registering agent to the game server.
-        Classname is used as agent name and the role is based on the 'role' argument.
+        Registers the agent with the game server.
+
+        The agent's class name is used as the agent name, and the role is specified by the 'role' argument.
+
+        Returns:
+            Observation: The initial observation received after registration, or None if registration fails.
         """
         try:
             self._logger.info(f'Registering agent as {self.role}')
@@ -132,7 +180,13 @@ class BaseAgent(ABC):
     
     def request_game_reset(self, request_trajectory=False)->Observation:
         """
-        Method for requesting restart of the game.
+        Requests a restart of the game.
+
+        Args:
+            request_trajectory (bool): If True, requests the game trajectory to be returned.
+
+        Returns:
+            Observation: The initial observation after the game reset, or None if reset fails.
         """
         self._logger.debug("Requesting game reset")
         status, observation_dict, message = self.communicate(Action(ActionType.ResetGame, parameters={"request_trajectory":request_trajectory}))
