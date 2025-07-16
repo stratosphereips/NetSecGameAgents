@@ -24,7 +24,7 @@ def estimate_subnetwork_from_ip(ip:IP)-> Network:
     else:
         return Network(f"{octets[0]}.{octets[1]}.{octets[2]}.0", 24)  # Fallback option, assuming a /24 subnet
 
-def estimate_neigboring_networks(network: Network, offset:int=1) -> set:
+def estimate_neighboring_networks(network: Network, offset:int=1) -> set:
     """
     Estimate the neighboring networks of a given network.
         - If the input network is private, only return private neighbors.
@@ -35,19 +35,48 @@ def estimate_neigboring_networks(network: Network, offset:int=1) -> set:
     
     # Convert the network to an IP network object
     ip_network = ipaddress.ip_network(f"{network.ip}/{network.mask}", strict=False)
-    size = ip_network.size
-    base = int(ip_network.network)
-    is_private = ip_network.is_private()
+    size = ip_network.num_addresses
+    base = int(ip_network.network_address)
+    is_private = ip_network.is_private
     # Generate neighboring networks by offsetting the base address
     # We use the size of the network to determine the step size for neighbors
     # We skip the original network (offset 0) and only add neighbors within the specified offset range
     for i in range(-offset, offset + 1):
         if i == 0:
             continue  # skip original
-        neighbor = ipaddress.ip_network(f"{base + i * size}/{ip_network.prefixlen}")
-        if not is_private or neighbor.is_private():
-            neighboring_networks.add(Network(str(neighbor), neighbor.prefixlen))
+        try:
+            new_base_ip = ipaddress.IPv4Address(base + i * size)
+            neighbor = ipaddress.ip_network(f"{new_base_ip}/{ip_network.prefixlen}")
+            if is_private and neighbor.is_private:
+                neighboring_networks.add(Network(str(new_base_ip), neighbor.prefixlen))
+        except ValueError:
+            # If the neighbor is not a valid network, we skip it
+            continue
     return neighboring_networks
+
+def heuristic_network_expansion(state: GameState, net_offset:int, explore_known_hosts:bool=True) -> GameState:
+    """
+    Expands the known network space by estimating neighboring networks and subnetworks from known hosts.
+    """
+    extended_networks = state.known_networks.copy()
+    # estimate neighboring networks for each known network
+    for network in state.known_networks:
+        neighboring_networks = estimate_neighboring_networks(network, net_offset)
+        extended_networks.update(neighboring_networks)
+    if explore_known_hosts:
+        # estimate subnetwork for each known host
+        for host in state.known_hosts:
+            subnetwork = estimate_subnetwork_from_ip(host)
+            extended_networks.add(subnetwork)
+    # update the state with the extended networks
+    new_state = GameState(
+        controlled_hosts=state.controlled_hosts,
+        known_hosts=state.known_hosts,
+        known_services=state.known_services,
+        known_data=state.known_data,
+        known_networks=extended_networks
+    )
+    return new_state
 
 def generate_valid_actions_concepts(state: GameState)->list:
     """Function that generates a list of all valid actions in a given state"""
