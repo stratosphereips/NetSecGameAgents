@@ -27,7 +27,7 @@ class BaseAgent(ABC):
             self.sock = None
         self._logger.info("Agent created")
     
-    def __del__(self):
+    def __del__(self)->None:
         """
         Destructor to ensure the socket connection is closed when the object is deleted.
 
