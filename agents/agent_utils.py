@@ -24,6 +24,31 @@ def estimate_subnetwork_from_ip(ip:IP)-> Network:
     else:
         return Network(f"{octets[0]}.{octets[1]}.{octets[2]}.0", 24)  # Fallback option, assuming a /24 subnet
 
+def estimate_neigboring_networks(network: Network, offset:int=1) -> set:
+    """
+    Estimate the neighboring networks of a given network.
+        - If the input network is private, only return private neighbors.
+        - If the input network is public, return all neighbors.
+    Returns a set of Network objects that are considered neighboring networks.
+    """
+    neighboring_networks = set()
+    
+    # Convert the network to an IP network object
+    ip_network = ipaddress.ip_network(f"{network.ip}/{network.mask}", strict=False)
+    size = ip_network.size
+    base = int(ip_network.network)
+    is_private = ip_network.is_private()
+    # Generate neighboring networks by offsetting the base address
+    # We use the size of the network to determine the step size for neighbors
+    # We skip the original network (offset 0) and only add neighbors within the specified offset range
+    for i in range(-offset, offset + 1):
+        if i == 0:
+            continue  # skip original
+        neighbor = ipaddress.ip_network(f"{base + i * size}/{ip_network.prefixlen}")
+        if not is_private or neighbor.is_private():
+            neighboring_networks.add(Network(str(neighbor), neighbor.prefixlen))
+    return neighboring_networks
+
 def generate_valid_actions_concepts(state: GameState)->list:
     """Function that generates a list of all valid actions in a given state"""
     valid_actions = set()
