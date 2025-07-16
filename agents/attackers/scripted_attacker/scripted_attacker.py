@@ -3,10 +3,10 @@ import logging
 import time
 from os import path
 from AIDojoCoordinator.game_components import Action, ActionType, IP, Network, Service
-from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
 
 def winning_strat_cyst(host, port, delay=1):
-    agent1 = BaseAgent(host, port, role="Attacker")
+    agent1 = HeuristicExplorationBaseAgent(host, port, role="Attacker")
     obs1 = agent1.register()
     time.sleep(delay)
     print(obs1)
@@ -83,7 +83,7 @@ def winning_strat_cyst(host, port, delay=1):
     print(obs_reset)
 
 def winning_strat(host, port, delay=10):
-    agent1 = BaseAgent(host, port, role="Attacker")
+    agent1 = HeuristicExplorationBaseAgent(host, port, role="Attacker")
     obs1 = agent1.register()
     time.sleep(delay)
     print(obs1)

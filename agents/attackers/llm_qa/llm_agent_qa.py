@@ -19,7 +19,7 @@ sys.path.append(
 )
 
 from AIDojoCoordinator.game_components import AgentStatus
-from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
 
 #mlflow.set_tracking_uri("http://147.32.83.60")
 #mlflow.set_experiment("LLM_QA_netsecgame_dec2024")
@@ -136,8 +136,8 @@ if __name__ == "__main__":
 
     logger = logging.getLogger("llm_react")
     logger.info("Start")
-    agent = BaseAgent(args.host, args.port, "Attacker")
-    
+    agent = HeuristicExplorationBaseAgent(args.host, args.port, "Attacker")
+
     if not args.disable_mlflow:
         mlflow.set_tracking_uri(args.mlflow_tracking_uri)
         mlflow.set_experiment(args.mlflow_experiment)

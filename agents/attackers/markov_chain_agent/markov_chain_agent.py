@@ -14,11 +14,11 @@ from AIDojoCoordinator.game_components import Action, Observation, AgentStatus, 
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 
 # with the path fixed, we can import now
-from base_agent import BaseAgent
+from heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
 from agent_utils import generate_valid_actions
 
 
-class MarkovChainAgent(BaseAgent):
+class MarkovChainAgent(HeuristicExplorationBaseAgent):
     def __init__(self, host, port, role, episodes) -> None:
         super().__init__(host, port, role)
         np.set_printoptions(suppress=True, precision=6)

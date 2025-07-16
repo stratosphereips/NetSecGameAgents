@@ -9,11 +9,11 @@ import mlflow
 
 from random import uniform, choice
 from AIDojoCoordinator.game_components import Action, Observation, ActionType
-from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
 from NetSecGameAgents.agents.agent_utils import generate_valid_actions
 
 
-class RandomDefenderAgent(BaseAgent):
+class RandomDefenderAgent(HeuristicExplorationBaseAgent):
     def __init__(self, host:str, port:int, role:str, allowed_actions:list, apm_limit:int=None) -> None:
         super().__init__(host, port, role)
         self._allowed_actions = allowed_actions

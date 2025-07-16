@@ -13,7 +13,7 @@ from textual import on
 from textual.reactive import reactive
 from NetSecGameAgents.agents.attackers.interactive_tui.assistant import LLMAssistant
 from AIDojoCoordinator.game_components import Network, IP, ActionType, Action, GameState, Observation
-from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
 log_filename = os.path.dirname(os.path.abspath(__file__)) + "/interactive_tui_agent.log"
 logging.basicConfig(
     filename=log_filename,
@@ -128,7 +128,7 @@ class InteractiveTUI(App):
         self.network_input = ""
         self.service_input = ""
         self.data_input = ""
-        self.agent = BaseAgent(host, port, role)
+        self.agent = HeuristicExplorationBaseAgent(host, port, role)
         self.agent.register()
         self.current_obs = self.agent.request_game_reset()
         self.mode = mode

@@ -16,11 +16,11 @@ from os import path, makedirs
 # with the path fixed, we can import now
 from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
-from base_agent import BaseAgent
+from heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
 from agent_utils import generate_valid_actions, state_as_ordered_string
 import json
 
-class InitializedQAgent(BaseAgent):
+class InitializedQAgent(HeuristicExplorationBaseAgent):
 
     def __init__(self, host, port, role="Attacker", alpha=0.1, gamma=0.6, epsilon_start=0.9, epsilon_end=0.1, epsilon_max_episodes=5000) -> None:
         super().__init__(host, port, role)

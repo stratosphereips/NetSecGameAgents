@@ -7,10 +7,10 @@ import argparse
 import logging
 
 from AIDojoCoordinator.game_components import Action, GameState
-from NetSecGameAgents.agents.base_agent import BaseAgent
+from NetSecGameAgents.agents.heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
 from NetSecGameAgents.agents.agent_utils import generate_valid_actions, state_as_ordered_string
 
-class SARSAAgent(BaseAgent):
+class SARSAAgent(HeuristicExplorationBaseAgent):
 
     def __init__(self, host, port, role="Attacker", alpha=0.1, gamma=0.6, epsilon=0.1) -> None:
         super().__init__(host, port, role)

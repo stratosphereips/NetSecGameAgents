@@ -15,11 +15,11 @@ from AIDojoCoordinator.game_components import Action, Observation, ActionType, I
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))))
 
 # With the path fixed, we can import now
-from base_agent import BaseAgent
+from heuristic_exploration_base_agent import HeuristicExplorationBaseAgent
 from agent_utils import generate_valid_actions
 
 
-class ProbabilisticDefenderAgent(BaseAgent):
+class ProbabilisticDefenderAgent(HeuristicExplorationBaseAgent):
     def __init__(self, host:str, port:int, role:str, allowed_actions:list, apm_limit:int=None) -> None:
         super().__init__(host, port, role)
         self._allowed_actions = allowed_actions
