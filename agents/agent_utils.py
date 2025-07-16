@@ -163,24 +163,6 @@ def generate_valid_actions(state: GameState, include_blocks=False)->list:
                             valid_actions.add(Action(ActionType.BlockIP, {"target_host":target_host, "source_host":src_host, "blocked_host":blocked_ip}))
     return list(valid_actions)    
 
-def state_as_ordered_string(state:GameState)->str:
-    """Function for generating string representation of a SORTED gamestate components. Can be used as key for dictionaries."""
-    ret = ""
-    ret += f"nets:[{','.join([str(x) for x in sorted(state.known_networks)])}],"
-    ret += f"hosts:[{','.join([str(x) for x in sorted(state.known_hosts)])}],"
-    ret += f"controlled:[{','.join([str(x) for x in sorted(state.controlled_hosts)])}],"
-    ret += "services:{"
-    for host in sorted(state.known_services.keys()):
-        ret += f"{host}:[{','.join([str(x) for x in sorted(state.known_services[host])])}]"
-    ret += "},data:{"
-    for host in sorted(state.known_data.keys()):
-        ret += f"{host}:[{','.join([str(x) for x in sorted(state.known_data[host])])}]"
-    ret += "},blocks:{"
-    for host in sorted(state.known_blocks.keys()):
-        ret += f"{host}:[{','.join([str(x) for x in sorted(state.known_blocks[host])])}]"
-    ret += "}"
-    return ret   
-
 def recompute_reward(self, observation: Observation) -> Observation:
     """
     Redefine how an agent recomputes the inner reward
