@@ -29,6 +29,12 @@ class ActionListAgent(BaseAgent):
         else:
             raise KeyError("Expected key 'all_actions' in the Observation info after registration.")
         return obs
+    
+    def action_space(self) -> list:
+        """
+        Return the list of all actions available to the agent.
+        """
+        return self._action_list
 
     def get_action_index(self, action: Action) -> int:
         """
