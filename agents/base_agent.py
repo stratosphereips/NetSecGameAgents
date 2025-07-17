@@ -121,7 +121,6 @@ class BaseAgent(ABC):
             self._logger.info(f'Registering agent as {self.role}')
             status, observation_dict, message = self.communicate(Action(ActionType.JoinGame,
                                                                          parameters={"agent_info":AgentInfo(self.__class__.__name__,self.role)}))
-            self._logger.info(f'\tRegistering agent as {status, observation_dict, message}')
             if status is GameStatus.CREATED:
                 self._logger.info(f"\tRegistration successful! {message}")
                 return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"], message)
