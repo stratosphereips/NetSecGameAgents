@@ -9,7 +9,11 @@ from NetSecGameAgents.agents.agent_utils import generate_valid_actions
 
 class ActionListAgent(BaseAgent):
     """
-    Example agent that uses a predefined list of actions to interact with the game environment.
+    Extension of the BaseAgent that provides a list of all possible actions
+    and allows the agent to query actions by index.
+    This agent registers with the game environment and retrieves the action list.
+
+    Compatible with the WhiteBoxNSGCoordinator.
     """
 
     def __init__(self, host, port, role: str):
