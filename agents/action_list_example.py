@@ -36,6 +36,15 @@ class ActionListAgent(BaseAgent):
         """
         return self._action_to_idx.get(action, -1)
     
+    def get_action(self, action_index: int) -> Action:
+        """
+        Get the action by its index in the action list.
+        """
+        if 0 <= action_index < len(self._action_list):
+            return self._action_list[action_index]
+        else:
+            raise IndexError("Action index out of range.")
+    
     def get_valid_action_mask(self , state: GameState) -> np.ndarray:
         """
         Get the action vector, which is a list of all actions.
