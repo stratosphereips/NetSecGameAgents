@@ -38,7 +38,7 @@ class HeuristicExplorationBaseAgent(BaseAgent):
             return None
         else:
             # expand the known networks heuristically
-            self._logger.debug(f"Expanding known network heuristically: {observation.state.known_networks}")
+            self._logger.debug(f"Expanding known networks heuristically: {observation.state.known_networks}")
             new_state = heuristic_network_expansion(observation.state, self._offset, self._explore_known_hosts)
             self._logger.debug(f"\tResult: {new_state.known_networks}")
             observation = Observation(new_state, observation.reward, observation.end, observation.info)
