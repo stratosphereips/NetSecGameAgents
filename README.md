@@ -2,25 +2,40 @@
 Agents located in this repository should be used in the [Network Security Game](https://github.com/stratosphereips/NetSecGame) environment. They are intended for navigation and problem solving in the adversarial network-security based environment where they play the role of attackers or defenders.
 
 ## Installation
-We recommend to use virtual environment when installing the agents:
+Agents need their own set of libraries which are installed separatedly from the AiDojo environment.
+
+To run an agent you need to install
+- The library of the AIDojoCoordinator
+- The libraries needed by your agent
+
+We recommend to use virtual environment when installing.
+
 ```bash
 python -m venv aidojo-agents
 ```
+
 To activat the venv, run:
 ```
 source aidojo-agents/bin/activate
 ```
-This project requires components of the [Network Security Game](https://github.com/stratosphereips/NetSecGame) to run properly so make sure it is installed first.
 
-To install the all agents, run 
+Be sure you are in the directory of this _NetSecGameAgents_ repository.
+
+### Install the libraries of the AiDojoCoordinator
+Agents requires components of the [NeSecGame](https://github.com/stratosphereips/NetSecGame) to run properly so make sure it is installed first.
+The code for NetSecGame is assumed to be in the previous directory
+
+- `python -m pip install -e ..`
+
+To install the required packages for each agent, you can run 
 ```
-pip install .
+python -m pip install -e .[<name-of-the-agent>] 
 ```
-It is possible to install only subset of agents with following command:
-```
-pip install -e .[<name-of-the-agent>] 
-```
-For example `pip install -e .[tui,llm]`
+
+For example `python -m pip install -e ".[tui,llm]"`
+
+For a complete list of agents to install the dependencies see the pyproject.toml file.
+
 
 ## Runing the agent
 To run the agents, use
