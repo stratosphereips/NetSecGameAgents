@@ -79,6 +79,7 @@ Agents of each type are stored in the corresponding directory within this reposi
     ├── benign
         ├── benign_random
 ```
+
 ### Agent utils
 Utility functions in [`agent_utils.py`](./agents/agent_utils.py) can be used by any agent to evaluate a `GameState`, and generate a set of valid `Actions` in a `GameState`, etc. 
 Additionally, there are several files with utils functions that can be used by any agents:
