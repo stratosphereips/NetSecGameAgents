@@ -32,7 +32,7 @@ random = [
 
 q_learning = [
     "numpy",
-    "mlflow",
+    "wandb",
     "colorama",
 ]
 
