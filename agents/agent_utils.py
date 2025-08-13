@@ -10,7 +10,7 @@ import ipaddress
 from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, IP, Network
 
 def generate_valid_actions_concepts(state: GameState)->list:
-    """Function that generates a list of all valid actions in a given state"""
+    """Function that generates a list of all valid actions in a given state for the conceptual agents."""
     valid_actions = set()
     for source_host in state.controlled_hosts:
         # Network Scans
@@ -144,6 +144,15 @@ def recompute_reward(self, observation: Observation) -> Observation:
 
 def convert_ips_to_concepts(observation, logger):
     """
+    New ideas
+    - All the hosts that can not be distinguished should be together in one concept
+    - As soon as something distinguishes them, change the name to that, like Host22 for a host with port 22
+    - For known ports, does it make sense to say HostDB? The problem is that all db ports will be confused. Is it better Host3306?
+    - Also mark hosts when they were already scanned and no port was there, like HostClosed
+    - The internet hosts should be HostInternet (so that the agent can distinguish them)
+    - The host where you start should be HostStarting (so that the agent can distinguish them)
+    - The main problem is that even for a human it can be impossible to transfer knowledge from one net to the other. So for sure you need to explore in a new network. However, humans do not explore like idiots agents because they have more information about the network without needing to scan hosts one by one. They can check the configurations, processes, mem, and network traffic to help them selves.
+
     Function to convert the IPs and networks in the observation into a concept 
     so the agent is not dependent on IPs and specific values
     in: observation with IPs
@@ -163,7 +172,6 @@ def convert_ips_to_concepts(observation, logger):
     #       service.type 'passive' | 'active' (This is added by our env when finding the )
     #       service.version : '1.1.1.'
     #       service.is_local: Bool
-        
 
     new_observation = None
     state = observation.state
@@ -240,7 +248,7 @@ def convert_ips_to_concepts(observation, logger):
         # Is it external and it is not in ip_to_concept, so it is not controlled
         #if not host.is_private() and not ip_to_concept[host]:
         if not host.is_private():
-            external_hosts_idx = IP(external_hosts_concept+str(counter))
+            external_hosts_idx = external_hosts_concept+str(counter)
             concept_mapping['known_hosts'][external_hosts_idx] = host
             try:
                 ip_to_concept[host].add(external_hosts_idx)
@@ -325,7 +333,7 @@ def convert_ips_to_concepts(observation, logger):
             # A device can be controlled (specially in the first state from the env)
             if host in state.controlled_hosts:
                 # Yes it is controlled
-                my_hosts_idx = IP(my_hosts_concept+str(counter))
+                my_hosts_idx = my_hosts_concept+str(counter)
                 concept_mapping['controlled_hosts'][my_hosts_idx] = host
                 concept_mapping['known_hosts'][my_hosts_idx] = host
                 ip_to_concept[host] = {my_hosts_idx}
@@ -333,7 +341,7 @@ def convert_ips_to_concepts(observation, logger):
                 # Not controlled and Host does not have any service yet
                 unknown_hosts.add(host)
                 # The unknown do not change concept so they are all together
-                unknown_hosts_idx = IP(unknown_hosts_concept)
+                unknown_hosts_idx = unknown_hosts_concept
 
                 concept_mapping['known_hosts'][unknown_hosts_idx] = unknown_hosts
                 try:
@@ -460,6 +468,7 @@ def convert_concepts_to_actions(action, concept_mapping, logger):
     Function to convert the concepts learned before into IPs and networks
     so the env knows where to really act
     in: action for concepts
+    in: state with concepts
     out: action for IPs
     """
     #logger.info(f'C2IP: Action to deal with: {action}')
