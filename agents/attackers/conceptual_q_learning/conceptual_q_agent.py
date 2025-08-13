@@ -16,7 +16,7 @@ from os import path, makedirs
 # with the path fixed, we can import now
 from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus
 from NetSecGameAgents.agents.base_agent import BaseAgent
-from NetSecGameAgents.agents.agent_utils import generate_valid_actions, state_as_ordered_string, convert_ips_to_concepts, convert_concepts_to_actions, generate_valid_actions_concepts
+from NetSecGameAgents.agents.agent_utils import state_as_ordered_string, convert_ips_to_concepts, convert_concepts_to_actions, generate_valid_actions_concepts
 
 class QAgent(BaseAgent):
 
@@ -36,12 +36,17 @@ class QAgent(BaseAgent):
         else:
             self.inter_action_interval = 0
 
-    def store_q_table(self, filename):
+    def store_q_table(self, strpath, filename):
+        """ Store the q table on disk """
+        # path.join(path.dirname(path.abspath(__file__)), "logs")
+        if not path.exists(strpath):
+            makedirs(path)
         with open(filename, "wb") as f:
             data = {"q_table":self.q_values, "state_mapping": self._str_to_id}
             pickle.dump(data, f)
 
     def load_q_table(self,filename):
+        """ Load the q table from disk """
         try:
             with open(filename, "rb") as f:
                 data = pickle.load(f)
@@ -53,6 +58,7 @@ class QAgent(BaseAgent):
             sys.exit(-1)
 
     def get_state_id(self, state:GameState) -> int:
+        """ For each state, get a unique id number """
         # Here the state has to be ordered, so different orders are not taken as two different states.
         state_str = state_as_ordered_string(state)
         if state_str not in self._str_to_id:
@@ -60,19 +66,22 @@ class QAgent(BaseAgent):
         return self._str_to_id[state_str]
     
     def max_action_q(self, observation:Observation) -> Action:
+        """ Get the action that maximices the q_value for a given observation """
         state = observation.state
-        actions = generate_valid_actions(state)
+        actions = generate_valid_actions_concepts(state)
         state_id = self.get_state_id(state)
         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
         return tmp[max(tmp,key=tmp.get)] #return maximum Q_value for a given state (out of available actions)
    
     def select_action(self, observation:Observation, testing=False) -> tuple:
+        """ Select the action according to the algorithm """
         state = observation.state
-        actions = generate_valid_actions(state)
+        actions = generate_valid_actions_concepts(state)
         state_id = self.get_state_id(state)
         
         # E-greedy play. If the random number is less than the e, then choose random to explore.
-        # But do not do it if we are testing a model. 
+        # But do not do it if we are testing a model. In testing is always exploit so it is deterministic. 
+        # Epsilon 0 means only exploit, which is very good if the env does not change.
         if random.uniform(0, 1) <= self.current_epsilon and not testing:
             # We are training
             # Random choose an ation from the list of actions?
@@ -87,7 +96,6 @@ class QAgent(BaseAgent):
             initial_q_value = 0
             tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
             ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], random.random()))
-            #if max_q_key not in self.q_values:
             try:
                 self.q_values[state_id, action]
             except KeyError:
@@ -96,7 +104,7 @@ class QAgent(BaseAgent):
 
     def recompute_reward(self, observation: Observation) -> Observation:
         """
-        Redefine how q-learning recomputes the inner reward
+        Redefine how this agent recomputes its inner reward
         """
         new_observation = None
         state = observation.state
@@ -117,6 +125,9 @@ class QAgent(BaseAgent):
         return new_observation
 
     def update_epsilon_with_decay(self, episode_number)->float:
+        """ 
+        Decay the epsilon 
+        """
         decay_rate = np.max([(self.epsilon_max_episodes - episode_number) / self.epsilon_max_episodes, 0])
         new_eps = (self.epsilon_start - self.epsilon_end ) * decay_rate + self.epsilon_end
         self.logger.debug(f"Updating epsilon - new value:{new_eps}")
@@ -124,9 +135,15 @@ class QAgent(BaseAgent):
     
     def play_game(self, observation, episode_num, testing=False):
         """
+        Only play one episode of the game.
+
         The main function for the gameplay. Handles the main interaction loop.
+        The conversion from IPs to concepts is done here, so the agent can use concepts
+        Observation is in concepts
+        episode_num is used to update the epsilon value at the end of the episode.
         """
         num_steps = 0
+
         # Run the whole episode
         while not observation.end:
             # Store steps so far
@@ -134,18 +151,25 @@ class QAgent(BaseAgent):
             start_time = time.time()
             # Get next action. If we are not training, selection is different, so pass it as argument
             action, state_id = self.select_action(observation, testing)
-            if args.store_actions:
-                actions_logger.info(f"\tState:{observation.state}")
-                actions_logger.info(f"\tEnd:{observation.end}")
-                actions_logger.info(f"\tInfo:{observation.info}")
             self.logger.info(f"Action selected:{action}")
+
+            # Convert the action with concepts to the action with IPs
+            action = convert_concepts_to_actions(action, observation, self.logger)
+
             # Perform the action and observe next observation
+            # This observation is in IPs
             observation = self.make_step(action)
+
+            # Convert the obvervation to conceptual observation
+            # From now one the observation will be in concepts
+            observation = convert_ips_to_concepts(observation)
            
             # Recompute the rewards
             observation = self.recompute_reward(observation)
+
+            # Update the Q-table
             if not testing:
-                # If we are training update the Q-table
+                # If we are training update the Q-table. If in testing do not update, so no learning in testing.
                 self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
 
             # Check the apm (actions per minute)
@@ -159,16 +183,15 @@ class QAgent(BaseAgent):
                     time.sleep(remaining_time)
                 start_time = time.time()
 
-        if args.store_actions:
-            actions_logger.info(f"\t State:{observation.state}")
-            actions_logger.info(f"\t End:{observation.end}")
-            actions_logger.info(f"\t Info:{observation.info}")
         # update epsilon value
         if not testing:
             self.current_epsilon = self.update_epsilon_with_decay(episode_num)
+
         # Reset the episode
-        _ = self.request_game_reset()
+        # _ = self.request_game_reset()
+
         # This will be the last observation played before the reset
+        # Observation is in concepts
         return observation, num_steps
 
 if __name__ == '__main__':
@@ -191,26 +214,18 @@ if __name__ == '__main__':
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=2000, type=int)
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
-    parser.add_argument("--apm", help="Actions per minute", default=10000, type=int, required=False)
+    parser.add_argument("--apm", help="Maximum actions per minute", default=1000000, type=int, required=False)
     args = parser.parse_args()
 
+    # Check that the directory for the logs exist
     if not path.exists(args.logdir):
         makedirs(args.logdir)
     logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
-    # Create agent
+    # Create agent object
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes, apm_limit=args.apm)
 
-    # Log for Actions. After agent creation
-    actions_logger = logging.getLogger('QAgentActions')
-    actions_logger.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    actions_handler = logging.FileHandler(path.join(args.logdir, "q_agent_actions.log"), mode="w")
-    actions_handler.setLevel(logging.INFO)  
-    actions_handler.setFormatter(formatter)
-    actions_logger.addHandler(actions_handler)
-
-    # Early stop flag
+    # Early stop flag. Used to stop the training if the win rate goes over a threshold.
     early_stop = False
 
     # If there is a previous model passed. Always use it for both training and testing.
@@ -225,29 +240,33 @@ if __name__ == '__main__':
             print(message)
 
 
+    # Set mlflow for local tracking
     if not args.testing:
         # Mlflow experiment name        
-        experiment_name = "Training and Eval of Q-learning Agent"
+        experiment_name = "Training and Eval of Conceptual Q-learning Agent"
         mlflow.set_experiment(experiment_name)
     elif args.testing:
-        # Evaluate the agent performance
-
         # Mlflow experiment name        
-        experiment_name = "Testing of Q-learning Agent against defender agent"
+        experiment_name = "Testing of Conceptual Q-learning Agent against defender agent"
         mlflow.set_experiment(experiment_name)
 
-
-    # This code runs for both training and testing. The difference is in the args.testing variable that is passed along
-    # How it works:
-    # - Evaluate for several 'episodes' (parameter)
-    # - Each episode finishes with: steps played, return, win/lose. Store all
-    # - Each episode compute the avg and std of all.
-    # - Every X episodes (parameter), report in log and mlflow
-    # - At the end, report in log and mlflow and console
+    # This code runs for both training and testing. 
+    # How ti works:
+    # - Train for --episodes episodes
+    # - Every --test_each 'episodes' stop training and start testin
+    # - Test for --test_for episodes
+    # - When each episode finishes you have: steps played, return, win/lose.
+    # - For each episode, store all values and compute the avg and std of each of them
+    # - Every --test_for episodes and at the end of the testing, report results in log file, mlflow and console.
 
     # Register the agent
+    # Obsservation is in IPs
     observation = agent.register()
+    # Convert the obvervation to conceptual observation
+    (observation,_) = convert_ips_to_concepts(observation, agent._logger)
+    # From now one the observation will be in concepts
 
+    # Start the train/eval/test loop
     try:
         with mlflow.start_run(run_name=experiment_name + f'. ID {args.experiment_id}') as run:
             # To keep statistics of each episode
@@ -264,7 +283,7 @@ if __name__ == '__main__':
             # Log more things in Mlflow
             mlflow.set_tag("experiment_name", experiment_name)
             # Log notes or additional information
-            mlflow.set_tag("notes", "This is an evaluation")
+            mlflow.set_tag("notes", "This is a training and evaluation of the conceptual Q-learning agent.")
             if args.previous_model:
                 mlflow.set_tag("Previous q-learning model loaded", str(args.previous_model))
             mlflow.log_param("alpha", args.alpha)
@@ -277,9 +296,9 @@ if __name__ == '__main__':
             mlflow.log_param("Test for", str(args.test_for))
             mlflow.log_param("Testing", str(args.testing))
             # Use subprocess.run to get the commit hash
-            netsecenv_command = "git rev-parse HEAD"
+            netsecenv_command = "cd ..; git rev-parse HEAD"
             netsecenv_git_result = subprocess.run(netsecenv_command, shell=True, capture_output=True, text=True).stdout
-            agents_command = "cd NetSecGameAgents; git rev-parse HEAD"
+            agents_command = "git rev-parse HEAD"
             agents_git_result = subprocess.run(agents_command, shell=True, capture_output=True, text=True).stdout
             agent._logger.info(f'Using commits. NetSecEnv: {netsecenv_git_result}. Agents: {agents_git_result}')
             mlflow.set_tag("NetSecEnv commit", netsecenv_git_result)
@@ -290,9 +309,10 @@ if __name__ == '__main__':
             agent._logger.info(f'Epsilon End: {agent.epsilon_end}')
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
 
+            # Start training
             for episode in range(1, args.episodes + 1):
                 if not early_stop:
-                    # Play 1 episode
+                    # Play 1 episode only
                     observation, num_steps = agent.play_game(observation, testing=args.testing, episode_num=episode)       
 
                     state = observation.state
@@ -318,8 +338,12 @@ if __name__ == '__main__':
                     elif not args.testing:
                         agent._logger.error(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
 
-                    # Reset the game
+                    # Reset the game here, after we analyzed the data of the last observation.
+                    # After each episode we need to reset the game 
                     observation = agent.request_game_reset()
+                    # Convert the obvervation to conceptual observation
+                    (observation,_) = convert_ips_to_concepts(observation, agent._logger)
+                    # From now one the observation will be in concepts
 
                     eval_win_rate = (wins/episode) * 100
                     eval_detection_rate = (detected/episode) * 100
@@ -335,132 +359,134 @@ if __name__ == '__main__':
                     eval_std_max_steps_steps = np.std(num_max_steps_steps)
 
                     # Now Test, log and report. This happens every X training episodes
-                    if episode % args.test_each == 0 and episode != 0:
-                        # If we are training, every these number of episodes, we need to test for some episodes.
-                        # If we are testing, it is not necessary since the model does not change
-                        if not args.testing:
-                            # This test happens during a training
+                    # If we are in training mode, we test for --test_for episodes
+                    # If we are testing mode, this stop is not necessary since the model does not change as in training.
+                    if episode % args.test_each == 0 and episode != 0 and not args.testing:
+                        # First report performance of trained model up to here
+                        text = f'''Performance after {episode} training episodes.
+                            Wins={wins},
+                            Detections={detected},
+                            winrate={eval_win_rate:.3f}%,
+                            detection_rate={eval_detection_rate:.3f}%,
+                            average_returns={eval_average_returns:.3f} +- {eval_std_returns:.3f},
+                            average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
+                            average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
+                            average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
+                            average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
+                            epsilon={agent.current_epsilon}
+                            '''
+                        agent._logger.info(text)
+                        mlflow.log_metric("eval_avg_win_rate", eval_win_rate, step=episode)
+                        mlflow.log_metric("eval_avg_detection_rate", eval_detection_rate, step=episode)
+                        mlflow.log_metric("eval_avg_returns", eval_average_returns, step=episode)
+                        mlflow.log_metric("eval_std_returns", eval_std_returns, step=episode)
+                        mlflow.log_metric("eval_avg_episode_steps", eval_average_episode_steps, step=episode)
+                        mlflow.log_metric("eval_std_episode_steps", eval_std_episode_steps, step=episode)
+                        mlflow.log_metric("eval_avg_win_steps", eval_average_win_steps, step=episode)
+                        mlflow.log_metric("eval_std_win_steps", eval_std_win_steps, step=episode)
+                        mlflow.log_metric("eval_avg_detected_steps", eval_average_detected_steps, step=episode)
+                        mlflow.log_metric("eval_std_detected_steps", eval_std_detected_steps, step=episode)
+                        mlflow.log_metric("eval_avg_max_steps_steps", eval_average_max_steps_steps, step=episode)
+                        mlflow.log_metric("eval_std_max_steps_steps", eval_std_max_steps_steps, step=episode)
+                        mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
+                        mlflow.log_metric("current_episode", episode, step=episode)
 
-                            # First report performance of trained model up to here
-                            text = f'''Performance evaluated after {episode} training episodes.
-                                Wins={wins},
-                                Detections={detected},
-                                winrate={eval_win_rate:.3f}%,
-                                detection_rate={eval_detection_rate:.3f}%,
-                                average_returns={eval_average_returns:.3f} +- {eval_std_returns:.3f},
-                                average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
-                                average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
-                                average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
-                                average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
-                                epsilon={agent.current_epsilon}
-                                '''
-                            agent._logger.info(text)
-                            mlflow.log_metric("eval_avg_win_rate", eval_win_rate, step=episode)
-                            mlflow.log_metric("eval_avg_detection_rate", eval_detection_rate, step=episode)
-                            mlflow.log_metric("eval_avg_returns", eval_average_returns, step=episode)
-                            mlflow.log_metric("eval_std_returns", eval_std_returns, step=episode)
-                            mlflow.log_metric("eval_avg_episode_steps", eval_average_episode_steps, step=episode)
-                            mlflow.log_metric("eval_std_episode_steps", eval_std_episode_steps, step=episode)
-                            mlflow.log_metric("eval_avg_win_steps", eval_average_win_steps, step=episode)
-                            mlflow.log_metric("eval_std_win_steps", eval_std_win_steps, step=episode)
-                            mlflow.log_metric("eval_avg_detected_steps", eval_average_detected_steps, step=episode)
-                            mlflow.log_metric("eval_std_detected_steps", eval_std_detected_steps, step=episode)
-                            mlflow.log_metric("eval_avg_max_steps_steps", eval_average_max_steps_steps, step=episode)
-                            mlflow.log_metric("eval_std_max_steps_steps", eval_std_max_steps_steps, step=episode)
-                            mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
-                            mlflow.log_metric("current_episode", episode, step=episode)
+                        # Now we need to keep statistics during the --test_for number of episodes
+                        test_wins = 0
+                        test_detected = 0
+                        test_max_steps = 0
+                        test_num_win_steps = []
+                        test_num_detected_steps = []
+                        test_num_max_steps_steps = []
+                        test_num_detected_returns = []
+                        test_num_win_returns = []
+                        test_num_max_steps_returns = []
 
-                            # To keep statistics of testing each episode
-                            test_wins = 0
-                            test_detected = 0
-                            test_max_steps = 0
-                            test_num_win_steps = []
-                            test_num_detected_steps = []
-                            test_num_max_steps_steps = []
-                            test_num_detected_returns = []
-                            test_num_win_returns = []
-                            test_num_max_steps_returns = []
+                        # Test
+                        for test_episode in range(1, args.test_for + 1):
+                            # Play 1 episode
+                            # See that we force the model to freeze by telling it that it is in 'testing' mode.
+                            # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
+                            test_observation, test_num_steps = agent.play_game(observation, testing=True, episode_num=episode)       
 
-                            # Test
-                            for test_episode in range(1, args.test_for + 1):
-                                # Play 1 episode
-                                # See that we force the model to freeze by telling it that it is in 'testing' mode.
-                                # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
-                                test_observation, test_num_steps = agent.play_game(observation, testing=True, episode_num=episode)       
+                            test_state = test_observation.state
+                            test_reward = test_observation.reward
+                            test_end = test_observation.end
+                            test_info = test_observation.info
 
-                                test_state = test_observation.state
-                                test_reward = test_observation.reward
-                                test_end = test_observation.end
-                                test_info = test_observation.info
+                            if test_info and test_info['end_reason'] == AgentStatus.Fail:
+                                test_detected +=1
+                                test_num_detected_steps += [num_steps]
+                                test_num_detected_returns += [reward]
+                            elif test_info and test_info['end_reason'] == AgentStatus.Success:
+                                test_wins += 1
+                                test_num_win_steps += [num_steps]
+                                test_num_win_returns += [reward]
+                            elif test_info and test_info['end_reason'] == AgentStatus.TimeoutReached:
+                                test_max_steps += 1
+                                test_num_max_steps_steps += [num_steps]
+                                test_num_max_steps_returns += [reward]
 
-                                if test_info and test_info['end_reason'] == AgentStatus.Fail:
-                                    test_detected +=1
-                                    test_num_detected_steps += [num_steps]
-                                    test_num_detected_returns += [reward]
-                                elif test_info and test_info['end_reason'] == AgentStatus.Success:
-                                    test_wins += 1
-                                    test_num_win_steps += [num_steps]
-                                    test_num_win_returns += [reward]
-                                elif test_info and test_info['end_reason'] == AgentStatus.TimeoutReached:
-                                    test_max_steps += 1
-                                    test_num_max_steps_steps += [num_steps]
-                                    test_num_max_steps_returns += [reward]
+                            agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
 
-                                agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
+                            # Reset the game
+                            test_observation = agent.request_game_reset()
+                            # Convert the obvervation to conceptual observation
+                            (test_observation,_) = convert_ips_to_concepts(test_observation, agent._logger)
+                            # From now one the observation will be in concepts
 
-                                # Reset the game
-                                test_observation = agent.request_game_reset()
+                            test_win_rate = (test_wins/test_episode) * 100
+                            test_detection_rate = (test_detected/test_episode) * 100
+                            test_average_returns = np.mean(test_num_detected_returns + test_num_win_returns + test_num_max_steps_returns)
+                            test_std_returns = np.std(test_num_detected_returns + test_num_win_returns + test_num_max_steps_returns)
+                            test_average_episode_steps = np.mean(test_num_win_steps + test_num_detected_steps + test_num_max_steps_steps)
+                            test_std_episode_steps = np.std(test_num_win_steps + test_num_detected_steps + test_num_max_steps_steps)
+                            test_average_win_steps = np.mean(test_num_win_steps)
+                            test_std_win_steps = np.std(test_num_win_steps)
+                            test_average_detected_steps = np.mean(test_num_detected_steps)
+                            test_std_detected_steps = np.std(test_num_detected_steps)
+                            test_average_max_steps_steps = np.mean(test_num_max_steps_steps)
+                            test_std_max_steps_steps = np.std(test_num_max_steps_steps)
 
-                                test_win_rate = (test_wins/test_episode) * 100
-                                test_detection_rate = (test_detected/test_episode) * 100
-                                test_average_returns = np.mean(test_num_detected_returns + test_num_win_returns + test_num_max_steps_returns)
-                                test_std_returns = np.std(test_num_detected_returns + test_num_win_returns + test_num_max_steps_returns)
-                                test_average_episode_steps = np.mean(test_num_win_steps + test_num_detected_steps + test_num_max_steps_steps)
-                                test_std_episode_steps = np.std(test_num_win_steps + test_num_detected_steps + test_num_max_steps_steps)
-                                test_average_win_steps = np.mean(test_num_win_steps)
-                                test_std_win_steps = np.std(test_num_win_steps)
-                                test_average_detected_steps = np.mean(test_num_detected_steps)
-                                test_std_detected_steps = np.std(test_num_detected_steps)
-                                test_average_max_steps_steps = np.mean(test_num_max_steps_steps)
-                                test_std_max_steps_steps = np.std(test_num_max_steps_steps)
+                            # Store the model every --eval_each episodes. 
+                            # Use episode (training counter) and not test_episode (test counter)
+                            if episode % args.store_models_every == 0 and episode != 0:
+                                agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models"), f'/conceptual_q_agent.experiment{args.experiment_id}.pickle')
 
-                                # store model. Use episode (training counter) and not test_episode (test counter)
-                                if episode % args.store_models_every == 0 and episode != 0:
-                                    agent.store_q_table(f'/data/AIDojo/Models/q_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')
+                        text = f'''Tested for {test_episode} episodes after {episode} training episode.
+                            Wins={test_wins},
+                            Detections={test_detected},
+                            winrate={test_win_rate:.3f}%,
+                            detection_rate={test_detection_rate:.3f}%,
+                            average_returns={test_average_returns:.3f} +- {test_std_returns:.3f},
+                            average_episode_steps={test_average_episode_steps:.3f} +- {test_std_episode_steps:.3f},
+                            average_win_steps={test_average_win_steps:.3f} +- {test_std_win_steps:.3f},
+                            average_detected_steps={test_average_detected_steps:.3f} +- {test_std_detected_steps:.3f}
+                            average_max_steps_steps={test_std_max_steps_steps:.3f} +- {test_std_max_steps_steps:.3f},
+                            epsilon={agent.current_epsilon}
+                            '''
+                        agent._logger.info(text)
+                        print(text)
 
-                            text = f'''Tested for {test_episode} episodes after {episode} training episode.
-                                Wins={test_wins},
-                                Detections={test_detected},
-                                winrate={test_win_rate:.3f}%,
-                                detection_rate={test_detection_rate:.3f}%,
-                                average_returns={test_average_returns:.3f} +- {test_std_returns:.3f},
-                                average_episode_steps={test_average_episode_steps:.3f} +- {test_std_episode_steps:.3f},
-                                average_win_steps={test_average_win_steps:.3f} +- {test_std_win_steps:.3f},
-                                average_detected_steps={test_average_detected_steps:.3f} +- {test_std_detected_steps:.3f}
-                                average_max_steps_steps={test_std_max_steps_steps:.3f} +- {test_std_max_steps_steps:.3f},
-                                epsilon={agent.current_epsilon}
-                                '''
-                            agent._logger.info(text)
-                            print(text)
-                            # Store in mlflow
-                            mlflow.log_metric("test_avg_win_rate", test_win_rate, step=episode)
-                            mlflow.log_metric("test_avg_detection_rate", test_detection_rate, step=episode)
-                            mlflow.log_metric("test_avg_returns", test_average_returns, step=episode)
-                            mlflow.log_metric("test_std_returns", test_std_returns, step=episode)
-                            mlflow.log_metric("test_avg_episode_steps", test_average_episode_steps, step=episode)
-                            mlflow.log_metric("test_std_episode_steps", test_std_episode_steps, step=episode)
-                            mlflow.log_metric("test_avg_win_steps", test_average_win_steps, step=episode)
-                            mlflow.log_metric("test_std_win_steps", test_std_win_steps, step=episode)
-                            mlflow.log_metric("test_avg_detected_steps", test_average_detected_steps, step=episode)
-                            mlflow.log_metric("test_std_detected_steps", test_std_detected_steps, step=episode)
-                            mlflow.log_metric("test_avg_max_steps_steps", test_average_max_steps_steps, step=episode)
-                            mlflow.log_metric("test_std_max_steps_steps", test_std_max_steps_steps, step=episode)
-                            mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
-                            mlflow.log_metric("current_episode", episode, step=episode)
+                        # Store in mlflow
+                        mlflow.log_metric("test_avg_win_rate", test_win_rate, step=episode)
+                        mlflow.log_metric("test_avg_detection_rate", test_detection_rate, step=episode)
+                        mlflow.log_metric("test_avg_returns", test_average_returns, step=episode)
+                        mlflow.log_metric("test_std_returns", test_std_returns, step=episode)
+                        mlflow.log_metric("test_avg_episode_steps", test_average_episode_steps, step=episode)
+                        mlflow.log_metric("test_std_episode_steps", test_std_episode_steps, step=episode)
+                        mlflow.log_metric("test_avg_win_steps", test_average_win_steps, step=episode)
+                        mlflow.log_metric("test_std_win_steps", test_std_win_steps, step=episode)
+                        mlflow.log_metric("test_avg_detected_steps", test_average_detected_steps, step=episode)
+                        mlflow.log_metric("test_std_detected_steps", test_std_detected_steps, step=episode)
+                        mlflow.log_metric("test_avg_max_steps_steps", test_average_max_steps_steps, step=episode)
+                        mlflow.log_metric("test_std_max_steps_steps", test_std_max_steps_steps, step=episode)
+                        mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
+                        mlflow.log_metric("current_episode", episode, step=episode)
 
-                            if test_win_rate >= args.early_stop_threshold:
-                                agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
-                                early_stop = True
+                        if test_win_rate >= args.early_stop_threshold:
+                            agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
+                            early_stop = True
 
             
             # Log the last final episode when it ends
@@ -484,10 +510,9 @@ if __name__ == '__main__':
 
     except KeyboardInterrupt:
         # Store the q-table
-        # Just in case...
         if not args.testing:
-            agent.store_q_table(f'{path.join(path.dirname(path.abspath(__file__)), "models")}/conceptual_q_agent.experiment{args.experiment_id}.pickle')
+            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models"), f'/conceptual_q_agent.experiment{args.experiment_id}.pickle')
     finally:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(f'{path.join(path.dirname(path.abspath(__file__)), "models")}/conceptual_q_agent.experiment{args.experiment_id}.pickle')
+            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models"), f'/conceptual_q_agent.experiment{args.experiment_id}.pickle')
