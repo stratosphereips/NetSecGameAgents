@@ -10,6 +10,7 @@ import argparse
 import logging
 import subprocess
 import time
+import mlflow
 
 from os import path, makedirs
 # with the path fixed, we can import now
@@ -132,7 +133,7 @@ class QAgent(BaseAgent):
         self.logger.debug(f"Updating epsilon - new value:{new_eps}")
         return new_eps
     
-    def play_game(self, observation, episode_num, testing=False):
+    def play_game(self, concept_observation, episode_num, testing=False):
         """
         Only play one episode of the game.
 
@@ -144,16 +145,16 @@ class QAgent(BaseAgent):
         num_steps = 0
 
         # Run the whole episode
-        while not observation.end:
+        while not concept_observation.observation.end:
             # Store steps so far
             num_steps += 1
             start_time = time.time()
             # Get next action. If we are not training, selection is different, so pass it as argument
-            action, state_id = self.select_action(observation, testing)
+            concept_action, state_id = self.select_action(concept_observation.observation, testing)
             self.logger.info(f"Action selected:{action}")
 
             # Convert the action with concepts to the action with IPs
-            action = convert_concepts_to_actions(action, observation)
+            action = convert_concepts_to_actions(concept_action, concept_observation)
 
             # Perform the action and observe next observation
             # This observation is in IPs
@@ -161,10 +162,10 @@ class QAgent(BaseAgent):
 
             # Convert the obvervation to conceptual observation
             # From now one the observation will be in concepts
-            (observation, _) = convert_ips_to_concepts(observation, self.logger)
+            concept_observation = convert_ips_to_concepts(observation, self.logger)
            
             # Recompute the rewards
-            observation = self.recompute_reward(observation)
+            observation = self.recompute_reward(concept_observation.observation)
 
             # Update the Q-table
             if not testing:
@@ -190,7 +191,6 @@ class QAgent(BaseAgent):
         # _ = self.request_game_reset()
 
         # This will be the last observation played before the reset
-        # Observation is in concepts
         return observation, num_steps
 
 if __name__ == '__main__':
@@ -264,7 +264,7 @@ if __name__ == '__main__':
     if not observation:
         raise Exception("Problem registering the agent")
     # Convert the obvervation to conceptual observation
-    (observation,_) = convert_ips_to_concepts(observation, agent._logger)
+    concept_observation = convert_ips_to_concepts(observation, agent._logger)
     # From now one the observation will be in concepts
 
     # Start the train/eval/test loop
@@ -314,7 +314,7 @@ if __name__ == '__main__':
             for episode in range(1, args.episodes + 1):
                 if not early_stop:
                     # Play 1 episode only
-                    observation, num_steps = agent.play_game(observation, testing=args.testing, episode_num=episode)       
+                    observation, num_steps = agent.play_game(concept_observation, testing=args.testing, episode_num=episode)       
 
                     state = observation.state
                     reward = observation.reward
@@ -343,7 +343,7 @@ if __name__ == '__main__':
                     # After each episode we need to reset the game 
                     observation = agent.request_game_reset()
                     # Convert the obvervation to conceptual observation
-                    (observation,_) = convert_ips_to_concepts(observation, agent._logger)
+                    concept_observation = convert_ips_to_concepts(observation, agent._logger)
                     # From now one the observation will be in concepts
 
                     eval_win_rate = (wins/episode) * 100
@@ -433,7 +433,7 @@ if __name__ == '__main__':
                             # Reset the game
                             test_observation = agent.request_game_reset()
                             # Convert the obvervation to conceptual observation
-                            (test_observation,_) = convert_ips_to_concepts(test_observation, agent._logger)
+                            test_observation = convert_ips_to_concepts(test_observation, agent._logger)
                             # From now one the observation will be in concepts
 
                             test_win_rate = (test_wins/test_episode) * 100
