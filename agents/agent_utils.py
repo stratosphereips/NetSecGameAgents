@@ -459,18 +459,24 @@ def _convert_target_host_concept_to_ip(target_host_concept, concept_mapping, use
     Returns:
         The corresponding IP address
     """
-    host_mapping = concept_mapping.state.controlled_hosts if use_controlled_hosts else concept_mapping.state.known_hosts
+    host_mapping_dict = concept_mapping['controlled_hosts'] if use_controlled_hosts else concept_mapping['known_hosts']
 
-    for host_concept in host_mapping:
-        if target_host_concept == host_concept:
-            if 'unknown' in str(host_concept):
-                # For unknown hosts, choose randomly from the appropriate mapping
-                return random.choice(list(host_mapping))
+    # Check if the target host concept exists in the mapping
+    if target_host_concept in host_mapping_dict:
+        mapped_value = host_mapping_dict[target_host_concept]
+        if 'unknown' in str(target_host_concept):
+            # For unknown hosts, choose randomly from the mapped set/value
+            if isinstance(mapped_value, set):
+                return random.choice(list(mapped_value))
             else:
-                return host_mapping[host_concept]
+                return mapped_value
+        else:
+            return mapped_value
 
-    # Fallback: return a random choice if no exact match found
-    return random.choice(list(host_mapping)) if host_mapping else target_host_concept
+    # Fallback: return a random choice from available hosts
+    if host_mapping_dict:
+        return random.choice(list(host_mapping_dict.values()))
+    return target_host_concept
 
 
 def _convert_source_host_concept_to_ip(src_host_concept, concept_mapping):
@@ -485,12 +491,16 @@ def _convert_source_host_concept_to_ip(src_host_concept, concept_mapping):
     Returns:
         The corresponding IP address
     """
-    for host_concept in concept_mapping.state.controlled_hosts:
-        if src_host_concept == host_concept:
-            return concept_mapping.state.controlled_hosts[host_concept]
+    controlled_hosts_dict = concept_mapping['controlled_hosts']
+
+    # Check if the source host concept exists in the mapping
+    if src_host_concept in controlled_hosts_dict:
+        return controlled_hosts_dict[src_host_concept]
 
     # Fallback: return a random controlled host if no exact match found
-    return random.choice(list(concept_mapping.state.controlled_hosts)) if concept_mapping.state.controlled_hosts else src_host_concept
+    if controlled_hosts_dict:
+        return random.choice(list(controlled_hosts_dict.values()))
+    return src_host_concept
 
 
 def _convert_network_concept_to_ip(target_net_concept, concept_mapping):
@@ -504,15 +514,34 @@ def _convert_network_concept_to_ip(target_net_concept, concept_mapping):
     Returns:
         The corresponding network object
     """
-    for net_concept in concept_mapping.state.known_networks:
-        if target_net_concept == net_concept:
-            if 'unknown' in str(net_concept):
-                return random.choice(list(concept_mapping.state.known_networks))
+    networks_dict = concept_mapping['known_networks']
+
+    # Check if the target network concept exists in the mapping
+    if target_net_concept in networks_dict:
+        mapped_value = networks_dict[target_net_concept]
+        if 'unknown' in str(target_net_concept):
+            # For unknown networks, choose randomly from the mapped set/value
+            if isinstance(mapped_value, set):
+                return random.choice(list(mapped_value))
             else:
-                return concept_mapping.state.known_networks[net_concept]
+                return mapped_value
+        else:
+            # For known networks, the mapped value might be a set of networks
+            if isinstance(mapped_value, set):
+                return random.choice(list(mapped_value))
+            else:
+                return mapped_value
 
     # Fallback: return a random network if no exact match found
-    return random.choice(list(concept_mapping.state.known_networks)) if concept_mapping.state.known_networks else target_net_concept
+    if networks_dict:
+        all_networks = []
+        for net_set in networks_dict.values():
+            if isinstance(net_set, set):
+                all_networks.extend(list(net_set))
+            else:
+                all_networks.append(net_set)
+        return random.choice(all_networks) if all_networks else target_net_concept
+    return target_net_concept
 
 
 def convert_concepts_to_actions(action, concept_mapping):
