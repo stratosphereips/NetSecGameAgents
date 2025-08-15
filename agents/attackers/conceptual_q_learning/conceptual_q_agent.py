@@ -8,7 +8,6 @@ import random
 import pickle
 import argparse
 import logging
-import mlflow
 import subprocess
 import time
 
@@ -40,7 +39,7 @@ class QAgent(BaseAgent):
         """ Store the q table on disk """
         # path.join(path.dirname(path.abspath(__file__)), "logs")
         if not path.exists(strpath):
-            makedirs(path)
+            makedirs(strpath)
         with open(filename, "wb") as f:
             data = {"q_table":self.q_values, "state_mapping": self._str_to_id}
             pickle.dump(data, f)
@@ -154,7 +153,7 @@ class QAgent(BaseAgent):
             self.logger.info(f"Action selected:{action}")
 
             # Convert the action with concepts to the action with IPs
-            action = convert_concepts_to_actions(action, observation, self.logger)
+            action = convert_concepts_to_actions(action, observation)
 
             # Perform the action and observe next observation
             # This observation is in IPs
@@ -162,7 +161,7 @@ class QAgent(BaseAgent):
 
             # Convert the obvervation to conceptual observation
             # From now one the observation will be in concepts
-            observation = convert_ips_to_concepts(observation)
+            (observation, _) = convert_ips_to_concepts(observation, self.logger)
            
             # Recompute the rewards
             observation = self.recompute_reward(observation)
@@ -262,6 +261,8 @@ if __name__ == '__main__':
     # Register the agent
     # Obsservation is in IPs
     observation = agent.register()
+    if not observation:
+        raise Exception("Problem registering the agent")
     # Convert the obvervation to conceptual observation
     (observation,_) = convert_ips_to_concepts(observation, agent._logger)
     # From now one the observation will be in concepts
@@ -451,7 +452,7 @@ if __name__ == '__main__':
                             # Store the model every --eval_each episodes. 
                             # Use episode (training counter) and not test_episode (test counter)
                             if episode % args.store_models_every == 0 and episode != 0:
-                                agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models"), f'/conceptual_q_agent.experiment{args.experiment_id}.pickle')
+                                agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}.pickle')
 
                         text = f'''Tested for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
@@ -511,8 +512,8 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models"), f'/conceptual_q_agent.experiment{args.experiment_id}.pickle')
+            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}.pickle')
     finally:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models"), f'/conceptual_q_agent.experiment{args.experiment_id}.pickle')
+            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}.pickle')
