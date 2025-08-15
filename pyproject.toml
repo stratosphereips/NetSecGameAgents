@@ -32,12 +32,13 @@ random = [
 
 q_learning = [
     "numpy",
-    "mlflow",
+    "wandb",
     "colorama",
 ]
 
 conceptual_q_learning = [
     "numpy",
+    "wandb",
     "mlflow",
     "colorama",
 ]
