@@ -32,16 +32,10 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
             # Only scan local from local hosts
             # If the network or source_host are str and not 'external', they are concepts and also private.
             if ( 
-                (
-                    type(network.ip) is str  
-                    and 'external' not in network.ip
-                    and type(source_host) is str 
-                    and 'external' not in source_host
-                ) or (
-                    type(network.ip) is Network
-                    network.is_private() 
-                    and source_host.is_private()
-                    )
+                type(network.ip) is str  
+                and 'external' not in network.ip
+                and type(source_host) is str 
+                and 'external' not in source_host
             ): 
                 valid_actions.add(Action(ActionType.ScanNetwork, parameters={"target_network": network, "source_host": source_host,}))
 
@@ -55,15 +49,10 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
             # Do not service scan the same host you are in
             if (
                 (
-                    (
-                        type(target_host) is str 
-                        and 'external' not in target_host 
-                        and type(source_host) is str
-                        and 'external' not in source_host
-                    ) or (
-                        network.is_private() 
-                        and source_host.is_private()
-                    )
+                    type(target_host) is str 
+                    and 'external' not in target_host 
+                    and type(source_host) is str
+                    and 'external' not in source_host
                 ) and (
                     not is_fw_blocked(state, source_host, target_host)
                     and not is_fw_blocked(state, target_host, source_host)
@@ -83,15 +72,10 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
             # Do not exploit the same host you are in
             if (
                 (
-                    (
-                        type(target_host) is str 
-                        and 'external' not in target_host 
-                        and type(source_host) is str 
-                        and 'external' not in source_host
-                    ) or (
-                        network.is_private() 
-                        and source_host.is_private()
-                    )
+                    type(target_host) is str 
+                    and 'external' not in target_host 
+                    and type(source_host) is str 
+                    and 'external' not in source_host
                 ) and (
                     target_host not in state.controlled_hosts
                     and not is_fw_blocked(state, source_host, target_host)
@@ -114,15 +98,10 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
             # Do not find data in the same host you are in
             if (
                 (
-                        (
-                        type(target_host) is str 
-                        and 'external' not in target_host 
-                        and type(source_host) is str 
-                        and 'external' not in source_host
-                    ) or (
-                        network.is_private() 
-                        and source_host.is_private()
-                    )
+                    type(target_host) is str 
+                    and 'external' not in target_host 
+                    and type(source_host) is str 
+                    and 'external' not in source_host
                 ) and (
                     target_host in state.controlled_hosts
                     and not is_fw_blocked(state, source_host, target_host)
@@ -134,39 +113,48 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
 
         # Data Exfiltration
         for source_host, data_list in state.known_data.items():
-            # Do not exfiltrate data from external hosts
-            # Do not exfiltrate data to internal hosts
-            # Only exfiltrate data from hosts we control (implicit from the source of data)
-            # Only exfiltrate data to hosts we control
-            # Only exfiltrate data from hosts with data
-            # Only exfiltrate data to hosts we control
-            # Do not exfiltrate to and from the same host
-            # Do not exfiltarte to the target host if it is blocked in that source host
-            # Do not exfiltarte to the source host if it is blocked in that target host
-            # Do not exfiltrate to the same host you are in
-            if (
-                (
-                        (
+            for target_host in state.controlled_hosts:
+                # Do not exfiltrate data from external hosts
+                # Do not exfiltrate data to internal hosts
+                # Only exfiltrate data from hosts we control (implicit from the source of data)
+                # Only exfiltrate data to hosts we control
+                # Only exfiltrate data from hosts with data
+                # Only exfiltrate data to hosts we control
+                # Do not exfiltrate to and from the same host
+                # Do not exfiltarte to the target host if it is blocked in that source host
+                # Do not exfiltarte to the source host if it is blocked in that target host
+                # Do not exfiltrate to the same host you are in
+                # Do not exfiltrate if the target_host already has the data
+                if (
+                    (
                         type(target_host) is str 
                         and 'external' in target_host # Controversial rule since some agents may choose to temporarily exfiltrate to an internal host to avoid detection
                         and type(source_host) is str 
                         and 'external' not in source_host
-                    ) or (
-                        network.is_private() 
-                        and source_host.is_private()
+                    ) and (
+                        target_host in state.controlled_hosts
+                        and not is_fw_blocked(state, source_host, target_host)
+                        and not is_fw_blocked(state, target_host, source_host)
+                        and target_host != source_host
+                    ) and (
+                        data_list is not None
+                        and target_host != source_host
                     )
-                ) and (
-                    target_host in state.controlled_hosts
-                    and not is_fw_blocked(state, source_host, target_host)
-                    and not is_fw_blocked(state, target_host, source_host)
-                    and target_host != source_host
-                ) and (
-                    data_list is not None
-                )
-            ): 
-                for data in data_list:
-                    for target_host in state.controlled_hosts:
-                        if target_host != source_host:
+                ): 
+                    for data in data_list:
+                        data_was_not_exfiltrated_before = True
+                        try:
+                            # Is the target_host in the list of known_hosts?
+                            _ = state.known_data[target_host]
+                            for exfiltrated_data in state.known_data[target_host]: 
+                                # Does the target_host already have the data?
+                                if exfiltrated_data.id == data.id:
+                                    data_was_not_exfiltrated_before = False
+                                    break
+                        except KeyError:
+                            data_was_not_exfiltrated_before = False
+
+                        if data_was_not_exfiltrated_before:
                             valid_actions.add(Action(ActionType.ExfiltrateData, parameters={"target_host": target_host, "source_host": source_host, "data": data}))
 
         # BlockIP
@@ -184,15 +172,10 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
             # Do not block the same host you are in
             if (
                 (
-                        (
-                        type(target_host) is str 
-                        and 'external' not in target_host 
-                        and type(source_host) is str 
-                        and 'external' not in source_host
-                    ) or (
-                        network.is_private() 
-                        and source_host.is_private()
-                    )
+                    type(target_host) is str 
+                    and 'external' not in target_host 
+                    and type(source_host) is str 
+                    and 'external' not in source_host
                 ) and (
                     (
                     target_host in state.controlled_hosts
@@ -336,7 +319,7 @@ def _categorize_host_by_service(host, service, counter, host_words, host_concept
     """
     for word in host_words:
         if word in service.name:
-            host_idx = IP(host_concept + str(counter))
+            host_idx = host_concept + str(counter)
             concept_mapping['known_hosts'][host_idx] = host
             try:
                 ip_to_concept[host].add(host_idx)
@@ -618,13 +601,13 @@ def _convert_target_host_concept_to_ip(target_host_concept, concept_observation,
 
     Args:
         target_host_concept: The concept host to convert
-        concept_observation: The observation that now has concepts
+        concept_observation: The tuple that inside as an observation and the concept mapping
         use_controlled_hosts: If True, search in controlled_hosts, otherwise in known_hosts
 
     Returns:
         The corresponding IP address
     """
-    host_mapping_set = concept_observation.state.controlled_hosts if use_controlled_hosts else concept_observation.state.known_hosts
+    host_mapping_set = concept_observation.concept_mapping['controlled_hosts'] if use_controlled_hosts else concept_observation.concept_mapping['known_hosts']
 
     # Check if the target host concept exists in the mapping
     if target_host_concept in host_mapping_set:
@@ -651,12 +634,12 @@ def _convert_source_host_concept_to_ip(src_host_concept, concept_observation):
 
     Args:
         src_host_concept: The concept host to convert
-        concept_observation: The concept observstion mapping containing concept to IP mappings
+        concept_observation: The tuple that inside as an observation and the concept mapping
 
     Returns:
         The corresponding IP address
     """
-    controlled_hosts_dict = concept_observation.state.controlled_hosts
+    controlled_hosts_dict = concept_observation.concept_mapping['controlled_hosts']
 
     # Check if the source host concept exists in the mapping
     if src_host_concept in controlled_hosts_dict:
@@ -674,12 +657,12 @@ def _convert_network_concept_to_ip(target_net_concept, concept_observation):
 
     Args:
         target_net_concept: The concept network to convert
-        concept_observation: The concept observstion mapping containing concept to Network mappings
+        concept_observation: The tuple that inside as an observation and the concept mapping
 
     Returns:
         The corresponding network object
     """
-    networks_dict = concept_observation.state.known_networks
+    networks_dict = concept_observation.concept_mapping['known_networks']
 
     # Check if the target network concept exists in the mapping
     if target_net_concept in networks_dict:
