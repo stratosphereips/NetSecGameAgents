@@ -2,6 +2,7 @@
 # This is the conceptual Q-learning attacking agent.
 # It uses concepts instead of IP addresses to learn the Q-table.
 
+from collections import namedtuple
 import sys
 import numpy as np
 import random
@@ -62,12 +63,13 @@ class QAgent(BaseAgent):
         # Here the state has to be ordered, so different orders are not taken as two different states.
         state_str = state_as_ordered_string(state)
         if state_str not in self._str_to_id:
-            self._str_to_id[state_str] = len(self._str_to_id)
+            #self._str_to_id[state_str] = int(len(self._str_to_id)/2) # There are now twice more states because one is with concepts and one with IPs
+            self._str_to_id[state_str] = len(self._str_to_id) 
         return self._str_to_id[state_str]
     
-    def max_action_q(self, observation:Observation) -> Action:
+    def max_action_q(self, concept_observation:Observation) -> Action:
         """ Get the action that maximices the q_value for a given observation """
-        state = observation.state
+        state = concept_observation.observation.state
         actions = generate_valid_actions_concepts(state)
         state_id = self.get_state_id(state)
         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
@@ -102,15 +104,13 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action] = 0
             return action, state_id
 
-    def recompute_reward(self, observation: Observation) -> Observation:
+    def recompute_reward(self, concept_observation: Observation) -> Observation:
         """
         Redefine how this agent recomputes its inner reward
         """
-        new_observation = None
-        state = observation.state
-        reward = observation.reward
-        end = observation.end
-        info = observation.info
+        state = concept_observation.observation.state
+        end = concept_observation.observation.end
+        info = concept_observation.observation.info
 
         if info and info['end_reason'] == AgentStatus.Fail:
             reward = -1000
@@ -121,7 +121,8 @@ class QAgent(BaseAgent):
         else:
             reward = -1
         
-        new_observation = Observation(state, reward, end, info)
+        new_observation = namedtuple('ConceptObservation', ['observation', 'concept_mapping'])
+        new_observation = new_observation(Observation(state, reward, end, info), concept_observation.concept_mapping)
         return new_observation
 
     def update_epsilon_with_decay(self, episode_number)->float:
@@ -151,7 +152,7 @@ class QAgent(BaseAgent):
             start_time = time.time()
             # Get next action. If we are not training, selection is different, so pass it as argument
             concept_action, state_id = self.select_action(concept_observation.observation, testing)
-            self.logger.info(f"Action selected:{action}")
+            self.logger.info(f"Action selected:{concept_action}")
 
             # Convert the action with concepts to the action with IPs
             action = convert_concepts_to_actions(concept_action, concept_observation)
@@ -165,12 +166,13 @@ class QAgent(BaseAgent):
             concept_observation = convert_ips_to_concepts(observation, self.logger)
            
             # Recompute the rewards
-            observation = self.recompute_reward(concept_observation.observation)
+            #observation = self.recompute_reward(concept_observation)
+            concept_observation = self.recompute_reward(concept_observation)
 
             # Update the Q-table
             if not testing:
                 # If we are training update the Q-table. If in testing do not update, so no learning in testing.
-                self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
+                self.q_values[state_id, concept_action] += self.alpha * (concept_observation.observation.reward + self.gamma * self.max_action_q(concept_observation)) - self.q_values[state_id, concept_action]
 
             # Check the apm (actions per minute)
             if self._apm_limit:
