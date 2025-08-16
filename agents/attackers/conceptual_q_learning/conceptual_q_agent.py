@@ -410,7 +410,7 @@ if __name__ == '__main__':
                             # Play 1 episode
                             # See that we force the model to freeze by telling it that it is in 'testing' mode.
                             # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
-                            test_observation, test_num_steps = agent.play_game(observation, testing=True, episode_num=episode)       
+                            test_observation, test_num_steps = agent.play_game(concept_observation, testing=True, episode_num=episode)       
 
                             test_state = test_observation.state
                             test_reward = test_observation.reward
