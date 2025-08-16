@@ -428,7 +428,6 @@ def convert_ips_to_concepts(observation, logger):
 
     ##########################
     # Convert the known hosts
-    logger.info(f'\tI2C: Converting known hosts')
     logger.info(f'\tI2C: Real state known hosts: {state.known_hosts}')
     logger.info(f'\tI2C: Real state controlled hosts: {state.controlled_hosts}')
     # Counter to separate concepts in same category
