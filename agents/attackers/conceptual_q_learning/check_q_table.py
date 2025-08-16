@@ -32,10 +32,10 @@ def show_q_table():
 
         for index, (key, value) in enumerate(sorted_items.items()):
             if value == max_value:
-                print(Fore.RED + f'\t{key} -> {value}')
+                print(Fore.RED + f'\t{key} -> {value}' + Fore.RESET)
             else:
                 if not args.only_top:
-                    print(Fore.GREEN + f'\t{key} -> {value}')
+                    print(Fore.GREEN + f'\t{key} -> {value}' + Fore.RESET)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
@@ -46,7 +46,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # For the colorama
-    init(autoreset=True)
+    init(strip=False)  # Changed from autoreset=True
 
     load_q_table()
 
