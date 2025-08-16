@@ -19,23 +19,38 @@ def show_q_table():
     """
     Show details about a state in the qtable
     """
+    # Get max valid state id
+    max_state = len(states) - 1
+    
+    # Validate state range
+    if args.state_id > max_state:
+        print(f"Error: state_id {args.state_id} is out of range. Max state is {max_state}")
+        return
+    
+    last_state = min(args.last_state_id, max_state) if args.last_state_id > 0 else args.state_id
+    
+    print(f"Showing states from {args.state_id} to {last_state} (max available: {max_state})")
 
-    for state in range(args.state_id, args.last_state_id + 1):
-        print(f'\n-------------------------------------')
-        print(f'State: {list(states.items())[state]}')
-        filtered_items = {key: value for key, value in q_values.items() if key[0] == state}
+    for state in range(args.state_id, last_state + 1):
+        try:
+            print(f'\n-------------------------------------')
+            print(f'State {state}: {list(states.items())[state]}')
+            filtered_items = {key: value for key, value in q_values.items() if key[0] == state}
 
-        sorted_items = dict(sorted(filtered_items.items(), key=lambda item: item[1], reverse=True))
+            sorted_items = dict(sorted(filtered_items.items(), key=lambda item: item[1], reverse=True))
 
-        # Identify the maximum value
-        max_value = next(iter(sorted_items.values()), None)
+            # Identify the maximum value 
+            max_value = next(iter(sorted_items.values()), None)
 
-        for index, (key, value) in enumerate(sorted_items.items()):
-            if value == max_value:
-                print(Fore.RED + f'\t{key} -> {value}' + Fore.RESET)
-            else:
-                if not args.only_top:
-                    print(Fore.GREEN + f'\t{key} -> {value}' + Fore.RESET)
+            for index, (key, value) in enumerate(sorted_items.items()):
+                if value == max_value:
+                    print(Fore.RED + f'\t{key} -> {value}' + Fore.RESET)
+                else:
+                    if not args.only_top:
+                        print(Fore.GREEN + f'\t{key} -> {value}' + Fore.RESET)
+        except IndexError:
+            print(f"Error: Could not access state {state}")
+            continue
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
