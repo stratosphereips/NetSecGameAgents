@@ -104,25 +104,29 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action] = 0
             return action, state_id
 
-    def recompute_reward(self, concept_observation: Observation) -> Observation:
+    def recompute_reward(self, observation: Observation) -> Observation:
         """
         Redefine how this agent recomputes its inner reward
         """
-        state = concept_observation.observation.state
-        end = concept_observation.observation.end
-        info = concept_observation.observation.info
+        state = observation.state
+        end = observation.end
+        info = observation.info
+        reward = observation.reward # Just to pass it over in the first observation
 
-        if info and info['end_reason'] == AgentStatus.Fail:
-            reward = -1000
-        elif info and info['end_reason'] == AgentStatus.Success:
-            reward = 1000
-        elif info and info['end_reason'] == AgentStatus.TimeoutReached:
-            reward = -100
-        else:
-            reward = -1
-        
-        new_observation = namedtuple('ConceptObservation', ['observation', 'concept_mapping'])
-        new_observation = new_observation(Observation(state, reward, end, info), concept_observation.concept_mapping)
+        # The first observation from the env does not have an end reson yet
+        try:
+            if info and info['end_reason'] == AgentStatus.Fail:
+                reward = -1000
+            elif info and info['end_reason'] == AgentStatus.Success:
+                reward = 1000
+            elif info and info['end_reason'] == AgentStatus.TimeoutReached:
+                reward = -100
+            else:
+                reward = -1
+        except KeyError:
+            pass
+
+        new_observation = Observation(state, reward, end, info)
         return new_observation
 
     def update_epsilon_with_decay(self, episode_number)->float:
@@ -163,14 +167,15 @@ class QAgent(BaseAgent):
             observation = self.make_step(action)
             self.logger.info(f"\n[+] State after action:{observation}")
 
-            # Convert the obvervation to conceptual observation
+            # Recompute the rewards
+            observation = self.recompute_reward(observation)
+
+            # Convert the observation to conceptual observation
             # From now one the observation will be in concepts
             concept_observation = convert_ips_to_concepts(observation, self.logger)
            
-            # Recompute the rewards
-            #observation = self.recompute_reward(concept_observation)
-            concept_observation = self.recompute_reward(concept_observation)
-            self.logger.info(f"\n[+] Concept observation after reward engineering:{concept_observation.observation.reward}")
+            #concept_observation = self.recompute_reward(concept_observation)
+            self.logger.info(f"\n[+] Reward of last action (after reward engineering): {concept_observation.observation.reward}")
 
             # Update the Q-table
             if not testing:
