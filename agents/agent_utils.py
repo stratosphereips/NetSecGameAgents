@@ -8,7 +8,7 @@ author: Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 from collections import namedtuple
 import random
 import ipaddress
-from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, IP, Network
+from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, Network, AgentStatus
 
 def generate_valid_actions_concepts(state: GameState, include_blocks=False)->list:
     """
@@ -276,24 +276,20 @@ def recompute_reward(observation: Observation) -> Observation:
     out: Observation object
     """
     new_observation = None
-    state = observation['state']
-    reward = observation['reward']
-    end = observation['end']
-    info = observation['info']
+    state = observation.state
+    reward = observation.reward
+    end = observation.end
+    info = observation.info
 
     # The rewards hare are the originals from the env. 
     # Each agent can do this differently
-    if info and info['end_reason'] == 'blocked':
-        # Reward when we are detected
+    if info and info['end_reason'] == AgentStatus.Fail:
         reward = -100
-    elif info and info['end_reason'] == 'goal_reached':
-        # Reward when we win
+    elif info and info['end_reason'] == AgentStatus.Success:
         reward = 100
-    elif info and info['end_reason'] == 'max_steps':
-        # Reward when we hit max steps
+    elif info and info['end_reason'] == AgentStatus.TimeoutReached:
         reward = -1
     else:
-        # Reward when we hit max steps
         reward = -1
     
     new_observation = Observation(GameState.from_dict(state), reward, end, info)
@@ -428,8 +424,11 @@ def convert_ips_to_concepts(observation, logger):
 
     ##########################
     # Convert the known hosts
+    logger.info(f'\tI2C: Real state known nets: {state.known_networks}')
     logger.info(f'\tI2C: Real state known hosts: {state.known_hosts}')
     logger.info(f'\tI2C: Real state controlled hosts: {state.controlled_hosts}')
+    logger.info(f'\tI2C: Real state known services: {state.known_services}')
+    logger.info(f'\tI2C: Real state known data: {state.known_data}')
     # Counter to separate concepts in same category
     counter = 0
     for host in state.known_hosts:
@@ -456,10 +455,16 @@ def convert_ips_to_concepts(observation, logger):
 
                 # The same host can have multiple services, so it can be in multiple concepts
                 # Try to categorize the host based on its services
-                _categorize_host_by_service(host, service, counter, db_hosts_words, db_hosts_concept, concept_mapping, ip_to_concept, unknown_hosts, state)
-                _categorize_host_by_service(host, service, counter, web_hosts_words, web_hosts_concept, concept_mapping, ip_to_concept, unknown_hosts, state)
-                _categorize_host_by_service(host, service, counter, remote_hosts_words, remote_hosts_concept, concept_mapping, ip_to_concept, unknown_hosts, state)
-                _categorize_host_by_service(host, service, counter, files_hosts_words, files_hosts_concept, concept_mapping, ip_to_concept, unknown_hosts, state)
+                if (
+                    not _categorize_host_by_service(host, service, counter, db_hosts_words, db_hosts_concept, concept_mapping, ip_to_concept, unknown_hosts, state) 
+                    and not _categorize_host_by_service(host, service, counter, web_hosts_words, web_hosts_concept, concept_mapping, ip_to_concept, unknown_hosts, state) 
+                    and not _categorize_host_by_service(host, service, counter, remote_hosts_words, remote_hosts_concept, concept_mapping, ip_to_concept, unknown_hosts, state) 
+                    and not _categorize_host_by_service(host, service, counter, files_hosts_words, files_hosts_concept, concept_mapping, ip_to_concept, unknown_hosts, state)
+                    ):
+                    # This host did not match any of the concepts, so it is unknown
+                    unknown_hosts.add(host)
+                    ip_to_concept[host] = {'unknown'}
+
         else:
             # These are all the devices without services
             # A device can be controlled (specially in the first state from the env)
