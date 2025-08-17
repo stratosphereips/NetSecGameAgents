@@ -152,14 +152,16 @@ class QAgent(BaseAgent):
             start_time = time.time()
             # Get next action. If we are not training, selection is different, so pass it as argument
             concept_action, state_id = self.select_action(concept_observation.observation, testing)
-            self.logger.info(f"Action selected:{concept_action}")
+            self.logger.info(f"\n\n ==================================== \n\n[+] Concept Action selected:{concept_action}")
 
             # Convert the action with concepts to the action with IPs
             action = convert_concepts_to_actions(concept_action, concept_observation)
+            self.logger.info(f"\n[+] Real Action selected:{action}")
 
             # Perform the action and observe next observation
             # This observation is in IPs
             observation = self.make_step(action)
+            self.logger.info(f"\n[+] State after action:{observation}")
 
             # Convert the obvervation to conceptual observation
             # From now one the observation will be in concepts
@@ -168,6 +170,7 @@ class QAgent(BaseAgent):
             # Recompute the rewards
             #observation = self.recompute_reward(concept_observation)
             concept_observation = self.recompute_reward(concept_observation)
+            self.logger.info(f"\n[+] Concept observation after reward engineering:{concept_observation.observation.reward}")
 
             # Update the Q-table
             if not testing:
