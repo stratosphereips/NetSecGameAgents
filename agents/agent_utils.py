@@ -295,38 +295,6 @@ def recompute_reward(observation: Observation) -> Observation:
     new_observation = Observation(GameState.from_dict(state), reward, end, info)
     return new_observation
 
-def _categorize_host_by_service(host, service, counter, host_words, host_concept, concept_mapping, ip_to_concept, unknown_hosts, state):
-    """
-    Helper function to categorize a host based on service keywords.
-
-    Args:
-        host: The host to categorize
-        service: The service object
-        counter: Counter for unique concept naming
-        host_words: List of keywords to match against service name
-        host_concept: The concept name (e.g., 'db', 'web', 'remote', 'files')
-        concept_mapping: The mapping dictionary
-        ip_to_concept: Reverse mapping from IP to concepts
-        unknown_hosts: Set of unknown hosts
-        state: The game state
-
-    Returns:
-        True if host was categorized, False otherwise
-    """
-    for word in host_words:
-        if word in service.name:
-            host_idx = host_concept + str(counter)
-            concept_mapping['known_hosts'][host_idx] = host
-            ip_to_concept[host] = host_idx
-            # Is it also controlled?
-            if host in state.controlled_hosts:
-                concept_mapping['controlled_hosts'][host_idx] = host
-            # Remove from unknowns
-            unknown_hosts.discard(host)
-            return True  # Found a match, break out of word loop
-    return False  # No match found
-
-
 def convert_ips_to_concepts(observation, logger):
     """
     Function to convert the IPs and networks in the observation into a concept 
@@ -366,10 +334,12 @@ def convert_ips_to_concepts(observation, logger):
     external_hosts_concept = 'external'
     external_hosts_concept_counter = 0
     unknown_hosts_concept = 'unknown'
-    unknown_hosts_concept_counter = 0
     priv_hosts_concept = 'host'
     priv_hosts_concept_counter = 0
     unknown_hosts = set()
+    network_concept = 'net'
+    network_concept_counter = 0
+   
 
     # To have a reverse dict of ips to concepts so we can assign the controlled hosts fast from the known hosts
     # This is a performance trick
@@ -389,78 +359,6 @@ def convert_ips_to_concepts(observation, logger):
     # We do not convert the controlled hosts directly because they are converted when we do
     # known_hosts and services and data. In that way we can keep track of the correct counters. 
     # So no need to do it separated here.
-
-    ##########################
-    # Convert Services FIRST
-    # state.known_services: dict. {'ip': Service object}
-    #   Service - Object
-    #       service.name '22/tcp, openssh' (what in the configuration is 'type'). 
-    #       service.type 'passive' | 'active' (This is added by our env when finding the )
-    #       service.version : '1.1.1.'
-    #       service.is_local: Bool (if the service is only for localhost (True) or external (False))
-    # It is ok to add the services one by one in the concept even if the were before all together in a set() in the real state
-    # because later when the actions are created each service is used for a new action.
-    # Services should be converted first because a host concept depends on the services it has.
-
-    for ip, services in state.known_services.items():
-        for service in services:
-            # Ignore local services since can not be attacked from the outside
-            if not service.is_local:
-                # Get port number
-                try:
-                    port_number = service.name.split(", ")[0]
-                except IndexError:
-                    port_number = 'NoPort'
-
-                # Previous concept name
-                try:
-                    concepts_host_idx = ip_to_concept[ip]
-                    # Now remove the past name
-                    ip_to_concept.pop(ip)
-                except KeyError:
-                    # We dont know this host yet
-                    concepts_host_idx = 'host'
-
-                # Add the port to the host concept 
-                new_concepts_host_idx = f'{concepts_host_idx}_{port_number}'
-                concept_mapping['known_services'][new_concepts_host_idx] = service
-                # Add to ip_to_concept
-                ip_to_concept[ip] = new_concepts_host_idx
-
-                # Check if that old concept was in known_hosts and delete it
-                try:
-                    _ = concept_mapping['known_hosts'][concepts_host_idx]
-                    # Remove it from known hosts
-                    concept_mapping['known_hosts'].pop(concepts_host_idx)
-                except KeyError:
-                    # Was not there
-                    pass
-                # Check if that concept was in controlled_hosts
-                try:
-                    _ = concept_mapping['controlled_hosts'][concepts_host_idx]
-                    # Remove it from controlled hosts
-                    concept_mapping['controlled_hosts'].pop(concepts_host_idx)
-                except KeyError:
-                    # Was not there
-                    pass
-                # Check if that concept was in known_data
-                try:
-                    _ = concept_mapping['known_data'][concepts_host_idx]
-                    # Remove it from known data
-                    concept_mapping['known_data'].pop(concepts_host_idx)
-                except KeyError:
-                    # Was not there
-                    pass
-                # Check if that concept was in known_blocks
-                try:
-                    _ = concept_mapping['known_blocks'][concepts_host_idx]
-                    # Remove it from known blocks
-                    concept_mapping['known_blocks'].pop(concepts_host_idx)
-                except KeyError:
-                    # Was not there
-                    pass
-         # not _categorize_host_by_service(host, service, counter, db_hosts_words, db_hosts_concept, concept_mapping, ip_to_concept, unknown_hosts, state) 
-
 
      ##########################
     # Convert the known hosts
@@ -491,6 +389,106 @@ def convert_ips_to_concepts(observation, logger):
             concept_mapping['known_hosts'][unknown_hosts_idx] = unknown_hosts
             ip_to_concept[host] = unknown_hosts_idx
 
+    ##########################
+    # Convert Services
+    # state.known_services: dict. {'ip': Service object}
+    #   Service - Object
+    #       service.name '22/tcp, openssh' (what in the configuration is 'type'). 
+    #       service.type 'passive' | 'active' (This is added by our env when finding the )
+    #       service.version : '1.1.1.'
+    #       service.is_local: Bool (if the service is only for localhost (True) or external (False))
+    # It is ok to add the services one by one in the concept even if the were before all together in a set() in the real state
+    # because later when the actions are created each service is used for a new action.
+
+    for ip, services in state.known_services.items():
+        # Get port numbers
+        port_numbers = ''
+        for service in services:
+            # Ignore local services since can not be attacked from the outside
+            if not service.is_local:
+                try:
+                    port_numbers += '_' + service.name.split(", ")[0]
+                except IndexError:
+                    port_numbers = 'NoPort'
+
+        # Now deal with all the services together
+
+        # If it was before in ip to concepts, delete for now  so we can change the name
+        try:
+            prev_concepts_host_idx = ip_to_concept[ip]
+            # Now remove the past name
+            ip_to_concept.pop(ip)
+        except KeyError:
+            # We dont have it. ok.
+            pass
+
+        # All hosts that have some ports are not called 'unknown' but 'host'.
+        concepts_host_idx = 'host' + str(priv_hosts_concept_counter)
+        priv_hosts_concept_counter += 1
+
+        # Add the ports to the host concept 
+        new_concepts_host_idx = f'{concepts_host_idx}{port_numbers}'
+        # Change the old concept name to the new one
+        concept_mapping['known_services'][new_concepts_host_idx] = services
+
+        # Add to ip_to_concept
+        ip_to_concept[ip] = new_concepts_host_idx
+
+        # Check if that old concept was in known_hosts and delete it
+        try:
+            _ = concept_mapping['known_hosts'][prev_concepts_host_idx]
+            # Rename it from known hosts
+            # Case for 'unknown' that groups hosts
+            if type(concept_mapping['known_hosts'][prev_concepts_host_idx]) is set: 
+                concept_mapping['known_hosts'][prev_concepts_host_idx].discard(ip)
+            else:
+                # Case for the rest of concepts
+                del concept_mapping['known_hosts'][prev_concepts_host_idx]
+            concept_mapping['known_hosts'][new_concepts_host_idx] = ip
+        except KeyError:
+            # Was not there
+            pass
+
+        # Check if that concept was in controlled_hosts
+        try:
+            _ = concept_mapping['controlled_hosts'][prev_concepts_host_idx]
+            # Rename it from controlled hosts
+            if type(concept_mapping['controlled_hosts'][prev_concepts_host_idx]) is set: 
+                concept_mapping['controlled_hosts'][prev_concepts_host_idx].discard(ip)
+            else:
+                del concept_mapping['controlled_hosts'][prev_concepts_host_idx]
+            concept_mapping['controlled_hosts'][new_concepts_host_idx] = ip
+        except KeyError:
+            # Was not there
+            pass
+
+        # Check if that concept was in known_data
+        try:
+            _ = concept_mapping['known_data'][prev_concepts_host_idx]
+            # Remove it from known data
+            if type(concept_mapping['known_data'][prev_concepts_host_idx]) is set: 
+                concept_mapping['known_data'][prev_concepts_host_idx].discard(ip)
+            else:
+                del concept_mapping['known_data'][prev_concepts_host_idx]
+            concept_mapping['known_data'][new_concepts_host_idx] = ip
+        except KeyError:
+            # Was not there
+            pass
+
+        # Check if that concept was in known_blocks
+        try:
+            _ = concept_mapping['known_blocks'][prev_concepts_host_idx]
+            # Remove it from known blocks
+            if type(concept_mapping['known_blocks'][prev_concepts_host_idx]) is set: 
+                concept_mapping['known_blocks'][prev_concepts_host_idx].discard(ip)
+            else:
+                del concept_mapping['known_blocks'][prev_concepts_host_idx]
+            concept_mapping['known_blocks'][new_concepts_host_idx] = ip
+        except KeyError:
+            # Was not there
+            pass
+
+
 
     ##########################
     # Convert Data
@@ -502,21 +500,23 @@ def convert_ips_to_concepts(observation, logger):
         concept_host_idx = ip_to_concept[ip]
         concept_mapping['known_data'][concept_host_idx] = data
 
+
     ##########################
     # Convert Networks
+
     # The set for my networks. Networks here you control a host
     my_networks = set()
-    # The index object
     my_nets = Network('privnet', 24)
 
-    # The set
+    # The set of unknown networks
     unknown_networks = set()
-    # The index object
     unknown_nets = Network('unknown', 24)
 
     for network in state.known_networks:
-        # net_assigned is only to speed up the process when a network has been added because the agent
-        # controlls a host there, or two.
+        # We dont want to use external networks
+        if not network.is_private():
+            continue
+
         net_assigned = False
 
         # Find the privnets networks. If we control a host in this network, it is privnet
