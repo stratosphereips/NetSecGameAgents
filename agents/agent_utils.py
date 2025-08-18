@@ -8,6 +8,7 @@ author: Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 from collections import namedtuple
 import random
 import ipaddress
+import sys
 from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, Network, AgentStatus
 
 def generate_valid_actions_concepts(state: GameState, action_history: set, include_blocks=False)->list:
@@ -471,6 +472,8 @@ def convert_ips_to_concepts(observation, logger):
             # Case for 'unknown' that groups hosts
             if type(concept_mapping['known_hosts'][prev_concepts_host_idx]) is set: 
                 concept_mapping['known_hosts'][prev_concepts_host_idx].discard(ip)
+                if len(concept_mapping['known_hosts'][prev_concepts_host_idx]) == 0:
+                    del concept_mapping['known_hosts'][prev_concepts_host_idx] 
             else:
                 # Case for the rest of concepts
                 del concept_mapping['known_hosts'][prev_concepts_host_idx]
@@ -485,6 +488,8 @@ def convert_ips_to_concepts(observation, logger):
             # Rename it from controlled hosts
             if type(concept_mapping['controlled_hosts'][prev_concepts_host_idx]) is set: 
                 concept_mapping['controlled_hosts'][prev_concepts_host_idx].discard(ip)
+                if len(concept_mapping['controlled_hosts'][prev_concepts_host_idx]) == 0:
+                    del concept_mapping['controlled_hosts'][prev_concepts_host_idx] 
             else:
                 del concept_mapping['controlled_hosts'][prev_concepts_host_idx]
             concept_mapping['controlled_hosts'][new_concepts_host_idx] = ip
@@ -498,6 +503,8 @@ def convert_ips_to_concepts(observation, logger):
             # Remove it from known data
             if type(concept_mapping['known_data'][prev_concepts_host_idx]) is set: 
                 concept_mapping['known_data'][prev_concepts_host_idx].discard(ip)
+                if len(concept_mapping['known_data'][prev_concepts_host_idx]) == 0:
+                    del concept_mapping['known_data'][prev_concepts_host_idx] 
             else:
                 del concept_mapping['known_data'][prev_concepts_host_idx]
             concept_mapping['known_data'][new_concepts_host_idx] = ip
@@ -511,6 +518,8 @@ def convert_ips_to_concepts(observation, logger):
             # Remove it from known blocks
             if type(concept_mapping['known_blocks'][prev_concepts_host_idx]) is set: 
                 concept_mapping['known_blocks'][prev_concepts_host_idx].discard(ip)
+                if len(concept_mapping['known_blocks'][prev_concepts_host_idx]) == 0:
+                    del concept_mapping['known_blocks'][prev_concepts_host_idx] 
             else:
                 del concept_mapping['known_blocks'][prev_concepts_host_idx]
             concept_mapping['known_blocks'][new_concepts_host_idx] = ip
@@ -596,7 +605,12 @@ def _convert_target_host_concept_to_ip(target_host_concept, concept_observation,
         if 'unknown' in str(target_host_concept):
             # For unknown hosts, choose randomly from the mapped set/value
             if isinstance(mapped_value, set):
-                return random.choice(list(mapped_value))
+                try:
+                    choice = random.choice(list(mapped_value))
+                except IndexError:
+                    print(f"IndexError in _convert_target_host_concept_to_ip. mapped_value: {mapped_value}. target_host_concept: {target_host_concept}, host_mapping_set: {host_mapping_set}")
+                    sys.exit(1)
+                return choice
             else:
                 return mapped_value
         else:
