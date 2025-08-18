@@ -10,9 +10,11 @@ import random
 import ipaddress
 from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, Network, AgentStatus
 
-def generate_valid_actions_concepts(state: GameState, include_blocks=False)->list:
+def generate_valid_actions_concepts(state: GameState, action_history: set, include_blocks=False)->list:
     """
     Function that generates a list of all valid actions in a given state for the conceptual agents.
+    It receives the concepts_acted_on set that contains the concepts that have been already acted on. To avoid 
+    acting on the same concept twice.
     """
 
     def is_fw_blocked(state, source_host, target_host)->bool:
@@ -37,7 +39,10 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
                 and type(source_host) is str 
                 and 'external' not in source_host
             ): 
-                valid_actions.add(Action(ActionType.ScanNetwork, parameters={"target_network": network, "source_host": source_host,}))
+                action = Action(ActionType.ScanNetwork, parameters={"target_network": network, "source_host": source_host,})
+                # Check if the action is in the history of actions
+                if action not in action_history:
+                    valid_actions.add(action)
 
         # Service Scans
         for target_host in state.known_hosts:
@@ -56,10 +61,17 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
                 ) and (
                     not is_fw_blocked(state, source_host, target_host)
                     and not is_fw_blocked(state, target_host, source_host)
-                    and target_host != source_host
+                    # And target_host has no services, so we dont search for services if we have them
+                    and target_host not in state.known_services
                 )
             ): 
-                valid_actions.add(Action(ActionType.FindServices, parameters={"target_host": target_host, "source_host": source_host,}))
+                action = Action(ActionType.FindServices, parameters={"target_host": target_host, "source_host": source_host,})
+                # Check if the action is in the history of actions
+                if 'unknown' in target_host:
+                    valid_actions.add(action)
+                    continue
+                elif action not in action_history:
+                    valid_actions.add(action)
 
         # Service Exploits
         for target_host, service_list in state.known_services.items():
@@ -81,12 +93,17 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
                     and not is_fw_blocked(state, source_host, target_host)
                     and not is_fw_blocked(state, target_host, source_host)
                     and target_host != source_host
+                    # and target_host is not controlled host so we dont re exploit an exploited host from any source
+                    and target_host not in state.controlled_hosts
                 )
             ):
                 for service in service_list:
                     # Do not consider local services, which are internal to the target_host
                     if not service.is_local:
-                        valid_actions.add(Action(ActionType.ExploitService, parameters={"target_host": target_host,"target_service": service,"source_host": source_host,}))
+                        action = Action(ActionType.ExploitService, parameters={"target_host": target_host,"target_service": service,"source_host": source_host,})
+                        # Check if the action is in the history of actions
+                        if action not in action_history:
+                            valid_actions.add(action)
 
         # Find Data Scans
         for target_host in state.controlled_hosts:
@@ -106,10 +123,14 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
                     target_host in state.controlled_hosts
                     and not is_fw_blocked(state, source_host, target_host)
                     and not is_fw_blocked(state, target_host, source_host)
-                    and target_host != source_host
+                    # And target_host does not has currently data
+                    and target_host not in state.known_data
                 )
             ): 
-                valid_actions.add(Action(ActionType.FindData, parameters={"target_host": target_host, "source_host": source_host}))
+                action = Action(ActionType.FindData, parameters={"target_host": target_host, "source_host": source_host})
+                # Check if the action is in the history of actions
+                if action not in action_history:
+                    valid_actions.add(action)
 
         # Data Exfiltration
         for source_host, data_list in state.known_data.items():
@@ -128,7 +149,7 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
                 if (
                     (
                         type(target_host) is str 
-                        and 'external' in target_host # Controversial rule since some agents may choose to temporarily exfiltrate to an internal host to avoid detection
+                        and 'external' not in target_host # Controversial rule since some agents may choose to temporarily exfiltrate to an internal host to avoid detection
                         and type(source_host) is str 
                         and 'external' not in source_host
                     ) and (
@@ -142,6 +163,8 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
                     )
                 ): 
                     for data in data_list:
+                        # This check not to exfiltrate the data several times is more organic here
+                        # checking if the data is already in the target controlled host
                         data_was_not_exfiltrated_before = True
                         try:
                             # Is the target_host in the list of known_hosts?
@@ -154,8 +177,11 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
                         except KeyError:
                             data_was_not_exfiltrated_before = False
 
-                        if data_was_not_exfiltrated_before:
-                            valid_actions.add(Action(ActionType.ExfiltrateData, parameters={"target_host": target_host, "source_host": source_host, "data": data}))
+                        action = Action(ActionType.ExfiltrateData, parameters={"target_host": target_host, "source_host": source_host, "data": data})
+                        # Check if the action is in the history of actions
+                        if data_was_not_exfiltrated_before and action not in action_history:
+                            valid_actions.add(action)
+
 
         # BlockIP
         if include_blocks:
@@ -188,7 +214,12 @@ def generate_valid_actions_concepts(state: GameState, include_blocks=False)->lis
                     for target_host in state.controlled_hosts:
                         if not is_fw_blocked(state, source_host, target_host):
                             for blocked_host in state.known_hosts:
-                                valid_actions.add(Action(ActionType.BlockIP, {"target_host":target_host, "source_host":source_host, "blocked_host":blocked_host}))
+                                # Check if the action is in the history of actions
+                                action = Action(ActionType.BlockIP, {"target_host":target_host, "source_host":source_host, "blocked_host":blocked_host})
+                                if action not in action_history:
+                                    valid_actions.add(action)
+    if len(valid_actions) == 0:
+        print("No valid actions")
     return list(valid_actions)
 
 def generate_valid_actions(state: GameState, include_blocks=False)->list:
