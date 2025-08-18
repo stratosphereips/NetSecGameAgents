@@ -15,7 +15,7 @@ import mlflow
 
 from os import path, makedirs
 # with the path fixed, we can import now
-from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus
+from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus, ActionType
 from NetSecGameAgents.agents.base_agent import BaseAgent
 from NetSecGameAgents.agents.agent_utils import state_as_ordered_string, convert_ips_to_concepts, convert_concepts_to_actions, generate_valid_actions_concepts
 
@@ -36,6 +36,10 @@ class QAgent(BaseAgent):
             self.inter_action_interval = 60/apm_limit
         else:
             self.inter_action_interval = 0
+        # Store the concepts that got acted on
+        self.actions_history = set()
+        # store the last state seen, so we know if there was a change or not
+        self.previous_state = None
 
     def store_q_table(self, strpath, filename):
         """ Store the q table on disk """
@@ -63,14 +67,13 @@ class QAgent(BaseAgent):
         # Here the state has to be ordered, so different orders are not taken as two different states.
         state_str = state_as_ordered_string(state)
         if state_str not in self._str_to_id:
-            #self._str_to_id[state_str] = int(len(self._str_to_id)/2) # There are now twice more states because one is with concepts and one with IPs
             self._str_to_id[state_str] = len(self._str_to_id) 
         return self._str_to_id[state_str]
     
     def max_action_q(self, concept_observation:Observation) -> Action:
         """ Get the action that maximices the q_value for a given observation """
         state = concept_observation.observation.state
-        actions = generate_valid_actions_concepts(state)
+        actions = generate_valid_actions_concepts(state, self.actions_history)
         state_id = self.get_state_id(state)
         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
         return tmp[max(tmp,key=tmp.get)] #return maximum Q_value for a given state (out of available actions)
@@ -78,7 +81,7 @@ class QAgent(BaseAgent):
     def select_action(self, observation:Observation, testing=False) -> tuple:
         """ Select the action according to the algorithm """
         state = observation.state
-        actions = generate_valid_actions_concepts(state)
+        actions = generate_valid_actions_concepts(state, self.actions_history)
         state_id = self.get_state_id(state)
         
         # E-greedy play. If the random number is less than the e, then choose random to explore.
@@ -121,8 +124,11 @@ class QAgent(BaseAgent):
                 reward = 1000
             elif info and info['end_reason'] == AgentStatus.TimeoutReached:
                 reward = -100
+            elif state == self.previous_state: # This is not good and the agent should learn to avoid these actions
+                reward = -100
             else:
                 reward = -1
+            self.previous_state = state
         except KeyError:
             pass
 
@@ -137,6 +143,13 @@ class QAgent(BaseAgent):
         new_eps = (self.epsilon_start - self.epsilon_end ) * decay_rate + self.epsilon_end
         self.logger.debug(f"Updating epsilon - new value:{new_eps}")
         return new_eps
+    
+    def remember_action(self, concept_action):
+        """ 
+        Mark the action as done, so it is not repeated
+        """
+        self.actions_history.add(concept_action)
+        
     
     def play_game(self, concept_observation, episode_num, testing=False):
         """
@@ -161,6 +174,8 @@ class QAgent(BaseAgent):
             # Convert the action with concepts to the action with IPs
             action = convert_concepts_to_actions(concept_action, concept_observation)
             self.logger.info(f"\n[+] Real Action selected:{action}")
+
+            self.remember_action(concept_action)
 
             # Perform the action and observe next observation
             # This observation is in IPs
@@ -197,9 +212,6 @@ class QAgent(BaseAgent):
         if not testing:
             self.current_epsilon = self.update_epsilon_with_decay(episode_num)
 
-        # Reset the episode
-        # _ = self.request_game_reset()
-
         # This will be the last observation played before the reset
         return observation, num_steps
 
@@ -229,7 +241,7 @@ if __name__ == '__main__':
     # Check that the directory for the logs exist
     if not path.exists(args.logdir):
         makedirs(args.logdir)
-    logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+    logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.ERROR)
 
     # Create agent object
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes, apm_limit=args.apm)
@@ -352,6 +364,9 @@ if __name__ == '__main__':
                     # Reset the game here, after we analyzed the data of the last observation.
                     # After each episode we need to reset the game 
                     observation = agent.request_game_reset()
+                    # Reset the history of actions
+                    agent.actions_history = set()
+
                     # Convert the obvervation to conceptual observation
                     concept_observation = convert_ips_to_concepts(observation, agent._logger)
                     # From now one the observation will be in concepts
@@ -442,6 +457,9 @@ if __name__ == '__main__':
 
                             # Reset the game
                             test_observation = agent.request_game_reset()
+                            # Reset the history of actions
+                            agent.actions_history = set()
+
                             # Convert the obvervation to conceptual observation
                             test_observation = convert_ips_to_concepts(test_observation, agent._logger)
                             # From now one the observation will be in concepts
