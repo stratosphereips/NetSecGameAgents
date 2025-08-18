@@ -337,7 +337,6 @@ def convert_ips_to_concepts(observation, logger):
     priv_hosts_concept = 'host'
     priv_hosts_concept_counter = 0
     unknown_hosts = set()
-    network_concept = 'net'
     network_concept_counter = 0
    
 
@@ -504,76 +503,26 @@ def convert_ips_to_concepts(observation, logger):
     ##########################
     # Convert Networks
 
-    # The set for my networks. Networks here you control a host
-    my_networks = set()
-    my_nets = Network('privnet', 24)
-
-    # The set of unknown networks
-    unknown_networks = set()
-    unknown_nets = Network('unknown', 24)
-
     for network in state.known_networks:
         # We dont want to use external networks
         if not network.is_private():
             continue
 
-        net_assigned = False
-
-        # Find the privnets networks. If we control a host in this network, it is privnet
-        for controlled_ip in state.controlled_hosts:
-            # Be sure is a well formed IP and private, not exterrnal IP
-            if ipaddress.IPv4Address(controlled_ip.ip) in ipaddress.IPv4Network(f'{network.ip}/{network.mask}') and controlled_ip.is_private():
-                my_networks.add(network)
-                net_assigned = True
-                # Store mynets
-                concept_mapping['known_networks'][my_nets] = my_networks
-                break
-        # If this network was assigned to mynet, dont try to assign it again
-        if net_assigned:
-            continue
-
         # Find if we know hosts in this network, if we do, assign new name
-        # and remove from unknown
         number_hosts = 0
         for known_host in state.known_hosts:
             if ipaddress.IPv4Address(known_host.ip) in ipaddress.IPv4Network(f'{network.ip}/{network.mask}'):
                 # There are hosts we know in this network
                 number_hosts += 1
 
-        if number_hosts:
-            # There are hosts in this network
-            new_net = Network('net_' + str(number_hosts), 24)
+        # Add the unique network
+        new_net = Network('net_' + str(network_concept_counter) + '_' + str(number_hosts) + 'hosts', 24)
+        network_concept_counter += 1
 
-            try:
-                # Did we have a network before with this same number of hosts?
-                _ = concept_mapping['known_networks'][new_net]
-                # Yes
-                # Create a new net name with a counter to separate from the previous one with same number of hosts
-                counter_new_nets += 1
-                new_net = Network('net_' + str(number_hosts) + '_' + str(counter_new_nets), 24)
-                while concept_mapping['known_networks'][new_net]:
-                    counter_new_nets += 1
-                    new_net = Network('net_' + str(number_hosts) + '_' + str(counter_new_nets), 24)
-            except KeyError:
-                # The network is new with unique number of hosts
-                pass
-
-            concept_mapping['known_networks'][new_net] = network
-            # Remove from unknowns
-            try:
-                unknowns = concept_mapping['known_networks']['unknown/24']
-                unknowns.discard(network)
-            except KeyError:
-                pass
-            # Continue with next net
-            continue
-        else:
-            # No hosts in this network
-            # Still we didnt assigned this net, so unknown
-            unknown_networks.add(network)
-            # Store unknown nets
-            concept_mapping['known_networks'][unknown_nets] = unknown_networks
-            # In the future we can lost a controlling host in  a net, so if we add it to unknown, delete from other groups
+        # Now store in ip_to_concept
+        ip_to_concept[network] = new_net
+        # And store in concept_mapping
+        concept_mapping['known_networks'][new_net] = network
 
     logger.info(f"\tI2C: New concept known_hosts: {concept_mapping['known_hosts']}")
     logger.info(f"\tI2C: New concept controlled_hosts: {concept_mapping['controlled_hosts']}")
