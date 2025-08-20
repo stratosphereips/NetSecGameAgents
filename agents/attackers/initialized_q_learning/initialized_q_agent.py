@@ -114,11 +114,7 @@ class InitializedQAgent(BaseAgent):
             self.transition_probabilities.get(action.split('.')[-1], {}).get(action_type_str, 0) * count
             for action, count in action_counts.items()
         )
-        # sum with for loop
-        prob_sum = 0
-        for action, count in action_counts.items():
-            action_type_str = action.split('.')[-1]
-            prob_sum += self.transition_probabilities.get(action_type_str, {}).get(action_type_str, 0) * count
+       
             
         return prob_sum * 5
 
@@ -215,17 +211,14 @@ class InitializedQAgent(BaseAgent):
         return new_eps
     
     def play_game(self, observation, episode_num, testing=False):
-        """
-        The main function for the gameplay. Handles the main interaction loop.
-        """
+        if observation is None:
+            observation = self.request_game_reset() or self.register()
+
         num_steps = 0
         current_solution = []
 
-        # Run the whole episode
         while not observation.end:
-            # Store steps so far
             num_steps += 1
-            # Get next action. If we are not training, selection is different, so pass it as argument
             action, state_id = self.select_action(observation, testing)
             current_solution.append([action, None])
 
@@ -233,26 +226,25 @@ class InitializedQAgent(BaseAgent):
                 actions_logger.info(f"\tState:{observation.state}")
                 actions_logger.info(f"\tEnd:{observation.end}")
                 actions_logger.info(f"\tInfo:{observation.info}")
-            self.logger.info(f"Action selected:{action}")
-            # Perform the action and observe next observation
+            self._logger.info(f"Action selected:{action}")
+
             observation = self.make_step(action)
-           
-            # Recompute the rewards
             observation = self.recompute_reward(observation)
+
             if not testing:
-                # If we are training update the Q-table
                 self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
+
         if args.store_actions:
             actions_logger.info(f"\t State:{observation.state}")
             actions_logger.info(f"\t End:{observation.end}")
             actions_logger.info(f"\t Info:{observation.info}")
-        # update epsilon value
+
         if not testing:
             self.current_epsilon = self.update_epsilon_with_decay(episode_num)
-        # Reset the episode
-        _ = self.request_game_reset()
-        # This will be the last observation played before the reset
+
+        self.request_game_reset()
         return observation, num_steps
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
