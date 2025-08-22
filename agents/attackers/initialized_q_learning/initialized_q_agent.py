@@ -9,7 +9,7 @@ import random
 import pickle
 import argparse
 import logging
-import mlflow
+import wandb
 import subprocess
 
 from os import path, makedirs
@@ -261,7 +261,9 @@ if __name__ == '__main__':
     parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
     parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", type=str)
     parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
-    parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
+    parser.add_argument("--wandb_project", help="Weights & Biases project name.", default="netsec-initialized-qlearning", type=str)
+    parser.add_argument("--wandb_entity", help="Weights & Biases entity (team/user).", default=None, type=str)
+    parser.add_argument("--wandb_mode", help="Weights & Biases mode (online/offline).", default="online", type=str)
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=2000, type=int)
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
@@ -302,15 +304,11 @@ if __name__ == '__main__':
 
 
     if not args.testing:
-        # Mlflow experiment name        
+        # Wandb experiment name        
         experiment_name = "Training and Eval of Initialized-Q-learning Agent"
-        mlflow.set_experiment(experiment_name)
     elif args.testing:
         # Evaluate the agent performance
-
-        # Mlflow experiment name        
         experiment_name = "Testing of Initialized-Q-learning Agent"
-        mlflow.set_experiment(experiment_name)
 
 
     # This code runs for both training and testing. The difference is in the args.testing variable that is passed along
@@ -323,9 +321,36 @@ if __name__ == '__main__':
 
     # Register the agent
     observation = agent.register()
+    
+    # Check if registration was successful
+    if observation is None:
+        agent._logger.error("Agent registration failed. Exiting.")
+        print("ERROR: Agent registration failed. Make sure the game server is running and accessible.")
+        sys.exit(1)
 
     try:
-        with mlflow.start_run(run_name=experiment_name + f'. ID {args.experiment_id}') as run:
+        # Initialize Weights & Biases
+        wandb.init(
+            project=args.wandb_project,
+            entity=args.wandb_entity,
+            name=experiment_name,
+            mode=args.wandb_mode,
+            config={
+                "alpha": args.alpha,
+                "epsilon_start": args.epsilon_start,
+                "epsilon_end": args.epsilon_end,
+                "epsilon_max_episodes": args.epsilon_max_episodes,
+                "gamma": args.gamma,
+                "episodes": args.episodes,
+                "test_each": args.test_each,
+                "test_for": args.test_for,
+                "testing": args.testing,
+                "early_stop_threshold": args.early_stop_threshold,
+                "transition_path": args.transition_path
+            }
+        )
+        
+        try:
             # To keep statistics of each episode
             wins = 0
             detected = 0
@@ -337,31 +362,31 @@ if __name__ == '__main__':
             num_win_returns = []
             num_max_steps_returns = []
 
-            # Log more things in Mlflow
-            mlflow.set_tag("experiment_name", experiment_name)
-            # Log notes or additional information
-            mlflow.set_tag("notes", "This is an evaluation")
-            if args.previous_model:
-                mlflow.set_tag("Previous q-learning model loaded", str(args.previous_model))
-            mlflow.log_param("alpha", args.alpha)
-            mlflow.log_param("epsilon_start", args.epsilon_start)
-            mlflow.log_param("epsilon_end", args.epsilon_end)
-            mlflow.log_param("epsilon_max_episodes", args.epsilon_max_episodes)
-            mlflow.log_param("gamma", args.gamma)
-            mlflow.log_param("Episodes", args.episodes)
-            mlflow.log_param("Test each", str(args.test_each))
-            mlflow.log_param("Test for", str(args.test_for))
-            mlflow.log_param("Testing", str(args.testing))
+            # Add additional wandb metadata
+            wandb.config.update({
+                "experiment_name": experiment_name,
+                "notes": "This is an evaluation",
+                "previous_model": str(args.previous_model) if args.previous_model else None
+            })
+            
+            # Set wandb tags
+            wandb.tags = ["initialized-q-learning", "netsec-game", "training" if not args.testing else "testing"]
             # Use subprocess.run to get the commit hash
             netsecenv_command = "git rev-parse HEAD"
             netsecenv_git_result = subprocess.run(netsecenv_command, shell=True, capture_output=True, text=True).stdout
             agents_command = "cd NetSecGameAgents; git rev-parse HEAD"
             agents_git_result = subprocess.run(agents_command, shell=True, capture_output=True, text=True).stdout
             agent._logger.info(f'Using commits. NetSecEnv: {netsecenv_git_result}. Agents: {agents_git_result}')
-            mlflow.set_tag("NetSecEnv commit", netsecenv_git_result)
-            mlflow.set_tag("Agents commit", agents_git_result)
-            # Log the env conf
-            #mlflow.log_artifact(args.env_conf)
+            # Add git commits to wandb config
+            wandb.config.update({
+                "netsecenv_commit": netsecenv_git_result.strip(),
+                "agents_commit": agents_git_result.strip()
+            })
+            # Save the env conf if provided and exists
+            if args.env_conf and path.exists(args.env_conf):
+                # Use absolute path for wandb.save to avoid path traversal issues
+                abs_env_conf = path.abspath(args.env_conf)
+                wandb.save(abs_env_conf)
             agent._logger.info(f'Epsilon Start: {agent.epsilon_start}')
             agent._logger.info(f'Epsilon End: {agent.epsilon_end}')
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
@@ -436,20 +461,24 @@ if __name__ == '__main__':
                                 epsilon={agent.current_epsilon}
                                 '''
                             agent._logger.info(text)
-                            mlflow.log_metric("eval_avg_win_rate", eval_win_rate, step=episode)
-                            mlflow.log_metric("eval_avg_detection_rate", eval_detection_rate, step=episode)
-                            mlflow.log_metric("eval_avg_returns", eval_average_returns, step=episode)
-                            mlflow.log_metric("eval_std_returns", eval_std_returns, step=episode)
-                            mlflow.log_metric("eval_avg_episode_steps", eval_average_episode_steps, step=episode)
-                            mlflow.log_metric("eval_std_episode_steps", eval_std_episode_steps, step=episode)
-                            mlflow.log_metric("eval_avg_win_steps", eval_average_win_steps, step=episode)
-                            mlflow.log_metric("eval_std_win_steps", eval_std_win_steps, step=episode)
-                            mlflow.log_metric("eval_avg_detected_steps", eval_average_detected_steps, step=episode)
-                            mlflow.log_metric("eval_std_detected_steps", eval_std_detected_steps, step=episode)
-                            mlflow.log_metric("eval_avg_max_steps_steps", eval_average_max_steps_steps, step=episode)
-                            mlflow.log_metric("eval_std_max_steps_steps", eval_std_max_steps_steps, step=episode)
-                            mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
-                            mlflow.log_metric("current_episode", episode, step=episode)
+                            # Log evaluation metrics to wandb
+                            wandb.log({
+                                "eval_avg_win_rate": eval_win_rate,
+                                "eval_avg_detection_rate": eval_detection_rate,
+                                "eval_avg_returns": eval_average_returns,
+                                "eval_std_returns": eval_std_returns,
+                                "eval_avg_episode_steps": eval_average_episode_steps,
+                                "eval_std_episode_steps": eval_std_episode_steps,
+                                "eval_avg_win_steps": eval_average_win_steps,
+                                "eval_std_win_steps": eval_std_win_steps,
+                                "eval_avg_detected_steps": eval_average_detected_steps,
+                                "eval_std_detected_steps": eval_std_detected_steps,
+                                "eval_avg_max_steps_steps": eval_average_max_steps_steps,
+                                "eval_std_max_steps_steps": eval_std_max_steps_steps,
+                                "current_epsilon": agent.current_epsilon,
+                                "episode": episode,
+                                "q_table_size": len(agent.q_values)
+                            }, step=episode)
 
                             # To keep statistics of testing each episode
                             test_wins = 0
@@ -507,7 +536,7 @@ if __name__ == '__main__':
 
                                 # store model. Use episode (training counter) and not test_episode (test counter)
                                 if episode % args.store_models_every == 0 and episode != 0:
-                                    agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')
+                                    agent.store_q_table(f'initialized_q_agent_marl.{wandb.run.id}-episodes-{episode}.pickle')
 
                             text = f'''Tested for {test_episode} episodes after {episode} training episode.
                                 Wins={test_wins},
@@ -523,21 +552,23 @@ if __name__ == '__main__':
                                 '''
                             agent._logger.info(text)
                             print(text)
-                            # Store in mlflow
-                            mlflow.log_metric("test_avg_win_rate", test_win_rate, step=episode)
-                            mlflow.log_metric("test_avg_detection_rate", test_detection_rate, step=episode)
-                            mlflow.log_metric("test_avg_returns", test_average_returns, step=episode)
-                            mlflow.log_metric("test_std_returns", test_std_returns, step=episode)
-                            mlflow.log_metric("test_avg_episode_steps", test_average_episode_steps, step=episode)
-                            mlflow.log_metric("test_std_episode_steps", test_std_episode_steps, step=episode)
-                            mlflow.log_metric("test_avg_win_steps", test_average_win_steps, step=episode)
-                            mlflow.log_metric("test_std_win_steps", test_std_win_steps, step=episode)
-                            mlflow.log_metric("test_avg_detected_steps", test_average_detected_steps, step=episode)
-                            mlflow.log_metric("test_std_detected_steps", test_std_detected_steps, step=episode)
-                            mlflow.log_metric("test_avg_max_steps_steps", test_average_max_steps_steps, step=episode)
-                            mlflow.log_metric("test_std_max_steps_steps", test_std_max_steps_steps, step=episode)
-                            mlflow.log_metric("current_epsilon", agent.current_epsilon, step=episode)
-                            mlflow.log_metric("current_episode", episode, step=episode)
+                            # Log test metrics to wandb
+                            wandb.log({
+                                "test_avg_win_rate": test_win_rate,
+                                "test_avg_detection_rate": test_detection_rate,
+                                "test_avg_returns": test_average_returns,
+                                "test_std_returns": test_std_returns,
+                                "test_avg_episode_steps": test_average_episode_steps,
+                                "test_std_episode_steps": test_std_episode_steps,
+                                "test_avg_win_steps": test_average_win_steps,
+                                "test_std_win_steps": test_std_win_steps,
+                                "test_avg_detected_steps": test_average_detected_steps,
+                                "test_std_detected_steps": test_std_detected_steps,
+                                "test_avg_max_steps_steps": test_average_max_steps_steps,
+                                "test_std_max_steps_steps": test_std_max_steps_steps,
+                                "test_current_epsilon": agent.current_epsilon,
+                                "test_episode": episode
+                            }, step=episode)
 
                             if test_win_rate >= args.early_stop_threshold:
                                 agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
@@ -562,13 +593,26 @@ if __name__ == '__main__':
             print(text)
             agent._logger.error("Terminating interaction")
             agent.terminate_connection()
+            
+        except KeyboardInterrupt:
+            # Store the q-table during inner try block interruption  
+            if not args.testing:
+                run_id = wandb.run.id if wandb.run else "interrupted"
+                agent.store_q_table(f'initialized_q_agent_marl.{run_id}.pickle')
+            raise  # Re-raise to be caught by outer try block
 
     except KeyboardInterrupt:
         # Store the q-table
         # Just in case...
         if not args.testing:
-            agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}.pickle')
+            run_id = wandb.run.id if wandb.run else "interrupted"
+            agent.store_q_table(f'initialized_q_agent_marl.{run_id}.pickle')
+        if wandb.run:
+            wandb.finish()
     finally:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(f'q_agent_marl.experiment{args.experiment_id}.pickle')
+            run_id = wandb.run.id if wandb.run else "final"
+            agent.store_q_table(f'initialized_q_agent_marl.{run_id}.pickle')
+        if wandb.run:
+            wandb.finish()
