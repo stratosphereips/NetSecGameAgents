@@ -65,6 +65,27 @@ ACTION_MAPPER = {
 }
 
 
+from dotenv import load_dotenv
+import os
+from langfuse import get_client
+
+# Cargar las variables de entorno desde el archivo .env
+load_dotenv()
+
+# Configurar las variables de entorno para Langfuse (opcional, pero claro)
+os.environ["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY")
+os.environ["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY")
+os.environ["LANGFUSE_HOST"] = os.getenv("LANGFUSE_HOST")
+
+# Inicializar el cliente de Langfuse con manejo de errores
+try:
+    langfuse = get_client()
+    print("✅ Langfuse initialized successfully")
+except Exception as e:
+    print(f"⚠️ Warning: Langfuse initialization failed: {e}")
+    langfuse = None
+
+
 class LLMActionPlanner:
     def __init__(self, model_name: str, goal: str, memory_len: int = 10, api_url=None, config: dict = None, use_reasoning: bool = False, use_reflection: bool = False, use_self_consistency: bool = False):
         self.model = model_name
@@ -85,6 +106,10 @@ class LLMActionPlanner:
         self.prompts = []
         self.states = []
         self.responses = []
+        
+        # Initialize Langfuse session tracking
+        self.session_id = f"agent-session-{hash(goal)}"
+        self.current_span = None
 
     def get_prompts(self) -> list:
         """
@@ -114,7 +139,52 @@ class LLMActionPlanner:
         return prompt
 
     @retry(stop=stop_after_attempt(3))
-    def openai_query(self, msg_list: list, max_tokens: int = 60, model: str = None, fmt=None, temperature: float = 0.0):
+    def openai_query(self, msg_list: list, max_tokens: int = 60, model: str = None, fmt=None, temperature: float = 0.0, parent_span=None):
+        # Track LLM generation in Langfuse using v3 API
+        if langfuse and parent_span:
+            try:
+                with langfuse.start_as_current_generation(
+                    name="llm-query",
+                    model=model or self.model,
+                    input=msg_list,
+                    model_parameters={
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                        "response_format": str(fmt) if fmt else "text"
+                    }
+                ) as generation:
+                    
+                    llm_response = self.client.chat.completions.create(
+                        model=model or self.model,
+                        messages=msg_list,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        response_format=fmt or {"type": "text"},
+                    )
+                    
+                    response_content = llm_response.choices[0].message.content
+                    
+                    # Update generation with response and usage
+                    usage_dict = None
+                    if hasattr(llm_response, 'usage') and llm_response.usage:
+                        usage_dict = {
+                            "input_tokens": llm_response.usage.prompt_tokens,
+                            "output_tokens": llm_response.usage.completion_tokens,
+                            "total_tokens": llm_response.usage.total_tokens
+                        }
+                    
+                    generation.update(
+                        output=response_content,
+                        usage=usage_dict
+                    )
+                    
+                    return response_content
+            except Exception as e:
+                print(f"Warning: Error with Langfuse generation tracking: {e}")
+                # Fallback to regular OpenAI call
+                pass
+        
+        # Fallback or when Langfuse is not available
         llm_response = self.client.chat.completions.create(
             model=model or self.model,
             messages=msg_list,
@@ -122,6 +192,7 @@ class LLMActionPlanner:
             temperature=temperature,
             response_format=fmt or {"type": "text"},
         )
+        
         return llm_response.choices[0].message.content
 
     def parse_response_deprecated(self, llm_response: str, state: Observation.state):
@@ -181,102 +252,331 @@ class LLMActionPlanner:
             past_memories.append(memory)
         return repetitions
 
-    def get_self_consistent_response(self, messages, temp=0.4, max_tokens=1024, n=3):
+    def get_self_consistent_response(self, messages, temp=0.4, max_tokens=1024, n=3, parent_span=None):
+        if parent_span and langfuse:
+            try:
+                with langfuse.start_as_current_span(name="self-consistency-check") as consistency_span:
+                    candidates = []
+                    for i in range(n):
+                        with langfuse.start_as_current_span(name=f"candidate-{i+1}") as candidate_span:
+                            response = self.openai_query(messages, temperature=temp, max_tokens=max_tokens, parent_span=candidate_span)
+                            candidates.append(response.strip())
+
+                    counts = Counter(candidates)
+                    most_common = counts.most_common(1)
+                    
+                    consistency_span.update(
+                        output={
+                            "candidates": candidates,
+                            "counts": dict(counts),
+                            "selected": most_common[0][0] if most_common else candidates[0]
+                        }
+                    )
+                    
+                    if most_common:
+                        self.logger.info(f"Self-consistency candidates: {counts}")
+                        return most_common[0][0]
+                    return candidates[0]
+            except Exception as e:
+                print(f"Warning: Error with self-consistency tracking: {e}")
+        
+        # Fallback without Langfuse
         candidates = []
-        for _ in range(n):
+        for i in range(n):
             response = self.openai_query(messages, temperature=temp, max_tokens=max_tokens)
             candidates.append(response.strip())
 
         counts = Counter(candidates)
         most_common = counts.most_common(1)
+        
         if most_common:
             self.logger.info(f"Self-consistency candidates: {counts}")
-            return most_common[0][0]  # return most common answer
-        return candidates[0]  # fallback
+            return most_common[0][0]
+        return candidates[0]
 
     def get_action_from_obs_react(self, observation: Observation, memory_buf: list) -> tuple:
-        self.states.append(observation.state.as_json())
-        status_prompt = create_status_from_state(observation.state)
-        q1 = self.config['questions'][0]['text']
-        q4 = self.config['questions'][3]['text']
-        cot_prompt = self.config['prompts']['COT_PROMPT']
-        memory_prompt = self.create_mem_prompt(memory_buf)
-
-        repetitions = self.check_repetition(memory_buf)
-        messages = [
-            {"role": "user", "content": self.instructions},
-            {"role": "user", "content": status_prompt},
-            {"role": "user", "content": memory_prompt},
-            {"role": "user", "content": q1},
-        ]
-        self.logger.info(f"Text sent to the LLM: {messages}")
-
-        if self.use_self_consistency:
-            response = self.get_self_consistent_response(messages, temp=repetitions/9, max_tokens=1024)
-        else:
-            response = self.openai_query(messages, max_tokens=1024)
-
-        if self.use_reflection:
-            reflection_prompt = [
-                {
-                    "role": "user",
-                    "content": f"""
-                    Instructions: {self.instructions}
-                    Task: {q1}
-
-                    Status: {status_prompt}
-                    Memory: {memory_prompt}
-
-                    Reasoning:
-                    {response}
-
-                    Is this reasoning valid given the Instructions, Status, and Memory?
-                    - If YES, repeat it exactly.
-                    - If NO, output the corrected reasoning only (no commentary).
-                    """
-                }
-            ]
-            response = self.openai_query(reflection_prompt, max_tokens=1024)
-        #print("response after reflection: ",response)
-
-        # Optional: parse response if reasoning is expected and outputs <think> ... </think>
-        if self.use_reasoning:
-            response = self.remove_reasoning(response)
-        self.logger.info(f"(Stage 1) Response from LLM: {response}")
-
-        #memory_prompt = self.create_mem_prompt(memory_buf)
-
-        messages = [
-            {"role": "user", "content": self.instructions},
-            {"role": "user", "content": status_prompt},
-            {"role": "user", "content": cot_prompt},
-            {"role": "user", "content": response},
-            {"role": "user", "content": memory_prompt},
-            {"role": "user", "content": q4},
-        ]
-        self.prompts.append(messages)
-        response = self.openai_query(messages, max_tokens=80, fmt={"type": "json_object"})
-        
-        validated, error_msg = validate_responses.validate_agent_response(response)
-        if validated is None:
-            self.logger.info(f"Invalid response format: {response} - Error: {error_msg}")
+        # Create main span for this action planning only if Langfuse is available
+        if langfuse:
             try:
-                parsed_response = json.loads(response)
-            except json.JSONDecodeError:
-                parsed_response = response
+                # Use context manager directly
+                with langfuse.start_as_current_span(
+                    name="agent-action-planning",
+                    input={
+                        "observation_state": observation.state.as_json(),
+                        "memory_buffer": [{"action": mem, "goodness": good} for mem, good in memory_buf],
+                        "model_config": {
+                            "model": self.model,
+                            "use_reasoning": self.use_reasoning,
+                            "use_reflection": self.use_reflection,
+                            "use_self_consistency": self.use_self_consistency
+                        }
+                    },
+                    metadata={
+                        "agent_type": "REACT",
+                        "memory_length": len(memory_buf),
+                        "session_id": self.session_id
+                    }
+                ) as main_span:
+                    # Update trace attributes using langfuse client
+                    langfuse.update_current_trace(
+                        session_id=self.session_id,
+                        user_id="agent",
+                        tags=["REACT", "action-planning"]
+                    )
+                    print(f"✅ Created main span for action planning")
+                    return self._execute_planning_logic(observation, memory_buf, main_span)
+            except Exception as e:
+                print(f"Warning: Could not create Langfuse span: {e}")
+                # Fallback without Langfuse
+                return self._execute_planning_logic(observation, memory_buf, None)
+        else:
+            return self._execute_planning_logic(observation, memory_buf, None)
 
-            response = json.dumps({
-                "action": "InvalidResponse",
-                "parameters": {
-                    "error": error_msg,
-                    "original": parsed_response
-                }
-            }, indent=2)
+    def _execute_planning_logic(self, observation: Observation, memory_buf: list, main_span=None) -> tuple:
+        try:
+            self.states.append(observation.state.as_json())
+            status_prompt = create_status_from_state(observation.state)
+            q1 = self.config['questions'][0]['text']
+            q4 = self.config['questions'][3]['text']
+            cot_prompt = self.config['prompts']['COT_PROMPT']
+            memory_prompt = self.create_mem_prompt(memory_buf)
 
-        if self.use_reasoning:
-            response = self.remove_reasoning(response)
+            repetitions = self.check_repetition(memory_buf)
+            
+            # Stage 1: Reasoning/Planning
+            if langfuse and main_span:
+                with langfuse.start_as_current_span(
+                    name="stage1-reasoning",
+                    input={
+                        "repetitions": repetitions,
+                        "memory_length": len(memory_buf)
+                    }
+                ) as stage1_span:
+                    messages = [
+                        {"role": "user", "content": self.instructions},
+                        {"role": "user", "content": status_prompt},
+                        {"role": "user", "content": memory_prompt},
+                        {"role": "user", "content": q1},
+                    ]
+                    
+                    self.logger.info(f"Text sent to the LLM: {messages}")
 
-        self.responses.append(response)
-        self.logger.info(f"(Stage 2) Response from LLM: {response}")
-        print(f"(Stage 2) Response from LLM: {response}")
-        return self.parse_response(response, observation.state)
+                    if self.use_self_consistency:
+                        response = self.get_self_consistent_response(messages, temp=repetitions/9, max_tokens=1024, parent_span=stage1_span)
+                    else:
+                        response = self.openai_query(messages, max_tokens=1024, parent_span=stage1_span)
+
+                    if self.use_reflection:
+                        with langfuse.start_as_current_span(name="reflection") as reflection_span:
+                            reflection_prompt = [
+                                {
+                                    "role": "user",
+                                    "content": f"""
+                                    Instructions: {self.instructions}
+                                    Task: {q1}
+
+                                    Status: {status_prompt}
+                                    Memory: {memory_prompt}
+
+                                    Reasoning:
+                                    {response}
+
+                                    Is this reasoning valid given the Instructions, Status, and Memory?
+                                    - If YES, repeat it exactly.
+                                    - If NO, output the corrected reasoning only (no commentary).
+                                    """
+                                }
+                            ]
+                            response = self.openai_query(reflection_prompt, max_tokens=1024, parent_span=reflection_span)
+
+                    # Optional: parse response if reasoning is expected and outputs <think> ... </think>
+                    if self.use_reasoning:
+                        response = self.remove_reasoning(response)
+                        
+                    stage1_span.update(output=response)
+                    self.logger.info(f"(Stage 1) Response from LLM: {response}")
+            else:
+                # Fallback without Langfuse
+                messages = [
+                    {"role": "user", "content": self.instructions},
+                    {"role": "user", "content": status_prompt},
+                    {"role": "user", "content": memory_prompt},
+                    {"role": "user", "content": q1},
+                ]
+                
+                self.logger.info(f"Text sent to the LLM: {messages}")
+
+                if self.use_self_consistency:
+                    response = self.get_self_consistent_response(messages, temp=repetitions/9, max_tokens=1024)
+                else:
+                    response = self.openai_query(messages, max_tokens=1024)
+
+                if self.use_reflection:
+                    reflection_prompt = [
+                        {
+                            "role": "user",
+                            "content": f"""
+                            Instructions: {self.instructions}
+                            Task: {q1}
+
+                            Status: {status_prompt}
+                            Memory: {memory_prompt}
+
+                            Reasoning:
+                            {response}
+
+                            Is this reasoning valid given the Instructions, Status, and Memory?
+                            - If YES, repeat it exactly.
+                            - If NO, output the corrected reasoning only (no commentary).
+                            """
+                        }
+                    ]
+                    response = self.openai_query(reflection_prompt, max_tokens=1024)
+
+                if self.use_reasoning:
+                    response = self.remove_reasoning(response)
+                    
+                self.logger.info(f"(Stage 1) Response from LLM: {response}")
+
+            # Stage 2: Action Selection
+            if langfuse and main_span:
+                with langfuse.start_as_current_span(name="stage2-action-selection") as stage2_span:
+                    messages = [
+                        {"role": "user", "content": self.instructions},
+                        {"role": "user", "content": status_prompt},
+                        {"role": "user", "content": cot_prompt},
+                        {"role": "user", "content": response},
+                        {"role": "user", "content": memory_prompt},
+                        {"role": "user", "content": q4},
+                    ]
+                    
+                    stage2_span.update(input={"messages": messages})
+                    self.prompts.append(messages)
+                    
+                    action_response = self.openai_query(messages, max_tokens=80, fmt={"type": "json_object"}, parent_span=stage2_span)
+                    
+                    # Validation
+                    validated, error_msg = validate_responses.validate_agent_response(action_response)
+                    
+                    if validated is None:
+                        self.logger.info(f"Invalid response format: {action_response} - Error: {error_msg}")
+                        
+                        try:
+                            parsed_response = json.loads(action_response)
+                        except json.JSONDecodeError:
+                            parsed_response = action_response
+
+                        action_response = json.dumps({
+                            "action": "InvalidResponse",
+                            "parameters": {
+                                "error": error_msg,
+                                "original": parsed_response
+                            }
+                        }, indent=2)
+
+                    if self.use_reasoning:
+                        action_response = self.remove_reasoning(action_response)
+
+                    stage2_span.update(output=action_response)
+                    
+                    self.responses.append(action_response)
+                    self.logger.info(f"(Stage 2) Response from LLM: {action_response}")
+                    print(f"(Stage 2) Response from LLM: {action_response}")
+                    
+                    # Parse final response
+                    valid, response_dict, action = self.parse_response(action_response, observation.state)
+                    
+                    # Update main trace with final results using langfuse client
+                    langfuse.update_current_trace(
+                        output={
+                            "valid_response": valid,
+                            "selected_action": response_dict,
+                            "final_response": action_response
+                        }
+                    )
+                    
+                    return valid, response_dict, action
+            else:
+                # Fallback without Langfuse
+                messages = [
+                    {"role": "user", "content": self.instructions},
+                    {"role": "user", "content": status_prompt},
+                    {"role": "user", "content": cot_prompt},
+                    {"role": "user", "content": response},
+                    {"role": "user", "content": memory_prompt},
+                    {"role": "user", "content": q4},
+                ]
+                
+                self.prompts.append(messages)
+                
+                action_response = self.openai_query(messages, max_tokens=80, fmt={"type": "json_object"})
+                
+                # Validation
+                validated, error_msg = validate_responses.validate_agent_response(action_response)
+                
+                if validated is None:
+                    self.logger.info(f"Invalid response format: {action_response} - Error: {error_msg}")
+                    
+                    try:
+                        parsed_response = json.loads(action_response)
+                    except json.JSONDecodeError:
+                        parsed_response = action_response
+
+                    action_response = json.dumps({
+                        "action": "InvalidResponse",
+                        "parameters": {
+                            "error": error_msg,
+                            "original": parsed_response
+                        }
+                    }, indent=2)
+
+                if self.use_reasoning:
+                    action_response = self.remove_reasoning(action_response)
+                
+                self.responses.append(action_response)
+                self.logger.info(f"(Stage 2) Response from LLM: {action_response}")
+                print(f"(Stage 2) Response from LLM: {action_response}")
+                
+                # Parse final response
+                valid, response_dict, action = self.parse_response(action_response, observation.state)
+                
+                return valid, response_dict, action
+                
+        except Exception as e:
+            self.logger.error(f"Error in _execute_planning_logic: {str(e)}")
+            if langfuse and main_span:
+                try:
+                    langfuse.update_current_trace(
+                        output={"error": str(e)},
+                        level="ERROR"
+                    )
+                except Exception as langfuse_error:
+                    print(f"Warning: Could not update trace with error: {langfuse_error}")
+            raise
+    
+    def score_action_outcome(self, action_success: bool, reward: float = None, comment: str = None):
+        """Score the outcome with correct Langfuse v3 API"""
+        if langfuse:
+            try:
+                score_value = 1.0 if action_success else 0.0
+                if reward is not None:
+                    score_value = reward
+                
+                # Get current trace ID
+                current_trace_id = langfuse.get_current_trace_id()
+                if current_trace_id:
+                    langfuse.score(
+                        trace_id=current_trace_id,
+                        name="action-outcome",
+                        value=score_value,
+                        comment=comment or ("Success" if action_success else "Failed")
+                    )
+                    print(f"✅ Scored action outcome: {score_value}")
+                else:
+                    print("Warning: No active trace to score")
+            except Exception as e:
+                print(f"Warning: Could not score action outcome: {e}")
+    
+    def __del__(self):
+        """Cleanup when object is destroyed."""
+        pass
