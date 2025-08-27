@@ -10,9 +10,13 @@ import pandas as pd
 import mlflow
 import sys
 import json
-from llm_action_planner import LLMActionPlanner
+import os
 from os import path
+from dotenv import load_dotenv
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from llm_action_planner import LLMActionPlanner
+from llm_client import LLMClient
+from tracer import get_tracer
 
 sys.path.append(
     path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
@@ -73,10 +77,17 @@ if __name__ == "__main__":
     )
     
     parser.add_argument(
-        "--api_url",
-        type=str, 
-        default="http://127.0.0.1:11434/v1/"
-        )
+        "--base_url",
+        type=str,
+        default=None,
+        help="Optional base URL for OpenAI-compatible endpoints",
+    )
+
+    parser.add_argument(
+        "--enable_tracing",
+        action="store_true",
+        help="Enable Langfuse tracing if available",
+    )
 
     parser.add_argument(
         "--use_reasoning",
@@ -137,6 +148,10 @@ if __name__ == "__main__":
     logger = logging.getLogger("llm_react")
     logger.info("Start")
     agent = BaseAgent(args.host, args.port, "Attacker")
+
+    load_dotenv()
+    llm_client = LLMClient(api_key=os.getenv("OPENAI_API_KEY"), base_url=args.base_url)
+    tracer = get_tracer(args.enable_tracing)
     
     if not args.disable_mlflow:
         mlflow.set_tracking_uri(args.mlflow_tracking_uri)
@@ -155,7 +170,8 @@ if __name__ == "__main__":
             "episodes": args.test_episodes,
             "host": args.host,
             "port": args.port,
-            "api_url": args.api_url,
+            "base_url": args.base_url,
+            "tracing": args.enable_tracing,
         }
         mlflow.log_params(params)
         mlflow.set_tag("agent_role", "Attacker")
@@ -203,14 +219,15 @@ if __name__ == "__main__":
 
         if args.llm is not None:
             llm_query = LLMActionPlanner(
-            model_name=args.llm,
-            goal=observation.info["goal_description"],
-            memory_len=args.memory_buffer,
-            api_url=args.api_url,
-            use_reasoning=args.use_reasoning,
-            use_reflection=args.use_reflection,
-            use_self_consistency=args.use_self_consistency
-        )
+                model_name=args.llm,
+                goal=observation.info["goal_description"],
+                memory_len=args.memory_buffer,
+                llm=llm_client,
+                tracer=tracer,
+                use_reasoning=args.use_reasoning,
+                use_reflection=args.use_reflection,
+                use_self_consistency=args.use_self_consistency,
+            )
         print(observation)
         for i in range(num_iterations):
             good_action = False
