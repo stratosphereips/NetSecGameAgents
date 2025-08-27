@@ -69,4 +69,6 @@ tui = [
     "ipaddress",
     "textual",
     "textual[dev]",
+    "openai",
+    "dotenv"
 ]
