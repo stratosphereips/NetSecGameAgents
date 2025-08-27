@@ -1,10 +1,39 @@
+"""
+@file llm_action_planner.py
+
+@brief Implementation of an LLM-based action planner for reactive agent systems.
+
+This module defines the ``LLMActionPlanner`` which orchestrates interactions with a
+language model to plan actions via the ReAct technique. It leverages the generic
+``LLMActionPlannerBase`` for provider-agnostic LLM access and optional tracing
+support. The core logic mirrors the original implementation but delegates LLM and
+tracer specifics to injected dependencies.
+
+Most of the code is adapted from the original ``assistant.py`` from the
+``interactive_tui`` agent.
+
+@author Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
+@author Harpo Maxx - harpomaxx@gmail.com
+
+@date [Date]
+"""
+
 from __future__ import annotations
 import json
 import logging
-from AIDojoCoordinator.game_components import Observation
+from AIDojoCoordinator.game_components import ActionType, Observation
 from NetSecGameAgents.agents.llm_utils import create_status_from_state
 from .llm_action_planner_base import LLMActionPlannerBase
 import validate_responses
+
+
+ACTION_MAPPER = {
+    "ScanNetwork": ActionType.ScanNetwork,
+    "ScanServices": ActionType.FindServices,
+    "FindData": ActionType.FindData,
+    "ExfiltrateData": ActionType.ExfiltrateData,
+    "ExploitService": ActionType.ExploitService,
+}
 
 class LLMActionPlanner(LLMActionPlannerBase):
     def __init__(
