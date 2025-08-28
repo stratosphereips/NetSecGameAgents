@@ -18,20 +18,22 @@ such as [Ollama](https://ollama.ai/).
 
 ## Features
 
-- Unified `LLMClient` for OpenAI or custom `--base_url`
-- Optional tracing with Langfuse via `--enable_tracing` (falls back to a
-  no-op tracer if the SDK or credentials are missing)
-- MLflow integration for experiment tracking
-- ReAct prompting with configurable memory buffer
-- All prompts, responses and evaluations stored as JSON
+- Unified `LLMClient` for OpenAI or custom `--base_url` (Ollama compatible)
+- Optional tracing with Langfuse via `--enable_tracing` (fallback a no‑op si no está disponible)
+- MLflow integration with resilient defaults (local file store por defecto)
+- ReAct prompting con memoria configurable y utilidades de reflexión/consistencia
+- Modo `--verbose` para imprimir paso a paso lo que hace el agente
+- Todas las interacciones (prompts, respuestas, evaluaciones) se guardan en JSON
 
 ## Recent changes
 
-- `LLMActionPlanner` now inherits from `LLMActionPlannerBase` for easier
-  extension
-- Tracing is handled by a small abstraction in `tracer.py`
-- Langfuse usage is opt-in with a flag instead of a hard dependency
-- The agent accepts `--base_url` to target local endpoints like Ollama
+- Base class: `LLMActionPlannerBase` expone utilidades genéricas (prompts, `llm_query`, parsing, memoria) para heredar fácilmente.
+- Implementación ReAct: `LLMActionPlanner` ahora hereda de la base.
+- Paquetización: imports relativos con fallback y `__init__.py` para ejecutar como módulo o script.
+- Cliente LLM: soporte OpenAI‑compatible (incl. Ollama). Si no hay `OPENAI_API_KEY`, usa `api_key="ollama"` y normaliza `--base_url` a `.../v1`.
+- Verbose: nuevo flag `--verbose` con impresiones de planificación, acción propuesta, ejecución y resultado por paso.
+- MLflow: por defecto `--mlflow_tracking_uri file:./mlruns`, `--mlflow_timeout` y fallback para deshabilitar si el servidor no está disponible.
+- Langfuse: `--enable_tracing` activa tracer; se ajustó para no enviar `parent_span` (el SDK maneja el contexto automáticamente).
 
 ## Prerequisites
 
@@ -48,24 +50,32 @@ pip install -r requirements.txt
 
 ## Usage
 
-Run the agent against a local Ollama model:
+Run as a module (recommended):
 
 ```bash
-python llm_agent_qa.py --llm llama3.1:8b --test_episodes 20 --memory_buffer 5 \
-    --base_url http://localhost:11434/v1/
+python -m NetSecGameAgents.agents.attackers.llm_qa.llm_agent_qa \
+  --llm qwen:4b --test_episodes 2 --verbose
 ```
 
-Enable Langfuse tracing (credentials and SDK must be available):
+Run against a local Ollama endpoint (OpenAI‑compatible):
 
 ```bash
-python llm_agent_qa.py --llm gpt-4 --enable_tracing
+python llm_agent_qa.py --llm qwen:4b --test_episodes 2 \
+  --base_url http://localhost:11434 --verbose
+# Nota: el agente normaliza a http://localhost:11434/v1 automáticamente
+```
+
+Enable Langfuse tracing (set creds in .env):
+
+```bash
+python llm_agent_qa.py --llm gpt-4 --enable_tracing --verbose
 ```
 
 ### Arguments
 
 | Argument           | Description                                | Default     |
 |--------------------|--------------------------------------------|-------------|
-| `--llm`            | LLM model to use                           | `gpt4o-mini`|
+| `--llm`            | LLM model to use                           | `gpt-3.5-turbo`|
 | `--test_episodes`  | Number of test episodes to run             | `30`        |
 | `--memory_buffer`  | Number of past actions to remember         | `5`         |
 | `--host`           | Host address of the NetSecGame server      | `127.0.0.1` |
@@ -73,12 +83,16 @@ python llm_agent_qa.py --llm gpt-4 --enable_tracing
 | `--base_url`       | Base URL for OpenAI-compatible APIs        | `None`      |
 | `--enable_tracing` | Enable Langfuse tracing if available       | `False`     |
 | `--disable_mlflow` | Disable MLflow logging                     | `False`     |
+| `--mlflow_tracking_uri` | MLflow URI (`file:./mlruns` por defecto) | `file:./mlruns` |
+| `--mlflow_timeout` | Timeout (s) para peticiones MLflow         | `3`         |
+| `--verbose`        | Imprime progreso paso a paso               | `False`     |
 
 ## Output and Logging
 
-- Metrics like win rate, detection rate and returns are logged to MLflow
-- Prompts, responses and evaluations are stored in `episode_data.json`
-- Execution logs are written to `llm_qa.log`
+- Console: con `--verbose` verás por paso planificación, acción propuesta/validez, efecto y resultado (reward/end).
+- File log: se escribe en `llm_react.log` (independiente del `--verbose`).
+- JSON: prompts/respuestas/evaluaciones por episodio en `episode_data.json`.
+- MLflow: métricas (win rate, detections, returns, steps, promedio) al tracking URI configurado.
 
 Start the MLflow UI to inspect results:
 
@@ -87,6 +101,20 @@ mlflow ui
 ```
 
 Then visit [http://localhost:5000](http://localhost:5000) in your browser.
+
+## Langfuse setup (optional)
+
+Define en `.env` de este directorio:
+
+```
+LANGFUSE_PUBLIC_KEY=...
+LANGFUSE_SECRET_KEY=...
+LANGFUSE_HOST=https://cloud.langfuse.com  # o tu host self‑hosted
+# opcional
+LANGFUSE_DEBUG=1
+```
+
+Actívalo con `--enable_tracing`. Si el SDK/credenciales no están, el tracer cae en no‑op.
 
 ## How it works
 
@@ -98,16 +126,10 @@ Then visit [http://localhost:5000](http://localhost:5000) in your browser.
    window.
 6. Prompts are defined in `prompts.yaml`.
 
-## License
+Extensibility:
 
-This project is licensed under the MIT License.
+- Base class para herencia: `LLMActionPlannerBase` en `llm_action_planner_base.py` expone métodos reutilizables:
+  - `llm_query(...)`, `parse_response(...)`, `create_mem_prompt(...)`, `remove_reasoning(...)`, self‑consistency y reflection opcional
+- Implementa tu planner heredando y definiendo tu ciclo de prompts/etapas (p.ej. otro protocolo distinto a ReAct).
 
-## Publications
-
-- Rigaki, M., Lukáš, O., Catania, C., & Garcia, S. (2024). *Out of the cage:
-  How stochastic parrots win in cyber security environments*. In Proceedings of
-  the 16th International Conference on Agents and Artificial Intelligence
-  (pp. 774–781). SCITEPRESS.
-- Rigaki, M., Catania, C., & Garcia, S. (2024). *Hackphyr: A local fine-tuned
-  LLM agent for network security environments*. arXiv. <https://arxiv.org/abs/2409.11276>
 

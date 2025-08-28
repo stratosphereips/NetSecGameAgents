@@ -14,9 +14,15 @@ import os
 from os import path
 from dotenv import load_dotenv
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
-from llm_action_planner import LLMActionPlanner
-from llm_client import LLMClient
-from tracer import get_tracer
+try:
+    # When executed as a module
+    from .llm_action_planner import LLMActionPlanner
+    from .llm_client import LLMClient
+    from .tracer import get_tracer
+except ImportError:  # Fallback for running as a script
+    from llm_action_planner import LLMActionPlanner
+    from llm_client import LLMClient
+    from tracer import get_tracer
 
 sys.path.append(
     path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
@@ -110,8 +116,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mlflow_tracking_uri",
         type=str,
-        default="http://147.32.83.60",
-        help="MLflow tracking server URI (default: %(default)s)",
+        default="file:./mlruns",
+        help="MLflow tracking URI (use 'file:' for local store)",
     )
 
     parser.add_argument(
@@ -134,6 +140,19 @@ if __name__ == "__main__":
         help="Disable mlflow logging",
     )
 
+    parser.add_argument(
+        "--mlflow_timeout",
+        type=int,
+        default=3,
+        help="Timeout (s) for MLflow HTTP requests",
+    )
+
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print detailed progress to console",
+    )
+
     
     args = parser.parse_args()
 
@@ -146,35 +165,76 @@ if __name__ == "__main__":
     )
 
     logger = logging.getLogger("llm_react")
+    # If verbose, also log to console for real-time updates
+    if args.verbose:
+        console = logging.StreamHandler()
+        console.setLevel(logging.INFO)
+        console.setFormatter(logging.Formatter(
+            fmt="%(asctime)s %(name)s %(levelname)s %(message)s",
+            datefmt="%H:%M:%S",
+        ))
+        logger.addHandler(console)
+        logger.propagate = False
+
     logger.info("Start")
+
+    # Helper: conditional print when verbose
+    vprint = (lambda *a, **k: print(*a, **k)) if args.verbose else (lambda *a, **k: None)
     agent = BaseAgent(args.host, args.port, "Attacker")
 
     load_dotenv()
-    llm_client = LLMClient(api_key=os.getenv("OPENAI_API_KEY"), base_url=args.base_url)
+    api_key = os.getenv("OPENAI_API_KEY")
+    base_url = args.base_url
+    if api_key is None:
+        api_key = "ollama"
+        base_url = args.base_url or "http://localhost:11434"
+        # Ensure OpenAI-compatible path for Ollama
+        if not base_url.rstrip("/").endswith("/v1"):
+            base_url = base_url.rstrip("/") + "/v1"
+        logger.info(
+            "OPENAI_API_KEY not found. Using local model at %s", base_url
+        )
+    llm_client = LLMClient(api_key=api_key, base_url=base_url)
+    if args.verbose:
+        api_desc = (
+            "ollama (local)" if api_key == "ollama" else ("set" if api_key else "unset")
+        )
+        vprint(f"LLM client ready. Model={args.llm}, base_url={base_url}, api_key={api_desc}")
     tracer = get_tracer(args.enable_tracing)
     
     if not args.disable_mlflow:
-        mlflow.set_tracking_uri(args.mlflow_tracking_uri)
-        mlflow.set_experiment(args.mlflow_experiment)
+        # Make MLflow network calls resilient; prefer local file store by default
+        if os.environ.get("MLFLOW_HTTP_REQUEST_TIMEOUT") is None:
+            os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = str(args.mlflow_timeout)
+        try:
+            mlflow.set_tracking_uri(args.mlflow_tracking_uri)
+            mlflow.set_experiment(args.mlflow_experiment)
 
-        # Use custom description if given, otherwise build a default
-        experiment_description = args.mlflow_description or (
-            f"{args.mlflow_experiment} | Model: {args.llm}"
-        )
+            # Use custom description if given, otherwise build a default
+            experiment_description = args.mlflow_description or (
+                f"{args.mlflow_experiment} | Model: {args.llm}"
+            )
 
-        mlflow.start_run(description=experiment_description)
+            mlflow.start_run(description=experiment_description)
 
-        params = {
-            "model": args.llm,
-            "memory_len": args.memory_buffer,
-            "episodes": args.test_episodes,
-            "host": args.host,
-            "port": args.port,
-            "base_url": args.base_url,
-            "tracing": args.enable_tracing,
-        }
-        mlflow.log_params(params)
-        mlflow.set_tag("agent_role", "Attacker")
+            params = {
+                "model": args.llm,
+                "memory_len": args.memory_buffer,
+                "episodes": args.test_episodes,
+                "host": args.host,
+                "port": args.port,
+                "base_url": args.base_url,
+                "tracing": args.enable_tracing,
+            }
+            mlflow.log_params(params)
+            mlflow.set_tag("agent_role", "Attacker")
+            vprint(f"MLflow enabled. tracking_uri={args.mlflow_tracking_uri}")
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            logger.warning("MLflow unavailable (%s). Disabling MLflow.", str(e))
+            vprint("MLflow unavailable. Disabling MLflow and continuing.")
+            args.disable_mlflow = True
 
     # Run multiple episodes to compute statistics
     wins = 0
@@ -196,14 +256,14 @@ if __name__ == "__main__":
     is_detected = False
 
     # Initialize the game
-    print("Registering")
+    vprint("Registering with game server...")
     agent.register()
-    print("Done")
+    vprint("Registration complete.")
     for episode in range(1, args.test_episodes + 1):
         actions_took_in_episode = []
         evaluations = [] # used for prompt table storage.
         logger.info(f"Running episode {episode}")
-        print(f"Running episode {episode}")
+        vprint(f"Running episode {episode}")
 
         # Reset the game at every episode and store the goal that changes
         observation = agent.request_game_reset()
@@ -228,11 +288,19 @@ if __name__ == "__main__":
                 use_reflection=args.use_reflection,
                 use_self_consistency=args.use_self_consistency,
             )
-        print(observation)
+        if args.verbose:
+            vprint(f"Initial observation: {observation}")
         for i in range(num_iterations):
             good_action = False
             #is_json_ok = True
+            # High-level progress of the agent when verbose
+            vprint(f"[Step {i+1}] Planning next action...")
             is_valid, response_dict, action = llm_query.get_action_from_obs_react(observation, memories)
+            # Report proposed action in verbose mode
+            try:
+                vprint(f"[Step {i+1}] Proposed action: {response_dict.get('action')} params={response_dict.get('parameters')} valid={is_valid}")
+            except Exception:
+                vprint(f"[Step {i+1}] Proposed action parsing failed. Raw: {response_dict}")
             if is_valid:
                 observation = agent.make_step(action)
                 logger.info(f"Observation received: {observation}")
@@ -246,7 +314,7 @@ if __name__ == "__main__":
                 else:
                     evaluations.append(3)
             else:
-                print("Invalid action: ")
+                vprint(f"[Step {i+1}] Invalid action. Skipping execution.")
                 evaluations.append(0)
 
             try:
@@ -272,7 +340,8 @@ if __name__ == "__main__":
                                 "helpful."
                             )
                         )
-                        print("Helpful")
+                        if args.verbose:
+                            vprint("Action effect: Helpful")
                     else:
                         memories.append(
                             (
@@ -281,7 +350,8 @@ if __name__ == "__main__":
                                 "not helpful."
                             )
                         )
-                        print("Not Helpful")
+                        if args.verbose:
+                            vprint("Action effect: Not Helpful")
                     # If the action was repeated count it
                     if action in actions_took_in_episode:
                         repeated_actions += 1
@@ -295,12 +365,16 @@ if __name__ == "__main__":
                                 response_dict["parameters"]),
                                 "badly formated."
                 )
-                print("badly formated")
+                vprint("Response badly formatted.")
             if len(memories) > args.memory_buffer:
                 # If the memory is full, remove the oldest memory
                 memories.pop(0)
             # logger.info(f"Iteration: {i} JSON: {is_json_ok} Valid: {is_valid} Good: {good_action}")
             logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
+            try:
+                vprint(f"[Step {i+1}] Result: reward={observation.reward}, end={observation.end}")
+            except Exception:
+                pass
             
             if observation.end or i == (
                 num_iterations - 1

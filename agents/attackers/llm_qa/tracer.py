@@ -28,11 +28,15 @@ class LangfuseTracer(ITracer):
 
     @contextmanager
     def start_span(self, name: str, **kwargs: Any):  # type: ignore
+        # Langfuse SDK does not accept 'parent_span'; nesting is handled by context
+        kwargs.pop("parent_span", None)
         with self.client.start_as_current_span(name=name, **kwargs) as span:
             yield span
 
     @contextmanager
     def start_generation(self, name: str, **kwargs: Any):  # type: ignore
+        # Remove unsupported parent link arg; current span context will be used
+        kwargs.pop("parent_span", None)
         with self.client.start_as_current_generation(name=name, **kwargs) as generation:
             yield generation
 
