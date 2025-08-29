@@ -327,7 +327,7 @@ def recompute_reward(observation: Observation) -> Observation:
     new_observation = Observation(GameState.from_dict(state), reward, end, info)
     return new_observation
 
-def convert_ips_to_concepts(observation, logger):
+def convert_ips_to_concepts(observation, logger, concept_logger=None):
     """
     Function to convert the IPs and networks in the observation into a concept 
     so the agent is not dependent on IPs and specific values
@@ -356,6 +356,10 @@ def convert_ips_to_concepts(observation, logger):
     end = observation.end
     info = observation.info
 
+    # Enhanced logging start
+    if concept_logger:
+        concept_logger.log_concept_conversion_start(observation)
+
     # Here we keep the mapping of concepts to values such as IPs and Networks
     concept_mapping = {'controlled_hosts': {}, 'known_hosts': {}, 'known_services': {}, 'known_data': {}, 'known_networks': {}}
 
@@ -377,7 +381,7 @@ def convert_ips_to_concepts(observation, logger):
     # The ip can have one concept ip_to_concept['1.1.1.1'] = 'web'
     ip_to_concept = {}
 
-    # Log the real hosts before the modification
+    # Log the real hosts before the modification (keep existing logging)
     logger.info(f'\tI2C: Real state known nets: {state.known_networks}')
     logger.info(f'\tI2C: Real state known hosts: {state.known_hosts}')
     logger.info(f'\tI2C: Real state controlled hosts: {state.controlled_hosts}')
@@ -420,6 +424,12 @@ def convert_ips_to_concepts(observation, logger):
             concept_mapping['known_hosts'][unknown_hosts_idx] = unknown_hosts
             ip_to_concept[host] = unknown_hosts_idx
 
+    # Enhanced logging after hosts conversion
+    if concept_logger:
+        logger.info(f'\tI2C: Host conversion complete - mapped {len(ip_to_concept)} IPs to concepts')
+        for ip, concept in ip_to_concept.items():
+            logger.info(f'\t  {ip} -> {concept}')
+
     ##########################
     # Convert Services
     # state.known_services: dict. {'ip': Service object}
@@ -454,8 +464,10 @@ def convert_ips_to_concepts(observation, logger):
             pass
 
         # All hosts that have some ports are not called 'unknown' but 'host'.
-        concepts_host_idx = 'host' + str(priv_hosts_concept_counter)
-        priv_hosts_concept_counter += 1
+        # MINIMAL FIX: Use deterministic indexing instead of incrementing counter
+        sorted_private_hosts = sorted([h for h in state.known_hosts if h.is_private()], key=str)
+        host_index = sorted_private_hosts.index(ip)
+        concepts_host_idx = 'host' + str(host_index)
 
         # Add the ports to the host concept 
         new_concepts_host_idx = f'{concepts_host_idx}{port_numbers}'
@@ -583,6 +595,12 @@ def convert_ips_to_concepts(observation, logger):
     # Create a new namedtuple with the common observation and the new concept mapping, so we can pass it around.
     new_observation = namedtuple('ConceptObservation', ['observation', 'concept_mapping'])
     new_observation = new_observation(Observation(new_state, reward, end, info), concept_mapping)
+    
+    # Enhanced logging completion
+    if concept_logger:
+        concept_logger.log_concept_mapping_table(concept_mapping, ip_to_concept)
+        concept_logger.log_concept_conversion_complete(new_observation, concept_mapping)
+    
     return new_observation
 
 def _convert_target_host_concept_to_ip(target_host_concept, concept_observation, use_controlled_hosts=False):
@@ -687,7 +705,7 @@ def _convert_network_concept_to_ip(target_net_concept, concept_observation):
     return target_net_concept
 
 
-def convert_concepts_to_actions(action, observation):
+def convert_concepts_to_actions(action, observation, concept_logger=None):
     """
     Function to convert the concepts learned before into IPs and networks
     so the env knows where to really act
@@ -695,10 +713,19 @@ def convert_concepts_to_actions(action, observation):
     in: state with concepts
     out: action for IPs
     """
+    
+    # Enhanced logging start
+    if concept_logger:
+        concept_logger.log_action_conversion_start(action, observation)
     if action.type == ActionType.ExploitService:
         # Convert target and source hosts using helper functions
         new_target_host = _convert_target_host_concept_to_ip(action.parameters['target_host'], observation)
         new_src_host = _convert_source_host_concept_to_ip(action.parameters['source_host'], observation)
+        
+        # Enhanced logging for parameter conversions
+        if concept_logger:
+            concept_logger.log_parameter_conversion("target_host", action.parameters['target_host'], new_target_host, "_convert_target_host_concept_to_ip")
+            concept_logger.log_parameter_conversion("source_host", action.parameters['source_host'], new_src_host, "_convert_source_host_concept_to_ip")
 
         # Service is not changed for now
         new_target_service = action.parameters['target_service']
@@ -753,4 +780,363 @@ def convert_concepts_to_actions(action, observation):
             "target_host": new_target_host
         })
 
+    # Enhanced logging completion
+    if concept_logger:
+        concept_logger.log_action_conversion_complete(action)
+    
     return action
+
+
+#################################################################################
+# STABLE CONCEPT MAPPING FUNCTIONS 
+# These functions provide consistent host naming that doesn't change with service discovery
+#################################################################################
+
+def convert_ips_to_stable_concepts(observation, logger, concept_logger=None):
+    """
+    FIXED VERSION: Convert IPs to stable concepts that don't change with service discovery.
+    
+    Key differences from original:
+    1. Host concepts are assigned once and never change (host0, host1, host2...)
+    2. Services are stored separately and don't affect host concept names
+    3. This ensures Q-learning state consistency
+    
+    Args:
+        observation: Observation with real IPs
+        logger: Logger instance
+        concept_logger: Optional ConceptMappingLogger
+    
+    Returns:
+        ConceptObservation with stable concept mapping
+    """
+    from collections import namedtuple
+    
+    new_observation = None
+    state = observation.state
+    reward = observation.reward
+    end = observation.end
+    info = observation.info
+
+    # Enhanced logging start
+    if concept_logger:
+        concept_logger.log_concept_conversion_start(observation)
+
+    # Stable concept mapping - key insight: maintain persistent IP-to-concept mapping
+    concept_mapping = {'controlled_hosts': {}, 'known_hosts': {}, 'known_services': {}, 'known_data': {}, 'known_networks': {}}
+
+    # Persistent mappings that survive across episodes (would be better as class attributes in a real implementation)
+    # For now, we'll use a deterministic mapping based on IP address
+    ip_to_stable_concept = {}
+    
+    # External hosts concept
+    external_hosts_concept = 'external'
+    external_counter = 0
+    
+    # Private hosts concept  
+    priv_hosts_concept = 'host'
+    priv_counter = 0
+    
+    # Network concept counter
+    network_counter = 0
+    
+    # Log original state
+    logger.info(f'\tStableI2C: Real state known nets: {state.known_networks}')
+    logger.info(f'\tStableI2C: Real state known hosts: {state.known_hosts}')
+    logger.info(f'\tStableI2C: Real state controlled hosts: {state.controlled_hosts}')
+    logger.info(f'\tStableI2C: Real state known services: {state.known_services}')
+    logger.info(f'\tStableI2C: Real state known data: {state.known_data}')
+
+    ##########################
+    # STABLE HOST MAPPING
+    # Assign stable concept names based on IP, regardless of services
+    ##########################
+    
+    # Sort hosts for deterministic assignment
+    sorted_hosts = sorted(state.known_hosts, key=lambda x: str(x))
+    
+    for host in sorted_hosts:
+        if host.is_private():
+            # Private hosts get stable names host0, host1, host2...
+            stable_concept = f'{priv_hosts_concept}{priv_counter}'
+            priv_counter += 1
+        else:
+            # External hosts get stable names external0, external1...
+            stable_concept = f'{external_hosts_concept}{external_counter}'
+            external_counter += 1
+            
+        # Map this IP to stable concept
+        ip_to_stable_concept[host] = stable_concept
+        concept_mapping['known_hosts'][stable_concept] = host
+        
+        # If controlled, add to controlled mapping
+        if host in state.controlled_hosts:
+            concept_mapping['controlled_hosts'][stable_concept] = host
+
+    # Enhanced logging after hosts conversion
+    if concept_logger:
+        logger.info(f'\tStableI2C: Host conversion complete - mapped {len(ip_to_stable_concept)} IPs to stable concepts')
+        for ip, concept in ip_to_stable_concept.items():
+            logger.info(f'\t  {ip} -> {concept}')
+
+    ##########################
+    # SERVICES MAPPING
+    # Store services separately - they don't change host concept names
+    ##########################
+    
+    for ip, services in state.known_services.items():
+        if ip in ip_to_stable_concept:
+            stable_concept = ip_to_stable_concept[ip]
+            concept_mapping['known_services'][stable_concept] = services
+
+    ##########################
+    # DATA MAPPING
+    ##########################
+    
+    for ip, data in state.known_data.items():
+        if ip in ip_to_stable_concept:
+            stable_concept = ip_to_stable_concept[ip]
+            concept_mapping['known_data'][stable_concept] = data
+
+    ##########################
+    # NETWORK MAPPING
+    # Create deterministic network concepts
+    ##########################
+    
+    sorted_networks = sorted(state.known_networks, key=lambda x: str(x))
+    for network in sorted_networks:
+        # Simple network naming - just use counter
+        net_concept = f'net_{network_counter}'
+        concept_mapping['known_networks'][net_concept] = network
+        ip_to_stable_concept[network] = net_concept
+        network_counter += 1
+
+    ##########################
+    # CREATE CONCEPTUAL STATE
+    ##########################
+    
+    state_controlled_hosts = set(concept_mapping['controlled_hosts'].keys())
+    state_known_hosts = set(concept_mapping['known_hosts'].keys())
+    state_networks = set(concept_mapping['known_networks'].keys())
+    state_known_services = concept_mapping['known_services']
+    state_known_data = concept_mapping['known_data']
+
+    new_state = GameState(state_controlled_hosts, state_known_hosts, state_known_services, state_known_data, state_networks)
+    
+    # Create ConceptObservation
+    new_observation = namedtuple('ConceptObservation', ['observation', 'concept_mapping'])
+    new_observation = new_observation(Observation(new_state, reward, end, info), concept_mapping)
+    
+    # Enhanced logging completion
+    if concept_logger:
+        concept_logger.log_concept_mapping_table(concept_mapping, ip_to_stable_concept)
+        concept_logger.log_concept_conversion_complete(new_observation, concept_mapping)
+    
+    return new_observation
+
+
+def convert_stable_concepts_to_actions(action, observation, concept_logger=None):
+    """
+    FIXED VERSION: Convert stable concept actions to real IP actions.
+    
+    This works with the stable concept mapping system where host names
+    don't change with service discovery.
+    
+    Args:
+        action: Action with stable concept parameters
+        observation: ConceptObservation with stable mapping
+        concept_logger: Optional ConceptMappingLogger
+        
+    Returns:
+        Action with real IP parameters
+    """
+    
+    # Enhanced logging start
+    if concept_logger:
+        concept_logger.log_action_conversion_start(action, observation)
+
+    if action.type == ActionType.ExploitService:
+        # Convert using stable concept mapping
+        new_target_host = _convert_stable_target_host_to_ip(action.parameters['target_host'], observation)
+        new_src_host = _convert_stable_source_host_to_ip(action.parameters['source_host'], observation)
+        
+        # Enhanced logging for parameter conversions
+        if concept_logger:
+            concept_logger.log_parameter_conversion("target_host", action.parameters['target_host'], new_target_host, "_convert_stable_target_host_to_ip")
+            concept_logger.log_parameter_conversion("source_host", action.parameters['source_host'], new_src_host, "_convert_stable_source_host_to_ip")
+
+        new_target_service = action.parameters['target_service']
+        
+        action = Action(ActionType.ExploitService, parameters={
+            "target_host": new_target_host,
+            "target_service": new_target_service,
+            "source_host": new_src_host
+        })
+
+    elif action.type == ActionType.ExfiltrateData:
+        new_target_host = _convert_stable_target_host_to_ip(action.parameters['target_host'], observation, use_controlled_hosts=True)
+        new_src_host = _convert_stable_source_host_to_ip(action.parameters['source_host'], observation)
+        new_data = action.parameters['data']
+
+        action = Action(ActionType.ExfiltrateData, parameters={
+            "target_host": new_target_host,
+            "source_host": new_src_host,
+            "data": new_data
+        })
+
+    elif action.type == ActionType.FindData:
+        new_target_host = _convert_stable_target_host_to_ip(action.parameters['target_host'], observation, use_controlled_hosts=True)
+        new_src_host = _convert_stable_source_host_to_ip(action.parameters['source_host'], observation)
+
+        action = Action(ActionType.FindData, parameters={
+            "target_host": new_target_host,
+            "source_host": new_src_host
+        })
+
+    elif action.type == ActionType.ScanNetwork:
+        new_target_network = _convert_stable_network_to_ip(action.parameters['target_network'], observation)
+        new_src_host = _convert_stable_source_host_to_ip(action.parameters['source_host'], observation)
+
+        action = Action(ActionType.ScanNetwork, parameters={
+            "source_host": new_src_host,
+            "target_network": new_target_network
+        })
+
+    elif action.type == ActionType.FindServices:
+        new_target_host = _convert_stable_target_host_to_ip(action.parameters['target_host'], observation)
+        new_src_host = _convert_stable_source_host_to_ip(action.parameters['source_host'], observation)
+
+        action = Action(ActionType.FindServices, parameters={
+            "source_host": new_src_host,
+            "target_host": new_target_host
+        })
+
+    # Enhanced logging completion
+    if concept_logger:
+        concept_logger.log_action_conversion_complete(action)
+    
+    return action
+
+
+def _convert_stable_target_host_to_ip(target_host_concept, concept_observation, use_controlled_hosts=False):
+    """Helper to convert stable target host concept to IP"""
+    hosts_dict = concept_observation.concept_mapping['controlled_hosts'] if use_controlled_hosts else concept_observation.concept_mapping['known_hosts']
+    
+    if target_host_concept in hosts_dict:
+        return hosts_dict[target_host_concept]
+    else:
+        # Fallback: return first available host
+        if hosts_dict:
+            return list(hosts_dict.values())[0]
+        return target_host_concept
+
+
+def _convert_stable_source_host_to_ip(source_host_concept, concept_observation):
+    """Helper to convert stable source host concept to IP"""
+    hosts_dict = concept_observation.concept_mapping['controlled_hosts']
+    
+    if source_host_concept in hosts_dict:
+        return hosts_dict[source_host_concept]
+    else:
+        # Fallback: return first controlled host
+        if hosts_dict:
+            return list(hosts_dict.values())[0]
+        return source_host_concept
+
+
+def _convert_stable_network_to_ip(target_net_concept, concept_observation):
+    """Helper to convert stable network concept to IP"""
+    networks_dict = concept_observation.concept_mapping['known_networks']
+    
+    if target_net_concept in networks_dict:
+        return networks_dict[target_net_concept]
+    else:
+        # Fallback: return first available network
+        if networks_dict:
+            return list(networks_dict.values())[0]
+        return target_net_concept
+
+
+def generate_valid_actions_stable_concepts(state: GameState, action_history: set, include_blocks=False)->list:
+    """
+    STABLE VERSION: Generate valid actions for stable concept states.
+    
+    This function works with stable concepts where:
+    - Hosts are named: host0, host1, external0, external1
+    - Networks are named: net_0, net_1, net_2
+    - Names don't change with service discovery
+    
+    Args:
+        state: GameState with stable concept names
+        action_history: Set of actions already performed
+        include_blocks: Whether to include BlockIP actions
+    
+    Returns:
+        List of valid Action objects
+    """
+    
+    def is_fw_blocked(state, source_host, target_host)->bool:
+        blocked = False
+        try:
+            blocked = target_host in state.known_blocks[source_host]
+        except KeyError:
+            pass #this src ip has no known blocks
+        return blocked 
+
+    valid_actions = set()
+
+    for source_host in state.controlled_hosts:
+        # Network Scans
+        for network in state.known_networks:
+            # Only scan local from local hosts (no external hosts scanning local networks)
+            if ('external' not in network and 'external' not in source_host): 
+                action = Action(ActionType.ScanNetwork, parameters={"target_network": network, "source_host": source_host})
+                if action not in action_history:
+                    valid_actions.add(action)
+
+        # Service Scans  
+        for target_host in state.known_hosts:
+            # Don't scan services from external hosts to local hosts
+            if not ('external' in source_host and 'external' not in target_host):
+                if not is_fw_blocked(state, source_host, target_host):
+                    action = Action(ActionType.FindServices, parameters={"target_host": target_host, "source_host": source_host})
+                    if action not in action_history:
+                        valid_actions.add(action)
+
+        # Service Exploits
+        for target_host_concept, service_list in state.known_services.items():
+            if not is_fw_blocked(state, source_host, target_host_concept):
+                for service in service_list:
+                    action = Action(ActionType.ExploitService, parameters={"target_host": target_host_concept, "target_service": service, "source_host": source_host})
+                    if action not in action_history:
+                        valid_actions.add(action)
+        
+        # Data Scans - only on controlled hosts
+        for controlled_host in state.controlled_hosts:
+            if not is_fw_blocked(state, source_host, controlled_host):
+                action = Action(ActionType.FindData, parameters={"target_host": controlled_host, "source_host": controlled_host})
+                if action not in action_history:
+                    valid_actions.add(action)
+
+        # Data Exfiltration
+        for source_host_concept, data_list in state.known_data.items():
+            for data in data_list:
+                for target_host in state.controlled_hosts:
+                    if target_host != source_host_concept:
+                        if not is_fw_blocked(state, source_host_concept, target_host):
+                            action = Action(ActionType.ExfiltrateData, parameters={"target_host": target_host, "source_host": source_host_concept, "data": data})
+                            if action not in action_history:
+                                valid_actions.add(action)
+        
+        # BlockIP actions (if requested)
+        if include_blocks:
+            for target_host in state.controlled_hosts:
+                if not is_fw_blocked(state, source_host, target_host):
+                    for blocked_host in state.known_hosts:
+                        action = Action(ActionType.BlockIP, {"target_host": target_host, "source_host": source_host, "blocked_host": blocked_host})
+                        if action not in action_history:
+                            valid_actions.add(action)
+                            
+    if len(valid_actions) == 0:
+        print("No valid actions available")
+        
+    return list(valid_actions)

@@ -1,6 +1,9 @@
 # Authors:    Sebastian Garcia. sebastian.garcia@agents.fel.cvut.cz
-# This is the conceptual Q-learning attacking agent.
+# FIXED VERSION: This is the conceptual Q-learning attacking agent with stable concept mapping.
 # It uses concepts instead of IP addresses to learn the Q-table.
+# 
+# KEY FIX: Uses stable concept names (host0, host1, host2) that don't change with service discovery.
+# This prevents Q-learning state explosion and allows proper value propagation.
 
 from collections import namedtuple
 import sys
@@ -17,7 +20,8 @@ from os import path, makedirs
 # with the path fixed, we can import now
 from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus, ActionType
 from NetSecGameAgents.agents.base_agent import BaseAgent
-from NetSecGameAgents.agents.agent_utils import state_as_ordered_string, convert_ips_to_concepts, convert_concepts_to_actions, generate_valid_actions_concepts
+from NetSecGameAgents.agents.agent_utils import state_as_ordered_string, convert_ips_to_stable_concepts, convert_stable_concepts_to_actions, generate_valid_actions_stable_concepts
+from concept_mapping_logger import ConceptMappingLogger
 
 class QAgent(BaseAgent):
 
@@ -40,6 +44,12 @@ class QAgent(BaseAgent):
         self.actions_history = set()
         # store the last state seen, so we know if there was a change or not
         self.previous_state = None
+        # Enhanced logging for concept-action mapping
+        self.concept_logger = None
+
+    def enable_enhanced_logging(self, verbose=True):
+        """Enable enhanced concept mapping logging"""
+        self.concept_logger = ConceptMappingLogger(self._logger, verbose)
 
     def store_q_table(self, strpath, filename):
         """ Store the q table on disk """
@@ -70,19 +80,30 @@ class QAgent(BaseAgent):
             self._str_to_id[state_str] = len(self._str_to_id) 
         return self._str_to_id[state_str]
     
-    def max_action_q(self, concept_observation:Observation) -> Action:
-        """ Get the action that maximices the q_value for a given observation """
+    def max_action_q(self, concept_observation:Observation) -> float:
+        """ Get the maximum q_value for a given observation """
         state = concept_observation.observation.state
-        actions = generate_valid_actions_concepts(state, self.actions_history)
+        actions = generate_valid_actions_stable_concepts(state, self.actions_history)
         state_id = self.get_state_id(state)
+        
+        # Handle case where no actions are available
+        if not actions:
+            return 0.0
+            
         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
-        return tmp[max(tmp,key=tmp.get)] #return maximum Q_value for a given state (out of available actions)
+        max_q_value = max(tmp.values())
+        return max_q_value
    
     def select_action(self, observation:Observation, testing=False) -> tuple:
         """ Select the action according to the algorithm """
         state = observation.state
-        actions = generate_valid_actions_concepts(state, self.actions_history)
+        actions = generate_valid_actions_stable_concepts(state, self.actions_history)
         state_id = self.get_state_id(state)
+        
+        # Handle case where no actions are available
+        if not actions:
+            # Return None to signal no action possible (episode should end)
+            return None, state_id
         
         # E-greedy play. If the random number is less than the e, then choose random to explore.
         # But do not do it if we are testing a model. In testing is always exploit so it is deterministic. 
@@ -167,15 +188,30 @@ class QAgent(BaseAgent):
             # Store steps so far
             num_steps += 1
             start_time = time.time()
+            
+            # Update concept logger with episode/step context
+            if self.concept_logger:
+                self.concept_logger.set_episode_step(episode_num, num_steps)
+            
             # Get next action. If we are not training, selection is different, so pass it as argument
             concept_action, state_id = self.select_action(concept_observation.observation, testing)
+            
+            # Handle case where no actions are available
+            if concept_action is None:
+                self.logger.info(f"\n\n ==================================== \n\n[+] No valid actions available - episode ending")
+                break
+                
             self.logger.info(f"\n\n ==================================== \n\n[+] Concept Action selected:{concept_action}")
 
             # Convert the action with concepts to the action with IPs
-            action = convert_concepts_to_actions(concept_action, concept_observation)
+            action = convert_stable_concepts_to_actions(concept_action, concept_observation, self.concept_logger)
             self.logger.info(f"\n[+] Real Action selected:{action}")
 
             self.remember_action(concept_action)
+            
+            # Enhanced logging for action history
+            if self.concept_logger:
+                self.concept_logger.log_action_history_update(concept_action, self.actions_history)
 
             # Perform the action and observe next observation
             # This observation is in IPs
@@ -187,7 +223,7 @@ class QAgent(BaseAgent):
 
             # Convert the observation to conceptual observation
             # From now one the observation will be in concepts
-            concept_observation = convert_ips_to_concepts(observation, self.logger)
+            concept_observation = convert_ips_to_stable_concepts(observation, self.logger, self.concept_logger)
            
             #concept_observation = self.recompute_reward(concept_observation)
             self.logger.info(f"\n[+] Reward of last action (after reward engineering): {concept_observation.observation.reward}")
@@ -195,7 +231,18 @@ class QAgent(BaseAgent):
             # Update the Q-table
             if not testing:
                 # If we are training update the Q-table. If in testing do not update, so no learning in testing.
-                self.q_values[state_id, concept_action] += self.alpha * (concept_observation.observation.reward + self.gamma * self.max_action_q(concept_observation)) - self.q_values[state_id, concept_action]
+                old_q_value = self.q_values[state_id, concept_action]
+                max_next_q = self.max_action_q(concept_observation)
+                new_q_value = old_q_value + self.alpha * (concept_observation.observation.reward + self.gamma * max_next_q - old_q_value)
+                self.q_values[state_id, concept_action] = new_q_value
+                
+                # Enhanced logging for Q-value updates
+                if self.concept_logger:
+                    self.concept_logger.log_q_value_update(
+                        state_id, concept_action, old_q_value, new_q_value,
+                        concept_observation.observation.reward, max_next_q, 
+                        self.alpha, self.gamma
+                    )
 
             # Check the apm (actions per minute)
             if self._apm_limit:
@@ -211,6 +258,17 @@ class QAgent(BaseAgent):
         # update epsilon value
         if not testing:
             self.current_epsilon = self.update_epsilon_with_decay(episode_num)
+
+        # Enhanced episode summary logging
+        if self.concept_logger:
+            end_reason = "Unknown"
+            if observation.info and 'end_reason' in observation.info:
+                end_reason = str(observation.info['end_reason'])
+            
+            self.concept_logger.log_episode_summary(
+                episode_num, num_steps, observation.reward,
+                len(self.q_values), self.current_epsilon, end_reason
+            )
 
         # This will be the last observation played before the reset
         return observation, num_steps
@@ -236,15 +294,23 @@ if __name__ == '__main__':
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
     parser.add_argument("--apm", help="Maximum actions per minute", default=1000000, type=int, required=False)
+    parser.add_argument("--enhanced_logging", help="Enable enhanced concept mapping logging", default=False, action='store_true')
     args = parser.parse_args()
 
     # Check that the directory for the logs exist
     if not path.exists(args.logdir):
         makedirs(args.logdir)
-    logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.ERROR)
+    # Set logging level based on enhanced logging flag
+    log_level = logging.INFO if args.enhanced_logging else logging.ERROR
+    logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=log_level)
 
     # Create agent object
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes, apm_limit=args.apm)
+
+    # Enable enhanced logging if requested
+    if args.enhanced_logging:
+        agent.enable_enhanced_logging(verbose=True)
+        agent._logger.info("Enhanced concept mapping logging enabled")
 
     # Early stop flag. Used to stop the training if the win rate goes over a threshold.
     early_stop = False
@@ -286,7 +352,7 @@ if __name__ == '__main__':
     if not observation:
         raise Exception("Problem registering the agent")
     # Convert the obvervation to conceptual observation
-    concept_observation = convert_ips_to_concepts(observation, agent._logger)
+    concept_observation = convert_ips_to_stable_concepts(observation, agent._logger, agent.concept_logger)
     # From now one the observation will be in concepts
 
     # Start the train/eval/test loop
@@ -368,7 +434,7 @@ if __name__ == '__main__':
                     agent.actions_history = set()
 
                     # Convert the obvervation to conceptual observation
-                    concept_observation = convert_ips_to_concepts(observation, agent._logger)
+                    concept_observation = convert_ips_to_stable_concepts(observation, agent._logger, agent.concept_logger)
                     # From now one the observation will be in concepts
 
                     eval_win_rate = (wins/episode) * 100
@@ -461,7 +527,7 @@ if __name__ == '__main__':
                             agent.actions_history = set()
 
                             # Convert the obvervation to conceptual observation
-                            test_observation = convert_ips_to_concepts(test_observation, agent._logger)
+                            test_observation = convert_ips_to_stable_concepts(test_observation, agent._logger, agent.concept_logger)
                             # From now one the observation will be in concepts
 
                             test_win_rate = (test_wins/test_episode) * 100
