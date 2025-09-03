@@ -68,10 +68,7 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
             ): 
                 action = Action(ActionType.FindServices, parameters={"target_host": target_host, "source_host": source_host,})
                 # Check if the action is in the history of actions
-                if 'unknown' in target_host:
-                    valid_actions.add(action)
-                    continue
-                elif action not in action_history:
+                if action not in action_history:
                     valid_actions.add(action)
 
         # Service Exploits
@@ -368,7 +365,7 @@ def convert_ips_to_concepts(observation, logger):
     unknown_hosts_concept = 'unknown'
     priv_hosts_concept = 'host'
     priv_hosts_concept_counter = 0
-    unknown_hosts = set()
+    unknown_hosts_concept_counter = 0
     network_concept_counter = 0
    
 
@@ -415,10 +412,10 @@ def convert_ips_to_concepts(observation, logger):
             ip_to_concept[host] = privnet_hosts_idx
         else:
             # The host is not controlled, so it is unknown
-            unknown_hosts.add(host)
-            unknown_hosts_idx = unknown_hosts_concept # No counters here.
-            concept_mapping['known_hosts'][unknown_hosts_idx] = unknown_hosts
+            unknown_hosts_idx = unknown_hosts_concept + str(unknown_hosts_concept_counter)
+            concept_mapping['known_hosts'][unknown_hosts_idx] = host
             ip_to_concept[host] = unknown_hosts_idx
+            unknown_hosts_concept_counter += 1
 
     ##########################
     # Convert Services
@@ -453,7 +450,7 @@ def convert_ips_to_concepts(observation, logger):
             # We dont have it. ok.
             pass
 
-        # All hosts that have some ports are not called 'unknown' but 'host'.
+        # All hosts that have some ports are called 'host' + something.
         concepts_host_idx = 'host' + str(priv_hosts_concept_counter)
         priv_hosts_concept_counter += 1
 
@@ -469,14 +466,7 @@ def convert_ips_to_concepts(observation, logger):
         try:
             _ = concept_mapping['known_hosts'][prev_concepts_host_idx]
             # Rename it from known hosts
-            # Case for 'unknown' that groups hosts
-            if type(concept_mapping['known_hosts'][prev_concepts_host_idx]) is set: 
-                concept_mapping['known_hosts'][prev_concepts_host_idx].discard(ip)
-                if len(concept_mapping['known_hosts'][prev_concepts_host_idx]) == 0:
-                    del concept_mapping['known_hosts'][prev_concepts_host_idx] 
-            else:
-                # Case for the rest of concepts
-                del concept_mapping['known_hosts'][prev_concepts_host_idx]
+            del concept_mapping['known_hosts'][prev_concepts_host_idx]
             concept_mapping['known_hosts'][new_concepts_host_idx] = ip
         except KeyError:
             # Was not there
@@ -577,8 +567,6 @@ def convert_ips_to_concepts(observation, logger):
     state_known_services = concept_mapping['known_services']
     state_known_data = concept_mapping['known_data']
 
-    # TODO: Check what happens when the concepts get empty. If there are no more unknown hosts, we should delete that 
-
     new_state = GameState(state_controlled_hosts, state_known_hosts, state_known_services, state_known_data, state_networks)
     # Create a new namedtuple with the common observation and the new concept mapping, so we can pass it around.
     new_observation = namedtuple('ConceptObservation', ['observation', 'concept_mapping'])
@@ -602,25 +590,7 @@ def _convert_target_host_concept_to_ip(target_host_concept, concept_observation,
     # Check if the target host concept exists in the mapping
     if target_host_concept in host_mapping_set:
         mapped_value = host_mapping_set[target_host_concept]
-        if 'unknown' in str(target_host_concept):
-            # For unknown hosts, choose randomly from the mapped set/value
-            if isinstance(mapped_value, set):
-                try:
-                    choice = random.choice(list(mapped_value))
-                except IndexError:
-                    print(f"IndexError in _convert_target_host_concept_to_ip. mapped_value: {mapped_value}. target_host_concept: {target_host_concept}, host_mapping_set: {host_mapping_set}")
-                    sys.exit(1)
-                return choice
-            else:
-                return mapped_value
-        else:
-            return mapped_value
-
-    # Fallback: return a random choice from available hosts
-    if host_mapping_set:
-        return random.choice(list(host_mapping_set.values()))
-    return target_host_concept
-
+        return mapped_value
 
 def _convert_source_host_concept_to_ip(src_host_concept, concept_observation):
     """
@@ -639,12 +609,6 @@ def _convert_source_host_concept_to_ip(src_host_concept, concept_observation):
     # Check if the source host concept exists in the mapping
     if src_host_concept in controlled_hosts_dict:
         return controlled_hosts_dict[src_host_concept]
-
-    # Fallback: return a random controlled host if no exact match found
-    if controlled_hosts_dict:
-        return random.choice(list(controlled_hosts_dict.values()))
-    return src_host_concept
-
 
 def _convert_network_concept_to_ip(target_net_concept, concept_observation):
     """
@@ -675,15 +639,6 @@ def _convert_network_concept_to_ip(target_net_concept, concept_observation):
             else:
                 return mapped_value
 
-    # Fallback: return a random network if no exact match found
-    if networks_dict:
-        all_networks = []
-        for net_set in networks_dict.values():
-            if isinstance(net_set, set):
-                all_networks.extend(list(net_set))
-            else:
-                all_networks.append(net_set)
-        return random.choice(all_networks) if all_networks else target_net_concept
     return target_net_concept
 
 
