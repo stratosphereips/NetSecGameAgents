@@ -146,14 +146,11 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                 # Do not exfiltrate if the target_host already has the data
                 if (
                     (
-                        type(target_host) is str 
-                        and 'external' not in target_host # Controversial rule since some agents may choose to temporarily exfiltrate to an internal host to avoid detection
-                        and type(source_host) is str 
+                        type(source_host) is str 
                         and 'external' not in source_host
                     ) and (
                         target_host in state.controlled_hosts
                         and not is_fw_blocked(state, source_host, target_host)
-                        and not is_fw_blocked(state, target_host, source_host)
                         and target_host != source_host
                     ) and (
                         data_list is not None
@@ -164,6 +161,14 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                         # This check not to exfiltrate the data several times is more organic here
                         # checking if the data is already in the target controlled host
                         data_was_not_exfiltrated_before = True
+                        ignore_this_data = False
+
+                        # Should some type of data be ignored?
+                        # Ignore logfiles
+                        if data.id == 'logfile':
+                            ignore_this_data = True
+                            continue
+
                         try:
                             # Is the target_host in the list of known_hosts?
                             _ = state.known_data[target_host]
@@ -171,13 +176,13 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                                 # Does the target_host already have the data?
                                 if exfiltrated_data.id == data.id:
                                     data_was_not_exfiltrated_before = False
-                                    break
                         except KeyError:
-                            data_was_not_exfiltrated_before = False
+                            # We dont have data in this target host so is ok
+                            pass
 
                         action = Action(ActionType.ExfiltrateData, parameters={"target_host": target_host, "source_host": source_host, "data": data})
                         # Check if the action is in the history of actions
-                        if data_was_not_exfiltrated_before and action not in action_history:
+                        if not ignore_this_data and data_was_not_exfiltrated_before and action not in action_history:
                             valid_actions.add(action)
 
 
