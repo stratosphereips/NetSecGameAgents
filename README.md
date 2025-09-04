@@ -2,25 +2,40 @@
 Agents located in this repository should be used in the [Network Security Game](https://github.com/stratosphereips/NetSecGame) environment. They are intended for navigation and problem solving in the adversarial network-security based environment where they play the role of attackers or defenders.
 
 ## Installation
-We recommend to use virtual environment when installing the agents:
+Agents need their own set of libraries which are installed separatedly from the AiDojo environment.
+
+To run an agent you need to install
+- The library of the AIDojoCoordinator
+- The libraries needed by your agent
+
+We recommend to use virtual environment when installing.
+
 ```bash
 python -m venv aidojo-agents
 ```
+
 To activat the venv, run:
 ```
 source aidojo-agents/bin/activate
 ```
-This project requires components of the [Network Security Game](https://github.com/stratosphereips/NetSecGame) to run properly so make sure it is installed first.
 
-To install the all agents, run 
+Be sure you are in the directory of this _NetSecGameAgents_ repository.
+
+### Install the libraries of the AiDojoCoordinator
+Agents requires components of the [NeSecGame](https://github.com/stratosphereips/NetSecGame) to run properly so make sure it is installed first.
+The code for NetSecGame is assumed to be in the previous directory
+
+- `python -m pip install -e ..`
+
+To install the required packages for each agent, you can run 
 ```
-pip install .
+python -m pip install -e .[<name-of-the-agent>] 
 ```
-It is possible to install only subset of agents with following command:
-```
-pip install -e .[<name-of-the-agent>] 
-```
-For example `pip install -e .[tui,llm]`
+
+For example `python -m pip install -e ".[tui,llm]"`
+
+For a complete list of agents to install the dependencies see the pyproject.toml file.
+
 
 ## Runing the agent
 To run the agents, use
@@ -79,6 +94,7 @@ Agents of each type are stored in the corresponding directory within this reposi
     ├── benign
         ├── benign_random
 ```
+
 ### Agent utils
 Utility functions in [`agent_utils.py`](./agents/agent_utils.py) can be used by any agent to evaluate a `GameState`, and generate a set of valid `Actions` in a `GameState`, etc. 
 Additionally, there are several files with utils functions that can be used by any agents:
@@ -116,13 +132,6 @@ If you want to export the local mlflow to a remote mlflow you can use our util
 ```bash
 python utils/export_import_mlflow_exp.py --experiment_id 783457873620024898 --run_id 5f2e4a205b7745259a4ddedc12d71a74 --remote_mlflow_url http://127.0.0.1:8000 --mlruns_dir ./mlruns
 ```
-
-## Install
-
-- create new env
-- install numpy
-- install coor `pip install -e ..`
-- optionally install mlflow
 
 ## About us
 This code was developed at the [Stratosphere Laboratory at the Czech Technical University in Prague](https://www.stratosphereips.org/) as part of the [AIDojo Project](https://www.stratosphereips.org/ai-dojo).

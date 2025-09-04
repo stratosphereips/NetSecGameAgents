@@ -153,4 +153,4 @@ agents/mlruns*
 agents/*/*/mlruns/
 agents/*/*/logs
 aim/*
-wandb/
+wandb
