@@ -221,8 +221,6 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                                 action = Action(ActionType.BlockIP, {"target_host":target_host, "source_host":source_host, "blocked_host":blocked_host})
                                 if action not in action_history:
                                     valid_actions.add(action)
-    if len(valid_actions) == 0:
-        print("No valid actions")
     return list(valid_actions)
 
 def generate_valid_actions(state: GameState, include_blocks=False)->list:
