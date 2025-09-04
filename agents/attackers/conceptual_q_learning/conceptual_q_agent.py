@@ -492,7 +492,7 @@ if __name__ == '__main__':
                             # Store the model every --eval_each episodes. 
                             # Use episode (training counter) and not test_episode (test counter)
                             if episode % args.store_models_every == 0 and episode != 0:
-                                agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}.pickle')
+                                agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
 
                         text = f'''Tested for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
@@ -552,8 +552,8 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}.pickle')
+            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
     finally:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}.pickle')
+            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
