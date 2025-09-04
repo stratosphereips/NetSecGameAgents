@@ -76,6 +76,9 @@ class QAgent(BaseAgent):
         actions = generate_valid_actions_concepts(state, self.actions_history)
         state_id = self.get_state_id(state)
         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
+        if not tmp:
+            # tmp is empty, meaning there are no actions to take!
+            return None
         return tmp[max(tmp,key=tmp.get)] #return maximum Q_value for a given state (out of available actions)
    
     def select_action(self, observation:Observation, testing=False) -> tuple:
@@ -195,7 +198,12 @@ class QAgent(BaseAgent):
             # Update the Q-table
             if not testing:
                 # If we are training update the Q-table. If in testing do not update, so no learning in testing.
-                self.q_values[state_id, concept_action] += self.alpha * (concept_observation.observation.reward + self.gamma * self.max_action_q(concept_observation)) - self.q_values[state_id, concept_action]
+                max_action = self.max_action_q(concept_observation)
+                if max_action == None:
+                    # There are no more actions to take. So reset the game
+                    self.logger.info(f"\n[+] We run out of actions. Reset the game.")
+                    return None, num_steps
+                self.q_values[state_id, concept_action] += self.alpha * (concept_observation.observation.reward + max_action) - self.q_values[state_id, concept_action]
 
             # Check the apm (actions per minute)
             if self._apm_limit:
@@ -241,7 +249,7 @@ if __name__ == '__main__':
     # Check that the directory for the logs exist
     if not path.exists(args.logdir):
         makedirs(args.logdir)
-    logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+    logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.DEBUG)
 
     # Create agent object
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes, apm_limit=args.apm)
@@ -338,28 +346,30 @@ if __name__ == '__main__':
                     # Play 1 episode only
                     observation, num_steps = agent.play_game(concept_observation, testing=args.testing, episode_num=episode)       
 
-                    state = observation.state
-                    reward = observation.reward
-                    end = observation.end
-                    info = observation.info
+                    # Do we have a good observation? It can be that it run of of actions and observation is None
+                    if observation:
+                        state = observation.state
+                        reward = observation.reward
+                        end = observation.end
+                        info = observation.info
 
-                    if observation.info and observation.info['end_reason'] == AgentStatus.Fail:
-                        detected +=1
-                        num_detected_steps += [num_steps]
-                        num_detected_returns += [reward]
-                    elif observation.info and observation.info['end_reason'] == AgentStatus.Success:
-                        wins += 1
-                        num_win_steps += [num_steps]
-                        num_win_returns += [reward]
-                    elif observation.info and observation.info['end_reason'] == AgentStatus.TimeoutReached:
-                        max_steps += 1
-                        num_max_steps_steps += [num_steps]
-                        num_max_steps_returns += [reward]
+                        if observation.info and observation.info['end_reason'] == AgentStatus.Fail:
+                            detected +=1
+                            num_detected_steps += [num_steps]
+                            num_detected_returns += [reward]
+                        elif observation.info and observation.info['end_reason'] == AgentStatus.Success:
+                            wins += 1
+                            num_win_steps += [num_steps]
+                            num_win_returns += [reward]
+                        elif observation.info and observation.info['end_reason'] == AgentStatus.TimeoutReached:
+                            max_steps += 1
+                            num_max_steps_steps += [num_steps]
+                            num_max_steps_returns += [reward]
 
-                    if args.testing:
-                        agent._logger.error(f"Testing episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
-                    elif not args.testing:
-                        agent._logger.error(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                        if args.testing:
+                            agent._logger.error(f"Testing episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                        elif not args.testing:
+                            agent._logger.error(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
 
                     # Reset the game here, after we analyzed the data of the last observation.
                     # After each episode we need to reset the game 
@@ -435,25 +445,27 @@ if __name__ == '__main__':
                             # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
                             test_observation, test_num_steps = agent.play_game(concept_observation, testing=True, episode_num=episode)       
 
-                            test_state = test_observation.state
-                            test_reward = test_observation.reward
-                            test_end = test_observation.end
-                            test_info = test_observation.info
+                            # Do we have a good observation? It can be that it run of of actions and observation is None
+                            if test_observation:
+                                test_state = test_observation.state
+                                test_reward = test_observation.reward
+                                test_end = test_observation.end
+                                test_info = test_observation.info
 
-                            if test_info and test_info['end_reason'] == AgentStatus.Fail:
-                                test_detected +=1
-                                test_num_detected_steps += [num_steps]
-                                test_num_detected_returns += [reward]
-                            elif test_info and test_info['end_reason'] == AgentStatus.Success:
-                                test_wins += 1
-                                test_num_win_steps += [num_steps]
-                                test_num_win_returns += [reward]
-                            elif test_info and test_info['end_reason'] == AgentStatus.TimeoutReached:
-                                test_max_steps += 1
-                                test_num_max_steps_steps += [num_steps]
-                                test_num_max_steps_returns += [reward]
+                                if test_info and test_info['end_reason'] == AgentStatus.Fail:
+                                    test_detected +=1
+                                    test_num_detected_steps += [num_steps]
+                                    test_num_detected_returns += [reward]
+                                elif test_info and test_info['end_reason'] == AgentStatus.Success:
+                                    test_wins += 1
+                                    test_num_win_steps += [num_steps]
+                                    test_num_win_returns += [reward]
+                                elif test_info and test_info['end_reason'] == AgentStatus.TimeoutReached:
+                                    test_max_steps += 1
+                                    test_num_max_steps_steps += [num_steps]
+                                    test_num_max_steps_returns += [reward]
 
-                            agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
+                                agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
 
                             # Reset the game
                             test_observation = agent.request_game_reset()
