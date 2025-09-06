@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Rich summary viewer for QAgent logs.
 
 Default mode (summary) groups low-level log lines into high-level ACTION STEPS:
@@ -62,6 +63,8 @@ class Step:
     reward: Optional[int] = None
     end: Optional[bool] = None  # whether this step ended the episode (from env)
     raw_lines: List[str] = field(default_factory=list)
+    # Parsed textual state when structured JSON is absent (INFO-level logs)
+    parsed_state: Optional[dict] = None  # shape similar to normalize_state output
 
     # Diffs (computed later)
     new_hosts: List[str] = field(default_factory=list)
@@ -75,6 +78,16 @@ class Step:
 
 
 END_FLAG_RE = re.compile(r"end=(True|False)")  # in 'State after action:' lines
+
+# Regexes for INFO-level textual state dumps (I2C lines)
+REAL_STATE_NETS_RE = re.compile(r"I2C: Real state known nets: \{([^}]*)\}")
+REAL_STATE_HOSTS_RE = re.compile(r"I2C: Real state known hosts: \{([^}]*)\}")
+REAL_STATE_CONTROLLED_RE = re.compile(r"I2C: Real state controlled hosts: \{([^}]*)\}")
+REAL_STATE_SERVICES_RE = re.compile(r"I2C: Real state known services: \{([^}]*)\}")
+REAL_STATE_DATA_RE = re.compile(r"I2C: Real state known data: \{([^}]*)\}")
+
+# Service name extraction inside service listing
+SERVICE_NAME_RE = re.compile(r"Service\(name='([^']+)'")
 
 
 def parse_log_lines(path: Path) -> List[Step]:
@@ -103,6 +116,8 @@ def parse_log_lines(path: Path) -> List[Step]:
 
             if current is not None:
                 current.raw_lines.append(raw_line)
+                # Attempt parsing of textual state fragments on timestamped lines too
+                _maybe_parse_textual_state(current, msg)
 
             # Within a step, parse attributes
             if current is not None:
@@ -155,6 +170,8 @@ def parse_log_lines(path: Path) -> List[Step]:
                 continue
             # Add raw line to current context
             current.raw_lines.append(raw_line)
+            # Parse textual state lines
+            _maybe_parse_textual_state(current, raw_line)
             real_m = REAL_ACTION_RE.search(raw_line)
             if real_m:
                 current.real = real_m.group(1).strip()
@@ -194,6 +211,54 @@ def parse_log_lines(path: Path) -> List[Step]:
             if m_end:
                 current.end = (m_end.group(1) == 'True')
     return steps
+
+
+def _maybe_parse_textual_state(step: Step, line: str):
+    """Populate step.parsed_state from INFO-level textual 'I2C: Real state ...' lines.
+
+    Only initializes data structure when a pattern actually matches to avoid
+    creating empty states that could interfere with diffing heuristics.
+    """
+    matched = False
+    nets_m = REAL_STATE_NETS_RE.search(line)
+    hosts_m = REAL_STATE_HOSTS_RE.search(line)
+    controlled_m = REAL_STATE_CONTROLLED_RE.search(line)
+    services_m = REAL_STATE_SERVICES_RE.search(line)
+    data_m = REAL_STATE_DATA_RE.search(line)
+    if not any([nets_m, hosts_m, controlled_m, services_m, data_m]):
+        return
+    # Now initialize container since something matched
+    if step.parsed_state is None:
+        step.parsed_state = {
+            'networks': set(),
+            'hosts': set(),
+            'controlled': set(),
+            'services': {},
+            'data': {},
+        }
+    ps = step.parsed_state
+    if nets_m:
+        nets_raw = [n.strip() for n in nets_m.group(1).split(',') if n.strip()]
+        ps['networks'].update(nets_raw)
+    if hosts_m:
+        hosts_raw = [h.strip() for h in hosts_m.group(1).split(',') if h.strip()]
+        ps['hosts'].update(hosts_raw)
+    if controlled_m:
+        controlled_raw = [h.strip() for h in controlled_m.group(1).split(',') if h.strip()]
+        ps['controlled'].update(controlled_raw)
+    if services_m:
+        services_blob = services_m.group(1)
+        try:
+            ip_part, svc_part = services_blob.split(':', 1)
+            ip = ip_part.strip()
+            names = set(SERVICE_NAME_RE.findall(svc_part))
+            if ip:
+                ps['services'].setdefault(ip, set()).update(names)
+        except ValueError:
+            pass
+    if data_m:
+        # Placeholder for future data parsing
+        pass
 
 
 def assign_episodes(steps: List[Step]):
@@ -252,8 +317,20 @@ def compute_diffs(steps: List[Step]):
         data={},      # ip -> set(data ids)
     )
     for st in steps:
+        # Prefer structured JSON state; fallback to parsed textual state
         if st.received:
             state = normalize_state(extract_state(st.received))
+        elif st.parsed_state is not None:
+            # Ensure copies so we don't mutate the original sets later inadvertently
+            state = dict(
+                networks=set(st.parsed_state.get('networks', set())),
+                hosts=set(st.parsed_state.get('hosts', set())),
+                controlled=set(st.parsed_state.get('controlled', set())),
+                services={ip: set(svcs) for ip, svcs in (st.parsed_state.get('services') or {}).items()},
+                data={ip: set(vals) for ip, vals in (st.parsed_state.get('data') or {}).items()},
+            )
+        else:
+            continue
             # Hosts
             st.new_hosts = sorted(list(state['hosts'] - prev_state['hosts']))
             # Networks
@@ -357,9 +434,21 @@ def render_step(step: Step, show_json: bool = False) -> Panel:
             body_renderables.append(tbl)
 
     # Env response summary
-    if step.received:
-        received = step.received
-        obs_state = normalize_state(extract_state(received))
+    # Build env state view (JSON structured or textual parsed)
+    if step.received or step.parsed_state is not None:
+        if step.received:
+            received = step.received
+            obs_state = normalize_state(extract_state(received))
+        else:
+            # Already similar format; ensure parsed_state exists
+            ps = step.parsed_state or {}
+            obs_state = dict(
+                networks=ps.get('networks', set()),
+                hosts=ps.get('hosts', set()),
+                controlled=ps.get('controlled', set()),
+                services=ps.get('services', {}),
+                data=ps.get('data', {}),
+            )
         # Detailed multiline listing instead of counts
         detail_text = Text()
         networks = sorted(obs_state['networks'])
