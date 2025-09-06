@@ -19,6 +19,7 @@ from os import path, makedirs
 from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus, ActionType
 from NetSecGameAgents.agents.base_agent import BaseAgent
 from NetSecGameAgents.agents.agent_utils import state_as_ordered_string, convert_ips_to_concepts, convert_concepts_to_actions, generate_valid_actions_concepts
+from concept_mapping_logger import ConceptMappingLogger
 
 class QAgent(BaseAgent):
 
@@ -41,6 +42,8 @@ class QAgent(BaseAgent):
         self.actions_history = set()
         # store the last state seen, so we know if there was a change or not
         self.previous_state = None
+        # Enhanced logging
+        self.concept_logger = None
 
     def store_q_table(self, strpath, filename):
         """ Store the q table on disk """
@@ -111,6 +114,10 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action] = 0
             return action, state_id
 
+    def enable_enhanced_logging(self, verbose=True):
+        """Enable enhanced concept mapping logging"""
+        self.concept_logger = ConceptMappingLogger(self._logger, verbose)
+
     def recompute_reward(self, observation: Observation) -> Observation:
         """
         Redefine how this agent recomputes its inner reward
@@ -170,15 +177,19 @@ class QAgent(BaseAgent):
         while not concept_observation.observation.end:
             # Store steps so far
             num_steps += 1
+            if self.concept_logger:
+                self.concept_logger.set_episode_step(episode_num, num_steps)
             start_time = time.time()
             # Get next action. If we are not training, selection is different, so pass it as argument
             concept_action, state_id = self.select_action(concept_observation.observation, testing)
             self.logger.info(f"\n\n ==================================== \n\n[+] Concept Action selected:{concept_action}")
 
             # Convert the action with concepts to the action with IPs
-            action = convert_concepts_to_actions(concept_action, concept_observation)
+            action = convert_concepts_to_actions(concept_action, concept_observation, self.concept_logger)
             self.logger.info(f"\n[+] Real Action selected:{action}")
 
+            if self.concept_logger:
+                self.concept_logger.log_action_history_update(concept_action, self.actions_history)
             self.remember_action(concept_action)
 
             # Perform the action and observe next observation
@@ -191,7 +202,7 @@ class QAgent(BaseAgent):
 
             # Convert the observation to conceptual observation
             # From now one the observation will be in concepts
-            concept_observation = convert_ips_to_concepts(observation, self.logger)
+            concept_observation = convert_ips_to_concepts(observation, self.logger, self.concept_logger)
            
             #concept_observation = self.recompute_reward(concept_observation)
             self.logger.info(f"\n[+] Reward of last action (after reward engineering): {concept_observation.observation.reward}")
@@ -204,7 +215,14 @@ class QAgent(BaseAgent):
                     # There are no more actions to take. So reset the game
                     self.logger.info(f"\n[+] We run out of actions. Reset the game.")
                     return None, num_steps
+                old_q = self.q_values[state_id, concept_action]
                 self.q_values[state_id, concept_action] += self.alpha * (concept_observation.observation.reward + max_action) - self.q_values[state_id, concept_action]
+                new_q = self.q_values[state_id, concept_action]
+                if self.concept_logger:
+                    self.concept_logger.log_q_value_update(
+                        state_id, concept_action, old_q, new_q,
+                        concept_observation.observation.reward, max_action, self.alpha, self.gamma
+                    )
 
             # Check the apm (actions per minute)
             if self._apm_limit:
@@ -220,6 +238,16 @@ class QAgent(BaseAgent):
         # update epsilon value
         if not testing:
             self.current_epsilon = self.update_epsilon_with_decay(episode_num)
+
+        # Log episode summary
+        if self.concept_logger:
+            end_reason = "success" if observation and observation.info and observation.info.get('end_reason') == AgentStatus.Success else \
+                        "detected" if observation and observation.info and observation.info.get('end_reason') == AgentStatus.Fail else \
+                        "timeout" if observation and observation.info and observation.info.get('end_reason') == AgentStatus.TimeoutReached else "unknown"
+            reward = observation.reward if observation else 0
+            self.concept_logger.log_episode_summary(
+                episode_num, num_steps, reward, len(self.q_values), self.current_epsilon, end_reason
+            )
 
         # This will be the last observation played before the reset
         return observation, num_steps
@@ -254,15 +282,20 @@ if __name__ == '__main__':
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
     parser.add_argument("--apm", help="Maximum actions per minute", default=1000000, type=int, required=False)
+    parser.add_argument("--enhanced_logging", help="Enable enhanced concept mapping logging", default=False, action='store_true')
     args = parser.parse_args()
 
     # Check that the directory for the logs exist
     if not path.exists(args.logdir):
         makedirs(args.logdir)
-    logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
+    log_level = logging.INFO if args.enhanced_logging else logging.ERROR
+    logging.basicConfig(filename=path.join(args.logdir, "conceptual_q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=log_level)
 
     # Create agent object
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes, apm_limit=args.apm)
+    
+    if args.enhanced_logging:
+        agent.enable_enhanced_logging(verbose=True)
 
     # Set logging platform usage based on flags
     # MLflow is disabled by default, wandb is enabled by default
@@ -315,7 +348,7 @@ if __name__ == '__main__':
     if not observation:
         raise Exception("Problem registering the agent")
     # Convert the obvervation to conceptual observation
-    concept_observation = convert_ips_to_concepts(observation, agent._logger)
+    concept_observation = convert_ips_to_concepts(observation, agent._logger, agent.concept_logger)
     # From now one the observation will be in concepts
 
     # Start the train/eval/test loop
@@ -452,7 +485,7 @@ if __name__ == '__main__':
                     agent.actions_history = set()
 
                     # Convert the obvervation to conceptual observation
-                    concept_observation = convert_ips_to_concepts(observation, agent._logger)
+                    concept_observation = convert_ips_to_concepts(observation, agent._logger, agent.concept_logger)
                     # From now one the observation will be in concepts
 
                     eval_win_rate = (wins/episode) * 100
@@ -571,7 +604,7 @@ if __name__ == '__main__':
                             agent.actions_history = set()
 
                             # Convert the obvervation to conceptual observation
-                            test_observation = convert_ips_to_concepts(test_observation, agent._logger)
+                            test_observation = convert_ips_to_concepts(test_observation, agent._logger, agent.concept_logger)
                             # From now one the observation will be in concepts
 
                             test_win_rate = (test_wins/test_episode) * 100
