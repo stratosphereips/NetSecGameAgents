@@ -46,7 +46,7 @@ class QAgent(BaseAgent):
         # path.join(path.dirname(path.abspath(__file__)), "logs")
         if not path.exists(strpath):
             makedirs(strpath)
-        with open(filename, "wb") as f:
+        with open(strpath+filename, "wb") as f:
             data = {"q_table":self.q_values, "state_mapping": self._str_to_id}
             pickle.dump(data, f)
 
@@ -236,6 +236,7 @@ if __name__ == '__main__':
     parser.add_argument("--gamma", help="Sets gamma discount for Q-learing during training.", default=0.9, type=float)
     parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
+    parser.add_argument("--models_dir", help="Folder to store models", default=path.join(path.dirname(path.abspath(__file__)), "models"))
     parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", type=str)
     parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='', type=str)
@@ -492,7 +493,7 @@ if __name__ == '__main__':
                             # Store the model every --eval_each episodes. 
                             # Use episode (training counter) and not test_episode (test counter)
                             if episode % args.store_models_every == 0 and episode != 0:
-                                agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
+                                agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
 
                         text = f'''Tested for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
@@ -552,8 +553,8 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
+            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
     finally:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(path.join(path.dirname(path.abspath(__file__)), "models/"), f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
+            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
