@@ -130,15 +130,24 @@ class BaseAgent(ABC):
         except Exception as e:
             self._logger.error(f'Exception in register(): {e}')
     
-    def request_game_reset(self, request_trajectory=False)->Observation:
+    def request_game_reset(self, request_trajectory=False, randomize_topology=False)->Observation:
         """
         Method for requesting restart of the game.
         """
         self._logger.debug("Requesting game reset")
-        status, observation_dict, message = self.communicate(Action(ActionType.ResetGame, parameters={"request_trajectory":request_trajectory}))
+        status, observation_dict, message = self.communicate(Action(ActionType.ResetGame, parameters={"request_trajectory":request_trajectory, "randomize_topology":randomize_topology}))
         if status:
             self._logger.debug('\tReset successful')
             return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"], message)
         else:
             self._logger.error(f'\rReset failed! (status: {status}, msg:{message}')
             return None
+
+if __name__ == "__main__":
+    agent = BaseAgent("localhost", 9000, "Attacker")
+    obs = agent.register()
+    print(obs)
+    obs = agent.request_game_reset()
+    print(obs)
+    obs = agent.request_game_reset(randomize_topology=True)
+    print(obs)
