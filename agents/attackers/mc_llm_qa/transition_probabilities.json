@@ -1,0 +1,59 @@
+{
+    "transition_probabilities": [
+      {
+        "Action": "Initial Action",
+        "ScanNetwork": 0.47,
+        "FindServices": 0.21,
+        "ExploitService": 0.05,
+        "FindData": 0.1,
+        "ExfiltrateData": 0.17,
+        "FinalProbability": 0
+      },
+      {
+        "Action": "ScanNetwork",
+        "ScanNetwork": 0.25,
+        "FindServices": 0.36,
+        "ExploitService": 0.18,
+        "FindData": 0.09,
+        "ExfiltrateData": 0.12,
+        "FinalProbability": 0
+      },
+      {
+        "Action": "FindServices",
+        "ScanNetwork": 0.16,
+        "FindServices": 0.31,
+        "ExploitService": 0.29,
+        "FindData": 0.1,
+        "ExfiltrateData": 0.15,
+        "FinalProbability": 0
+      },
+      {
+        "Action": "ExploitService",
+        "ScanNetwork": 0.15,
+        "FindServices": 0.29,
+        "ExploitService": 0.27,
+        "FindData": 0.1,
+        "ExfiltrateData": 0.19,
+        "FinalProbability": 0
+      },
+      {
+        "Action": "FindData",
+        "ScanNetwork": 0.15,
+        "FindServices": 0.22,
+        "ExploitService": 0.17,
+        "FindData": 0.03,
+        "ExfiltrateData": 0.43,
+        "FinalProbability": 0
+      },
+      {
+        "Action": "ExfiltrateData",
+        "ScanNetwork": 0.15,
+        "FindServices": 0.24,
+        "ExploitService": 0.24,
+        "FindData": 0.08,
+        "ExfiltrateData": 0.29,
+        "FinalProbability": 1
+      }
+    ]
+  }
+  
