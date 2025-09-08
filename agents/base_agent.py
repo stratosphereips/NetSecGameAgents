@@ -167,7 +167,7 @@ class BaseAgent(ABC):
         Requests a game reset from the server. Optionally requests a trajectory and/or topology randomization.
         Args:
             request_trajectory (bool): If True, requests the server to provide a trajectory of the last episode.
-            randomize_topology (bool): If True, requests the server to randomize the network topology.
+            randomize_topology (bool): If True, requests the server to randomize the network topology for the next episode.
         Returns:
             Observation: The initial observation after the reset if successful, None otherwise.
         """
