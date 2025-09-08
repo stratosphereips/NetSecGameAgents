@@ -54,10 +54,20 @@ class BaseAgent(ABC):
     @property
     def logger(self)->logging.Logger:
         return self._logger
-    
-    def make_step(self, action: Action)->Observation:
+
+    def make_step(self, action: Action) -> Observation:
         """
-        Method for sendind agent's action to the server and receiving and parsing response into new observation.
+        Executes a single step in the environment by sending the agent's action to the server and receiving the resulting observation.
+
+        Args:
+            action (Action): The action to be performed by the agent.
+
+        Returns:
+            Observation: The new observation received from the server, containing the updated game state, reward, end flag, and additional info.
+            None: If no observation is received from the server.
+
+        Raises:
+            Any exceptions raised by the `communicate` method are propagated.
         """
         _, observation_dict, _ = self.communicate(action)
         if observation_dict:
@@ -66,8 +76,24 @@ class BaseAgent(ABC):
             return None
     
     def communicate(self, data:Action)-> tuple:
-        """Method for a data exchange with the server. Expect Action, dict or string as input.
-        Outputs tuple with server's response in format (status_dict, response_body, message)"""
+        """
+        Exchanges data with the server and returns the server's response.
+        This method sends an `Action` object to the server and waits for a response.
+        The response is expected to be a JSON-encoded string containing status, observation, and message fields.
+        The method returns a tuple containing the parsed status, observation, and message.
+        Args:
+            data (Action): The action to send to the server. Must be an instance of `Action`.
+        Returns:
+            tuple: A tuple containing:
+                - status (GameStatus): The status object parsed from the server response.
+                - observation (dict): The observation data from the server.
+                - message (str or None): An optional message from the server.
+        Raises:
+            ValueError: If `data` is not of type `Action`.
+            ConnectionError: If the server response is incomplete or missing the end-of-message marker.
+            Exception: If there is an error sending data to the server.
+        """
+
         def _send_data(socket, data:str)->None:
             try:
                 self._logger.debug(f'Sending: {data}')
@@ -116,6 +142,12 @@ class BaseAgent(ABC):
         """
         Method for registering agent to the game server.
         Classname is used as agent name and the role is based on the 'role' argument.
+        Returns initial observation if registration was successful, None otherwise.
+
+        Args:
+            role (str): Role of the agent, either 'attacker' or 'defender'.
+        Returns:
+            Observation: Initial observation if registration was successful, None otherwise.
         """
         try:
             self._logger.info(f'Registering agent as {self.role}')
@@ -129,13 +161,18 @@ class BaseAgent(ABC):
                 return None
         except Exception as e:
             self._logger.error(f'Exception in register(): {e}')
-    
-    def request_game_reset(self, request_trajectory=False, randomize_topology=False)->Observation:
+
+    def request_game_reset(self, request_trajectory=False, randomize_topology=False) -> Observation:
         """
-        Method for requesting restart of the game.
+        Requests a game reset from the server. Optionally requests a trajectory and/or topology randomization.
+        Args:
+            request_trajectory (bool): If True, requests the server to provide a trajectory of the last episode.
+            randomize_topology (bool): If True, requests the server to randomize the network topology.
+        Returns:
+            Observation: The initial observation after the reset if successful, None otherwise.
         """
         self._logger.debug("Requesting game reset")
-        status, observation_dict, message = self.communicate(Action(ActionType.ResetGame, parameters={"request_trajectory":request_trajectory, "randomize_topology":randomize_topology}))
+        status, observation_dict, message = self.communicate(Action(ActionType.ResetGame, parameters={"request_trajectory": request_trajectory, "randomize_topology": randomize_topology}))
         if status:
             self._logger.debug('\tReset successful')
             return Observation(GameState.from_dict(observation_dict["state"]), observation_dict["reward"], observation_dict["end"], message)
