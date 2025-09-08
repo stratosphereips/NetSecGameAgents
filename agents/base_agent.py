@@ -142,12 +142,3 @@ class BaseAgent(ABC):
         else:
             self._logger.error(f'\rReset failed! (status: {status}, msg:{message}')
             return None
-
-if __name__ == "__main__":
-    agent = BaseAgent("localhost", 9000, "Attacker")
-    obs = agent.register()
-    print(obs)
-    obs = agent.request_game_reset()
-    print(obs)
-    obs = agent.request_game_reset(randomize_topology=True)
-    print(obs)
