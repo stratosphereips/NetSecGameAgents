@@ -10,6 +10,8 @@ prompts:
     4. You can find data in hosts you control.
     5. You can exfiltrate known data to and from controlled hosts.
 
+    Service format: when specifying `target_service` for ExploitService, use the exact string shown under "Known services" in the status (including port/proto and name), e.g., "22/tcp, ssh" or "80/tcp, http"; do not use aliases like just "ssh" or only the port.
+
     Do not repeat actions that you took in the past.
     Do not scan or exploit services in hosts you control.
     Do not scan the same network twice.
@@ -23,12 +25,12 @@ prompts:
     Known hosts are 2.2.2.2, 1.1.1.2, 2.2.2.3
     Controlled hosts are 2.2.2.2, 1.1.1.2
     Known data for source host 1.1.1.2: are ('User1', 'SomeData')
-    Known services for host 1.1.1.1 are "openssh"
+    Known services for host 1.1.1.1 are "22/tcp, ssh"
 
     Here are some examples of actions:
     Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24", "source_host": "2.2.2.2"}}
     Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3", "source_host': '2.2.2.2"}}
-    Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh", "source_host": "1.1.1.2"}}
+    Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"22/tcp, ssh", "source_host": "1.1.1.2"}}
     Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1", "source_host": "1.1.1.2"}}
     Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": {"owner":"User1", "id":"WebData"}, "source_host": "1.1.1.2"}}
     End of example.
@@ -38,12 +40,12 @@ prompts:
     Known hosts are 10.0.0.1, 10.0.0.2, 192.168.1.1, 192.168.1.2
     Controlled hosts are 10.0.0.2, 192.168.1.2
     Known data for source host 192.168.1.2: ('Admin', 'ConfidentialData')
-    Known services for host 192.168.1.1 are "httpd", "ftp"
+    Known services for host 192.168.1.1 are "80/tcp, http", "21/tcp, ftp"
 
     Here are some examples of actions:
     Action: {"action":"ScanNetwork", "parameters": {"target_network": "192.168.1.0/24", "source_host": "10.0.0.2"}}
     Action: {"action":"ScanServices", "parameters":{"target_host":"192.168.1.1", "source_host": "192.168.1.2"}}
-    Action: {"action":"ExploitService", "parameters":{"target_host":"192.168.1.1", "target_service":"httpd", "source_host": "10.0.0.2"}}
+    Action: {"action":"ExploitService", "parameters":{"target_host":"192.168.1.1", "target_service":"80/tcp, http", "source_host": "10.0.0.2"}}
     Action: {"action":"FindData", "parameters":{"target_host":"192.168.1.1", "source_host": "192.168.1.2"}}
     Action: {"action":"ExfiltrateData", "parameters": {"target_host": "10.0.0.2", "data": {"owner":"Admin", "id":"ConfidentialData"}, "source_host": "192.168.1.2"}}
     End of example 2
@@ -52,7 +54,7 @@ prompts:
     Here are some examples of actions:
     Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24", "source_host": "2.2.2.2"}}
     Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3", "source_host': '2.2.2.2"}}
-    Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh", "source_host": "1.1.1.2"}}
+    Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"22/tcp, ssh", "source_host": "1.1.1.2"}}
     Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1", "source_host": "1.1.1.2"}}
     Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": {"owner":"User1", "id":"WebData"}, "source_host": "1.1.1.2"}}
     End of examples.
