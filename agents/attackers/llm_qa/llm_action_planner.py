@@ -23,20 +23,13 @@ import json
 import logging
 from AIDojoCoordinator.game_components import ActionType, Observation
 from NetSecGameAgents.agents.llm_utils import create_status_from_state
+# Support both package and direct-script execution
 try:
-    # When imported as a package module
-    from .llm_action_planner_base import LLMActionPlannerBase
-except ImportError:  # pragma: no cover - fallback when run as a script
-    # When running this module via a script without package context
+    from .llm_action_planner_base import LLMActionPlannerBase  # type: ignore
+except Exception:  # pragma: no cover - fallback for direct runs
     from llm_action_planner_base import LLMActionPlannerBase
-try:
-    # Prefer relative import when available
-    from . import validate_responses
-except ImportError:  # pragma: no cover - fallback when run as a script
-    import validate_responses
+import validate_responses
 
-
-logger = logging.getLogger("llm_react")
 
 ACTION_MAPPER = {
     "ScanNetwork": ActionType.ScanNetwork,
@@ -72,10 +65,6 @@ class LLMActionPlanner(LLMActionPlannerBase):
         )
 
     def get_action_from_obs_react(self, observation: Observation, memory_buf: list) -> tuple:
-        try:
-            logger.info("Planning next action with ReAct technique…")
-        except Exception:
-            pass
         with self.tracer.start_span(
             name="agent-action-planning",
             input={
@@ -141,10 +130,6 @@ class LLMActionPlanner(LLMActionPlannerBase):
                     stage1_span.update(output=response)
                 except Exception:
                     pass
-                try:
-                    logger.info("Reasoning received (%d chars)", len(str(response)))
-                except Exception:
-                    pass
 
             with self.tracer.start_span(name="stage2-action-selection", parent_span=main_span) as stage2_span:
                 messages = [
@@ -174,18 +159,10 @@ class LLMActionPlanner(LLMActionPlannerBase):
                     stage2_span.update(output=action_response)
                 except Exception:
                     pass
-                try:
-                    logger.info("Action proposal JSON: %s", action_response)
-                except Exception:
-                    pass
                 self.responses.append(action_response)
                 valid, response_dict, action = self.parse_response(action_response, observation.state)
                 try:
                     stage2_span.update(metadata={"parsed": response_dict})
-                except Exception:
-                    pass
-                try:
-                    logger.info("Parsed action: %s | params=%s | valid=%s", str(action), str(response_dict.get("parameters")), str(valid))
                 except Exception:
                     pass
                 return valid, response_dict, action

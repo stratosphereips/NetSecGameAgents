@@ -80,6 +80,13 @@ def validate_action_in_state(llm_response: dict, state: GameState) -> bool:
         action_params = llm_response["parameters"]
         if isinstance(action_params, str):
             action_params = eval(action_params)
+
+        # Common sanity checks for actions that require a source host
+        src_host = action_params.get("source_host")
+        if action_str in {"ScanNetwork", "ScanServices", "FindServices", "ExploitService", "FindData", "ExfiltrateData"}:
+            # Must be a concrete controlled host (not a CIDR/network)
+            if not isinstance(src_host, str) or "/" in src_host or src_host not in contr_hosts:
+                return False
         match action_str:
             case "ScanNetwork":
                 if action_params["target_network"] in known_nets:
@@ -127,31 +134,41 @@ def create_action_from_response(llm_response: dict, state: GameState) -> tuple:
                 case "ScanNetwork":
                     target_net, mask = action_params["target_network"].split("/")
                     src_host = action_params["source_host"]
-                    action = Action(
-                        ActionType.ScanNetwork,
-                        {
-                            "target_network": Network(target_net, int(mask)),
-                            "source_host": IP(src_host),
-                        },
-                    )
+                    try:
+                        action = Action(
+                            ActionType.ScanNetwork,
+                            {
+                                "target_network": Network(target_net, int(mask)),
+                                "source_host": IP(src_host),
+                            },
+                        )
+                    except ValueError:
+                        return False, None
                 case "ScanServices" | "FindServices":
                     src_host = action_params["source_host"]
-                    action = Action(
-                        ActionType.FindServices,
-                        {
-                            "target_host": IP(action_params["target_host"]),
-                            "source_host": IP(src_host),
-                        },
-                    )
+                    try:
+                        action = Action(
+                            ActionType.FindServices,
+                            {
+                                "target_host": IP(action_params["target_host"]),
+                                "source_host": IP(src_host),
+                            },
+                        )
+                    except ValueError:
+                        return False, None
                 case "ExploitService":
                     target_ip = action_params["target_host"]
                     target_service = action_params["target_service"]
                     src_host = action_params["source_host"]
-                    if len(list(state.known_services[IP(target_ip)])) > 0:
-                        for serv in state.known_services[IP(target_ip)]:
+                    try:
+                        target_ip_obj = IP(target_ip)
+                    except ValueError:
+                        return False, None
+                    if len(list(state.known_services[target_ip_obj])) > 0:
+                        for serv in state.known_services[target_ip_obj]:
                             if serv.name == target_service.lower():
                                 parameters = {
-                                    "target_host": IP(target_ip),
+                                    "target_host": target_ip_obj,
                                     "target_service": Service(
                                         serv.name,
                                         serv.type,
@@ -166,13 +183,16 @@ def create_action_from_response(llm_response: dict, state: GameState) -> tuple:
                         action = None
                 case "FindData":
                     src_host = action_params["source_host"]
-                    action = Action(
-                        ActionType.FindData,
-                        {
-                            "target_host": IP(action_params["target_host"]),
-                            "source_host": IP(src_host),
-                        },
-                    )
+                    try:
+                        action = Action(
+                            ActionType.FindData,
+                            {
+                                "target_host": IP(action_params["target_host"]),
+                                "source_host": IP(src_host),
+                            },
+                        )
+                    except ValueError:
+                        return False, None
                 case "ExfiltrateData":
                     try:
                         # data_owner, data_id = action_params["data"]
@@ -183,18 +203,23 @@ def create_action_from_response(llm_response: dict, state: GameState) -> tuple:
                         data_owner = action_data["owner"]
                         data_id = action_data["id"]
 
-                    action = Action(
-                        ActionType.ExfiltrateData,
-                        {
-                            "target_host": IP(action_params["target_host"]),
-                            "data": Data(data_owner, data_id),
-                            "source_host": IP(action_params["source_host"]),
-                        },
-                    )
+                    try:
+                        action = Action(
+                            ActionType.ExfiltrateData,
+                            {
+                                "target_host": IP(action_params["target_host"]),
+                                "data": Data(data_owner, data_id),
+                                "source_host": IP(action_params["source_host"]),
+                            },
+                        )
+                    except ValueError:
+                        return False, None
                 case _:
                     return False, action
 
     except SyntaxError:
         valid = False
-
+    # If we could not construct a concrete Action object, treat as invalid
+    if not action:
+        return False, None
     return valid, action

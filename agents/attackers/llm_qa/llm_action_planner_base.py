@@ -72,6 +72,8 @@ class LLMActionPlannerBase:
     def get_states(self) -> List[Any]:
         return self.states
 
+    
+
     def update_instructions(self, new_goal: str) -> None:
         template = jinja2.Environment().from_string(
             self.config["prompts"]["INSTRUCTIONS_TEMPLATE"]
