@@ -49,7 +49,7 @@ class QAgent(BaseAgent):
         # path.join(path.dirname(path.abspath(__file__)), "logs")
         if not path.exists(strpath):
             makedirs(strpath)
-        with open(strpath+filename, "wb") as f:
+        with open(strpath + '/' + filename, "wb") as f:
             data = {"q_table":self.q_values, "state_mapping": self._str_to_id}
             pickle.dump(data, f)
 
