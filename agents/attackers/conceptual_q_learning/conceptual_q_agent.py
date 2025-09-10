@@ -200,8 +200,8 @@ class QAgent(BaseAgent):
                 # If we are training update the Q-table. If in testing do not update, so no learning in testing.
                 max_action = self.max_action_q(concept_observation)
                 if max_action == None:
-                    # There are no more actions to take. So reset the game
-                    self.logger.info(f"\n[+] We run out of actions. Reset the game.")
+                    # There are no more actions to take. 
+                    self.logger.info(f"\n[+] We run out of actions.")
                     return None, num_steps
                 self.q_values[state_id, concept_action] += self.alpha * (concept_observation.observation.reward + max_action) - self.q_values[state_id, concept_action]
 
@@ -220,7 +220,7 @@ class QAgent(BaseAgent):
         if not testing:
             self.current_epsilon = self.update_epsilon_with_decay(episode_num)
 
-        # This will be the last observation played before the reset
+        # This will be the last observation played before returning
         return observation, num_steps
 
 if __name__ == '__main__':
