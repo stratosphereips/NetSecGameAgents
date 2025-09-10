@@ -327,7 +327,7 @@ def recompute_reward(observation: Observation) -> Observation:
     new_observation = Observation(GameState.from_dict(state), reward, end, info)
     return new_observation
 
-def convert_ips_to_concepts(observation, logger):
+def convert_ips_to_concepts(observation, logger, concept_logger=None):
     """
     Function to convert the IPs and networks in the observation into a concept 
     so the agent is not dependent on IPs and specific values
@@ -645,7 +645,7 @@ def _convert_network_concept_to_ip(target_net_concept, concept_observation):
     return target_net_concept
 
 
-def convert_concepts_to_actions(action, observation):
+def convert_concepts_to_actions(action, observation, concept_logger=None):
     """
     Function to convert the concepts learned before into IPs and networks
     so the env knows where to really act
