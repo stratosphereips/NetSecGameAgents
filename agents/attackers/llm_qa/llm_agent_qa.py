@@ -173,22 +173,34 @@ if __name__ == "__main__":
             return f"{trimmed}/v1"
         return url
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    # Allow configuring base URL via environment as well
+    # Configure LLM endpoint based on selected model name
+    is_gpt_model = "gpt" in (args.llm or "").lower()
+    env_api_key = os.getenv("OPENAI_API_KEY")
     env_base_url = os.getenv("OPENAI_BASE_URL")
-    base_url = args.base_url or env_base_url
 
-    if api_key is None or api_key.strip() == "":
-        # Fallback to local OpenAI-compatible endpoint (e.g., Ollama)
-        api_key = "ollama"
-        base_url = _normalize_base_url(base_url or "http://localhost:11434")
-        logger.info(
-            "OPENAI_API_KEY not found. Using local model at %s", base_url
-        )
+    if is_gpt_model:
+        # Use OpenAI (or compatible) only when a GPT model is requested
+        api_key = env_api_key
+        if api_key is None or api_key.strip() == "":
+            raise SystemExit(
+                "OPENAI_API_KEY no está definido pero se solicitó un modelo GPT. "
+                "Define OPENAI_API_KEY en tu entorno o usa un modelo local (p.ej. qwen:4b) con --base_url de Ollama."
+            )
+        base_url = _normalize_base_url(args.base_url or env_base_url)
+        logger.info("Usando OpenAI/compatible con modelo %s en %s", args.llm, base_url or "por defecto SDK")
+        llm_client = LLMClient(api_key=api_key, base_url=base_url)
     else:
-        # Using real API key; only normalize base_url if explicitly targeting local endpoints
-        base_url = _normalize_base_url(base_url)
-    llm_client = LLMClient(api_key=api_key, base_url=base_url)
+        # Para modelos no-GPT (p.ej., qwen, llama), usar Ollama/local por defecto
+        api_key = "ollama"
+        # Preferir CLI --base_url, de lo contrario usar env si apunta a local; si no, usar localhost
+        preferred = args.base_url or env_base_url
+        base_url = _normalize_base_url(preferred or "http://localhost:11434")
+        # Si por error el env apunta al dominio de OpenAI, forzar localhost para evitar 401
+        if base_url and "openai.com" in base_url.lower():
+            base_url = _normalize_base_url("http://localhost:11434")
+        logger.info("Usando endpoint local con modelo %s en %s", args.llm, base_url)
+        llm_client = LLMClient(api_key=api_key, base_url=base_url)
+    
     tracer = get_tracer(args.enable_tracing)
     
     if not args.disable_mlflow:
