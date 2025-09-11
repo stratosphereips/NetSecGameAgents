@@ -10,9 +10,14 @@ import pandas as pd
 import mlflow
 import sys
 import json
-from llm_action_planner import LLMActionPlanner
+from uuid import uuid4
+import os
 from os import path
+from dotenv import load_dotenv
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from llm_action_planner import LLMActionPlanner
+from llm_client import LLMClient
+from tracer import get_tracer
 
 sys.path.append(
     path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
@@ -71,12 +76,19 @@ if __name__ == "__main__":
         action="store",
         required=False,
     )
-    
+
     parser.add_argument(
-        "--api_url",
-        type=str, 
-        default="http://127.0.0.1:11434/v1/"
-        )
+        "--base_url",
+        type=str,
+        default=None,
+        help="Optional base URL for OpenAI-compatible endpoints",
+    )
+
+    parser.add_argument(
+        "--enable_tracing",
+        action="store_true",
+        help="Enable Langfuse tracing if available",
+    )
 
     parser.add_argument(
         "--use_reasoning",
@@ -95,6 +107,8 @@ if __name__ == "__main__":
         action="store_true",
         help="To use self-consistency prompting technique in the LLM calls."
     )
+
+    # No token budget flag in this version
 
     parser.add_argument(
         "--mlflow_tracking_uri",
@@ -137,6 +151,57 @@ if __name__ == "__main__":
     logger = logging.getLogger("llm_react")
     logger.info("Start")
     agent = BaseAgent(args.host, args.port, "Attacker")
+
+    load_dotenv()
+
+    def _normalize_base_url(url: str | None) -> str | None:
+        """Ensure base_url fits the expected OpenAI-compatible pattern.
+
+        - If pointing to Ollama/local endpoints and missing "/v1", append it.
+        - Leave non-local endpoints unchanged to avoid breaking Azure or proxies.
+        """
+        if not url:
+            return None
+        trimmed = url.rstrip("/")
+        lower = trimmed.lower()
+        # If targeting the official OpenAI domain, enforce HTTPS
+        if "openai.com" in lower and lower.startswith("http://"):
+            secure = "https://" + trimmed.split("://", 1)[1]
+            return secure
+        is_local = ("localhost" in lower) or ("127.0.0.1" in lower) or (":11434" in lower) or ("ollama" in lower)
+        if is_local and not lower.endswith("/v1") and not lower.endswith("v1"):
+            return f"{trimmed}/v1"
+        return url
+
+    # Configure LLM endpoint based on selected model name
+    is_gpt_model = "gpt" in (args.llm or "").lower()
+    env_api_key = os.getenv("OPENAI_API_KEY")
+    env_base_url = os.getenv("OPENAI_BASE_URL")
+
+    if is_gpt_model:
+        # Use OpenAI (or compatible) only when a GPT model is requested
+        api_key = env_api_key
+        if api_key is None or api_key.strip() == "":
+            raise SystemExit(
+                "OPENAI_API_KEY no está definido pero se solicitó un modelo GPT. "
+                "Define OPENAI_API_KEY en tu entorno o usa un modelo local (p.ej. qwen:4b) con --base_url de Ollama."
+            )
+        base_url = _normalize_base_url(args.base_url or env_base_url)
+        logger.info("Usando OpenAI/compatible con modelo %s en %s", args.llm, base_url or "por defecto SDK")
+        llm_client = LLMClient(api_key=api_key, base_url=base_url)
+    else:
+        # Para modelos no-GPT (p.ej., qwen, llama), usar Ollama/local por defecto
+        api_key = "ollama"
+        # Preferir CLI --base_url, de lo contrario usar env si apunta a local; si no, usar localhost
+        preferred = args.base_url or env_base_url
+        base_url = _normalize_base_url(preferred or "http://localhost:11434")
+        # Si por error el env apunta al dominio de OpenAI, forzar localhost para evitar 401
+        if base_url and "openai.com" in base_url.lower():
+            base_url = _normalize_base_url("http://localhost:11434")
+        logger.info("Usando endpoint local con modelo %s en %s", args.llm, base_url)
+        llm_client = LLMClient(api_key=api_key, base_url=base_url)
+    
+    tracer = get_tracer(args.enable_tracing)
     
     if not args.disable_mlflow:
         mlflow.set_tracking_uri(args.mlflow_tracking_uri)
@@ -155,7 +220,8 @@ if __name__ == "__main__":
             "episodes": args.test_episodes,
             "host": args.host,
             "port": args.port,
-            "api_url": args.api_url,
+            "base_url": args.base_url,
+            "tracing": args.enable_tracing,
         }
         mlflow.log_params(params)
         mlflow.set_tag("agent_role", "Attacker")
@@ -183,179 +249,229 @@ if __name__ == "__main__":
     print("Registering")
     agent.register()
     print("Done")
-    for episode in range(1, args.test_episodes + 1):
-        actions_took_in_episode = []
-        evaluations = [] # used for prompt table storage.
-        logger.info(f"Running episode {episode}")
-        print(f"Running episode {episode}")
+    # Create a single execution trace to group all episodes in one run
+    execution_id = str(uuid4())
+    _execution_input = {
+        "model": args.llm,
+        "episodes": args.test_episodes,
+        "host": args.host,
+        "port": args.port,
+        "base_url": args.base_url,
+    }
+    with tracer.start_trace(name=f"execution-{execution_id}", input=_execution_input, metadata={"run_id": execution_id}):
+        for episode in range(1, args.test_episodes + 1):
+            actions_took_in_episode = []
+            evaluations = [] # used for prompt table storage.
+            logger.info(f"Running episode {episode}")
+            print(f"Running episode {episode}")
 
-        # Reset the game at every episode and store the goal that changes
-        observation = agent.request_game_reset()
-        num_iterations = observation.info["max_steps"]
-        current_state = observation.state
+            # Reset the game at every episode and store the goal that changes
+            observation = agent.request_game_reset()
+            num_iterations = observation.info["max_steps"]
+            current_state = observation.state
 
-        
-        taken_action = None
-        memories = []
-        total_reward = 0
-        num_actions = 0
-        repeated_actions = 0
+            taken_action = None
+            memories = []
+            total_reward = 0
+            num_actions = 0
+            repeated_actions = 0
 
-        if args.llm is not None:
-            llm_query = LLMActionPlanner(
-            model_name=args.llm,
-            goal=observation.info["goal_description"],
-            memory_len=args.memory_buffer,
-            api_url=args.api_url,
-            use_reasoning=args.use_reasoning,
-            use_reflection=args.use_reflection,
-            use_self_consistency=args.use_self_consistency
-        )
-        print(observation)
-        for i in range(num_iterations):
-            good_action = False
-            #is_json_ok = True
-            is_valid, response_dict, action = llm_query.get_action_from_obs_react(observation, memories)
-            if is_valid:
-                observation = agent.make_step(action)
-                logger.info(f"Observation received: {observation}")
-                taken_action = action
-                total_reward += observation.reward
-
-                if observation.state != current_state:
-                    good_action = True
-                    current_state = observation.state
-                    evaluations.append(8)
-                else:
-                    evaluations.append(3)
-            else:
-                print("Invalid action: ")
-                evaluations.append(0)
-
-            try:
-                if not is_valid:
-                    memories.append(
-                        (
-                            (response_dict["action"],
-                            response_dict["parameters"]),
-                            "not valid based on your status."
-                        )
+            # Episode-level span groups all subsequent step spans
+            _episode_input = {
+                "goal": observation.info.get("goal_description", ""),
+                "initial_state": observation.state.as_json() if hasattr(observation.state, "as_json") else str(observation.state),
+                "max_steps": num_iterations,
+            }
+            # Create an episode span inside the execution trace so all episodes stay under one run
+            with tracer.start_span(name=f"episode-{episode}", input=_episode_input, metadata={"episode": episode}):
+                if args.llm is not None:
+                    llm_query = LLMActionPlanner(
+                        model_name=args.llm,
+                        goal=observation.info["goal_description"],
+                        memory_len=args.memory_buffer,
+                        llm=llm_client,
+                        tracer=tracer,
+                        use_reasoning=args.use_reasoning,
+                        use_reflection=args.use_reflection,
+                        use_self_consistency=args.use_self_consistency,
                     )
-                    print("not valid based on your status.")
+                print(observation)
+                for i in range(num_iterations):
+                    # Step-level span for each agent decision/execution
+                    _step_input = {
+                        "state": observation.state.as_json() if hasattr(observation.state, "as_json") else str(observation.state),
+                        "memory_length": len(memories),
+                    }
+                    with tracer.start_span(name=f"step-{i+1}", input=_step_input, metadata={"episode": episode, "step": i + 1}):
+                        good_action = False
+                        #is_json_ok = True
+                        is_valid, response_dict, action = llm_query.get_action_from_obs_react(observation, memories)
+                        if is_valid:
+                            observation = agent.make_step(action)
+                            logger.info(f"Observation received: {observation}")
+                            taken_action = action
+                            total_reward += observation.reward
 
-                else:
-                    # This is based on the assumption that more valid actions in the state are better/more helpful.
-                    # But we could a manual evaluation based on the prior knowledge and weight the different components.
-                    # For example: finding new data is better than discovering hosts (?)
-                    if good_action:
-                        memories.append(
-                            (
-                                (response_dict["action"],
-                                response_dict["parameters"]),
-                                "helpful."
+                            if observation.state != current_state:
+                                good_action = True
+                                current_state = observation.state
+                                evaluations.append(8)
+                            else:
+                                evaluations.append(3)
+                        else:
+                            print("Invalid action: ")
+                            evaluations.append(0)
+
+                        try:
+                            if not is_valid:
+                                memories.append(
+                                    (
+                                        (response_dict["action"],
+                                        response_dict["parameters"]),
+                                        "not valid based on your status."
+                                    )
+                                )
+                                print("not valid based on your status.")
+
+                            else:
+                                # This is based on the assumption that more valid actions in the state are better/more helpful.
+                                # But we could a manual evaluation based on the prior knowledge and weight the different components.
+                                # For example: finding new data is better than discovering hosts (?)
+                                if good_action:
+                                    memories.append(
+                                        (
+                                            (response_dict["action"],
+                                            response_dict["parameters"]),
+                                            "helpful."
+                                        )
+                                    )
+                                    print("Helpful")
+                                else:
+                                    memories.append(
+                                        (
+                                            (response_dict["action"],
+                                            response_dict["parameters"]),
+                                            "not helpful."
+                                        )
+                                    )
+                                    print("Not Helpful")
+                                # If the action was repeated count it
+                                if action in actions_took_in_episode:
+                                    repeated_actions += 1
+
+                                # Store action in memory of all actions so far
+                                actions_took_in_episode.append(action)
+                        except:
+                            # if the LLM sends a response that is not properly formatted.
+                            memories.append(
+                                (
+                                    (
+                                        response_dict["action"],
+                                        response_dict["parameters"],
+                                    ),
+                                    "badly formated.",
+                                )
                             )
-                        )
-                        print("Helpful")
+                            print("badly formated")
+                        # Budget enforcement is handled in LLM layer; nothing to do here.
+                        if len(memories) > args.memory_buffer:
+                            # If the memory is full, remove the oldest memory
+                            memories.pop(0)
+                        # logger.info(f"Iteration: {i} JSON: {is_json_ok} Valid: {is_valid} Good: {good_action}")
+                        logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
+                
+                if observation.end or i == (
+                    num_iterations - 1
+                ):  # if it is the last iteration gather statistics
+                    if i < (num_iterations - 1):
+                        # TODO: Fix this
+                        reason = observation.info
                     else:
-                        memories.append(
-                            (
-                                (response_dict["action"],
-                                response_dict["parameters"]),
-                                "not helpful."
-                            )
-                        )
-                        print("Not Helpful")
-                    # If the action was repeated count it
-                    if action in actions_took_in_episode:
-                        repeated_actions += 1
+                        reason = {"end_reason": AgentStatus.TimeoutReached }
 
-                    # Store action in memory of all actions so far
-                    actions_took_in_episode.append(action)
-            except:
-                # if the LLM sends a response that is not properly formatted.
-                memories.append(
-                                (response_dict["action"],
-                                response_dict["parameters"]),
-                                "badly formated."
-                )
-                print("badly formated")
-            if len(memories) > args.memory_buffer:
-                # If the memory is full, remove the oldest memory
-                memories.pop(0)
-            # logger.info(f"Iteration: {i} JSON: {is_json_ok} Valid: {is_valid} Good: {good_action}")
-            logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
-            
-            if observation.end or i == (
-                num_iterations - 1
-            ):  # if it is the last iteration gather statistics
-                if i < (num_iterations - 1):
+                    win = 0
+                    # is_detected if boolean
+                    # is_detected = observation.info.detected
                     # TODO: Fix this
-                    reason = observation.info
-                else:
-                    reason = {"end_reason": AgentStatus.TimeoutReached }
+                    steps = i
+                    epi_last_reward = observation.reward
+                    num_actions_repeated += [repeated_actions]
+                    if AgentStatus.Success == reason["end_reason"]:
+                        wins += 1
+                        num_win_steps += [steps]
+                        type_of_end = "win"
+                        evaluations[-1] = 10
+                    elif AgentStatus.Fail == reason["end_reason"]:
+                        detected += 1
+                        num_detected_steps += [steps]
+                        type_of_end = "detection"
+                    elif AgentStatus.TimeoutReached == reason["end_reason"]:
+                        # TODO: Fix this
+                        reach_max_steps += 1
+                        type_of_end = "max_iterations"
+                        total_reward = -100
+                        #steps = observation.info["max_steps"] #this fails
+                        steps = num_iterations
+                    else:
+                        reach_max_steps += 1
+                        type_of_end = "max_steps"
+                    returns += [total_reward]
+                    num_steps += [steps]
 
-                win = 0
-                # is_detected if boolean
-                # is_detected = observation.info.detected
-                # TODO: Fix this
-                steps = i
-                epi_last_reward = observation.reward
-                num_actions_repeated += [repeated_actions]
-                if AgentStatus.Success == reason["end_reason"]:
-                    wins += 1
-                    num_win_steps += [steps]
-                    type_of_end = "win"
-                    evaluations[-1] = 10
-                elif AgentStatus.Fail == reason["end_reason"]:
-                    detected += 1
-                    num_detected_steps += [steps]
-                    type_of_end = "detection"
-                elif AgentStatus.TimeoutReached == reason["end_reason"]:
-                    # TODO: Fix this
-                    reach_max_steps += 1
-                    type_of_end = "max_iterations"
-                    total_reward = -100
-                    #steps = observation.info["max_steps"] #this fails
-                    steps = num_iterations
-                else:
-                    reach_max_steps += 1
-                    type_of_end = "max_steps"
-                returns += [total_reward]
-                num_steps += [steps]
+                    if not args.disable_mlflow:
+                        # Episodic value
+                        mlflow.log_metric("wins", wins, step=episode)
+                        mlflow.log_metric("num_steps", steps, step=episode)
+                        mlflow.log_metric("return", total_reward, step=episode)
 
-                if not args.disable_mlflow:
-                    # Episodic value
-                    mlflow.log_metric("wins", wins, step=episode)
-                    mlflow.log_metric("num_steps", steps, step=episode)
-                    mlflow.log_metric("return", total_reward, step=episode)
+                        # Running metrics
+                        mlflow.log_metric("wins", wins, step=episode)
+                        mlflow.log_metric("reached_max_steps", reach_max_steps, step=episode)
+                        mlflow.log_metric("detected", detected, step=episode)
 
-                    # Running metrics
-                    mlflow.log_metric("wins", wins, step=episode)
-                    mlflow.log_metric("reached_max_steps", reach_max_steps, step=episode)
-                    mlflow.log_metric("detected", detected, step=episode)
+                        # Running averages
+                        mlflow.log_metric("win_rate", (wins / (episode)) * 100, step=episode)
+                        mlflow.log_metric("avg_returns", np.mean(returns), step=episode)
+                        mlflow.log_metric("avg_steps", np.mean(num_steps), step=episode)
 
-                    # Running averages
-                    mlflow.log_metric("win_rate", (wins / (episode)) * 100, step=episode)
-                    mlflow.log_metric("avg_returns", np.mean(returns), step=episode)
-                    mlflow.log_metric("avg_steps", np.mean(num_steps), step=episode)
+                    # Emit a compact episode summary span
+                    try:
+                        _summary = {
+                            "episode": episode,
+                            "steps": steps + 1,
+                            "end_reason": str(reason.get("end_reason", "")),
+                            "total_reward": total_reward,
+                            "wins": wins,
+                            "detected": detected,
+                            "reached_max_steps": reach_max_steps,
+                        }
+                        with tracer.start_span(name=f"episode-{episode}-summary", input=_summary, metadata={"episode": episode}):
+                            pass
+                    except Exception:
+                        pass
 
-                logger.info(
-                    f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
-                )
-                print(
-                    f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
-                )
-                break
+                    logger.info(
+                        f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
+                    )
+                    print(
+                        f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
+                    )
 
-        episode_prompt_table = {
-            "episode": episode,
-            "state": llm_query.get_states(),
-            "prompt": llm_query.get_prompts(),
-            "response": llm_query.get_responses(),
-            "evaluation": evaluations,
-            "end_reason": str(reason["end_reason"])
-        }
-        prompt_table.append(episode_prompt_table)
+            episode_prompt_table = {
+                "episode": episode,
+                "state": llm_query.get_states(),
+                "prompt": llm_query.get_prompts(),
+                "response": llm_query.get_responses(),
+                "evaluation": evaluations,
+                "end_reason": str(reason["end_reason"])
+            }
+            prompt_table.append(episode_prompt_table)
+            # Flush tracing data to ensure episode is persisted
+            try:
+                tracer.flush()
+            except Exception:
+                pass
+        # End trace loop
         #episode_prompt_table = pd.DataFrame(episode_prompt_table)
         #prompt_table = pd.concat([prompt_table,episode_prompt_table],axis=0,ignore_index=True)
         
