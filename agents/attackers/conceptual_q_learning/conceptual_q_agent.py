@@ -286,7 +286,7 @@ if __name__ == '__main__':
     # Check that the directory for the logs exist
     if not path.exists(args.logdir):
         makedirs(args.logdir)
-    log_level = logging.INFO if args.enhanced_logging else logging.ERROR
+    log_level = logging.INFO if args.enhanced_logging else logging.INFO
     logging.basicConfig(filename=path.join(args.logdir, "conceptual_q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=log_level)
 
     # Create agent object
@@ -636,8 +636,8 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
+            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-KeyboardInterrupt.pickle')
     finally:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
+            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-finally.pickle')
