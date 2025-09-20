@@ -30,7 +30,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Iterable, Any
+from typing import Dict, List, Optional, Iterable, Any, Set
 
 from rich.console import Console, Group
 from rich.table import Table
@@ -83,11 +83,83 @@ END_FLAG_RE = re.compile(r"end=(True|False)")  # in 'State after action:' lines
 REAL_STATE_NETS_RE = re.compile(r"I2C: Real state known nets: \{([^}]*)\}")
 REAL_STATE_HOSTS_RE = re.compile(r"I2C: Real state known hosts: \{([^}]*)\}")
 REAL_STATE_CONTROLLED_RE = re.compile(r"I2C: Real state controlled hosts: \{([^}]*)\}")
-REAL_STATE_SERVICES_RE = re.compile(r"I2C: Real state known services: \{([^}]*)\}")
-REAL_STATE_DATA_RE = re.compile(r"I2C: Real state known data: \{([^}]*)\}")
+REAL_STATE_SERVICES_RE = re.compile(r"I2C: Real state known services: \{(.*)\}$")
+REAL_STATE_DATA_RE = re.compile(r"I2C: Real state known data: \{(.*)\}$")
+CONCEPT_STATE_SERVICES_RE = re.compile(r"I2C: New concept known_services: \{(.*)\}$")
+CONCEPT_STATE_DATA_RE = re.compile(r"I2C: New concept known_data: \{(.*)\}$")
+CONCEPT_STATE_KNOWN_HOSTS_RE = re.compile(r"I2C: New concept known_hosts: \{(.*)\}$")
 
 # Service name extraction inside service listing
 SERVICE_NAME_RE = re.compile(r"Service\(name='([^']+)'")
+SERVICES_HOST_RE = re.compile(r"([^:]+):\s*\{([^}]*)\}")
+DATA_HOST_RE = re.compile(r"([^:]+):\s*\{([^}]*)\}")
+DATA_ENTRY_RE = re.compile(r"Data\(([^)]*)\)")
+DATA_FIELD_RE = re.compile(r"(owner|id|size|type)=('([^']*)'|[^,]+)")
+CONCEPT_KV_RE = re.compile(r"'([^']+)'\s*:\s*([^,}]+)")
+
+def _clean_host_token(token: str) -> str:
+    """Normalize a host key parsed from textual dictionaries.
+
+    Removes leading commas/spaces and surrounding quotes.
+    """
+    s = token.strip()
+    if s.startswith(','):
+        s = s[1:].strip()
+    if (s.startswith("'") and s.endswith("'")) or (s.startswith('"') and s.endswith('"')):
+        s = s[1:-1].strip()
+    return s
+
+
+def _format_data_summary(data_id: Optional[Any], owner: Optional[Any], dtype: Optional[Any], size: Optional[Any]) -> str:
+    """Create a concise printable summary for a data item."""
+    label = str(data_id) if data_id not in (None, '') else '?'
+    extras: List[str] = []
+    if owner not in (None, ''):
+        extras.append(f"owner={owner}")
+    if dtype not in (None, ''):
+        extras.append(f"type={dtype}")
+    if size not in (None, ''):
+        extras.append(f"size={size}")
+    return f"{label} ({', '.join(extras)})" if extras else label
+
+
+def _parse_textual_known_data(blob: str) -> Dict[str, Set[str]]:
+    """Parse textual representation of known data into host -> set(data summaries)."""
+    results: Dict[str, Set[str]] = {}
+    for match in DATA_HOST_RE.finditer(blob):
+        host = _clean_host_token(match.group(1))
+        payload = match.group(2).strip()
+        entries: Set[str] = set()
+        if payload:
+            for data_match in DATA_ENTRY_RE.finditer(payload):
+                fields_str = data_match.group(1)
+                details: Dict[str, Any] = {}
+                for name, raw_value, quoted_value in DATA_FIELD_RE.findall(fields_str):
+                    value = quoted_value if quoted_value else raw_value.strip()
+                    if value.startswith("'") and value.endswith("'"):
+                        value = value[1:-1]
+                    details[name] = value
+                summary = _format_data_summary(
+                    details.get('id'),
+                    details.get('owner'),
+                    details.get('type'),
+                    details.get('size'),
+                )
+                entries.add(summary)
+        results[host] = entries
+    return results
+
+
+def _format_data_object(obj: Any) -> str:
+    """Normalize JSON data objects coming from the observation."""
+    if isinstance(obj, dict):
+        return _format_data_summary(
+            obj.get('id') or obj.get('data_id'),
+            obj.get('owner'),
+            obj.get('type'),
+            obj.get('size'),
+        )
+    return str(obj)
 
 
 def parse_log_lines(path: Path) -> List[Step]:
@@ -219,13 +291,14 @@ def _maybe_parse_textual_state(step: Step, line: str):
     Only initializes data structure when a pattern actually matches to avoid
     creating empty states that could interfere with diffing heuristics.
     """
-    matched = False
     nets_m = REAL_STATE_NETS_RE.search(line)
     hosts_m = REAL_STATE_HOSTS_RE.search(line)
     controlled_m = REAL_STATE_CONTROLLED_RE.search(line)
     services_m = REAL_STATE_SERVICES_RE.search(line)
     data_m = REAL_STATE_DATA_RE.search(line)
-    if not any([nets_m, hosts_m, controlled_m, services_m, data_m]):
+    concept_services_m = CONCEPT_STATE_SERVICES_RE.search(line)
+    concept_data_m = CONCEPT_STATE_DATA_RE.search(line)
+    if not any([nets_m, hosts_m, controlled_m, services_m, data_m, concept_services_m, concept_data_m]):
         return
     # Now initialize container since something matched
     if step.parsed_state is None:
@@ -235,8 +308,19 @@ def _maybe_parse_textual_state(step: Step, line: str):
             'controlled': set(),
             'services': {},
             'data': {},
+            'concept_hosts_map': {},
         }
     ps = step.parsed_state
+    # Concept known_hosts mapping (concept -> IP)
+    concept_hosts_m = CONCEPT_STATE_KNOWN_HOSTS_RE.search(line)
+    if concept_hosts_m:
+        blob = concept_hosts_m.group(1)
+        mapping: Dict[str, str] = {}
+        for k, v in CONCEPT_KV_RE.findall(blob):
+            key = _clean_host_token(k)
+            val = _clean_host_token(v)
+            mapping[key] = val
+        ps['concept_hosts_map'].update(mapping)
     if nets_m:
         nets_raw = [n.strip() for n in nets_m.group(1).split(',') if n.strip()]
         ps['networks'].update(nets_raw)
@@ -246,19 +330,45 @@ def _maybe_parse_textual_state(step: Step, line: str):
     if controlled_m:
         controlled_raw = [h.strip() for h in controlled_m.group(1).split(',') if h.strip()]
         ps['controlled'].update(controlled_raw)
+    # Real-state services
     if services_m:
         services_blob = services_m.group(1)
         try:
-            ip_part, svc_part = services_blob.split(':', 1)
-            ip = ip_part.strip()
-            names = set(SERVICE_NAME_RE.findall(svc_part))
-            if ip:
-                ps['services'].setdefault(ip, set()).update(names)
-        except ValueError:
+            for host_match in SERVICES_HOST_RE.finditer(services_blob):
+                ip = _clean_host_token(host_match.group(1))
+                svc_part = host_match.group(2)
+                names = set(SERVICE_NAME_RE.findall(svc_part))
+                if ip:
+                    ps['services'].setdefault(ip, set()).update(names)
+        except Exception:
             pass
+    # Concept-level services (fallback when real-state is absent)
+    if concept_services_m:
+        services_blob = concept_services_m.group(1)
+        try:
+            for host_match in SERVICES_HOST_RE.finditer(services_blob):
+                host_key = _clean_host_token(host_match.group(1))
+                svc_part = host_match.group(2)
+                names = set(SERVICE_NAME_RE.findall(svc_part))
+                if host_key:
+                    # Map concept host to IP when possible
+                    ip_key = ps.get('concept_hosts_map', {}).get(host_key, host_key)
+                    ps['services'].setdefault(ip_key, set()).update(names)
+        except Exception:
+            pass
+    # Real-state data
     if data_m:
-        # Placeholder for future data parsing
-        pass
+        parsed = _parse_textual_known_data(data_m.group(1))
+        for host, items in parsed.items():
+            bucket = ps['data'].setdefault(host, set())
+            bucket.update(items)
+    # Concept-level data
+    if concept_data_m:
+        parsed = _parse_textual_known_data(concept_data_m.group(1))
+        for host_key, items in parsed.items():
+            ip_key = ps.get('concept_hosts_map', {}).get(host_key, host_key)
+            bucket = ps['data'].setdefault(ip_key, set())
+            bucket.update(items)
 
 
 def assign_episodes(steps: List[Step]):
@@ -298,14 +408,30 @@ def extract_state(received: dict) -> dict:
 
 def normalize_state(state: dict) -> dict:
     # Convert lists of objects to sets of printable tokens
-    nets = {f"{n.get('ip')}/{n.get('mask')}" for n in state.get('known_networks', []) if isinstance(n, dict)}
-    hosts = {h.get('ip') for h in state.get('known_hosts', []) if isinstance(h, dict)}
-    controlled = {h.get('ip') for h in state.get('controlled_hosts', []) if isinstance(h, dict)}
+    nets = {f"{n.get('ip')}/{n.get('mask')}" for n in state.get('known_networks', []) if isinstance(n, dict) and n.get('ip') and n.get('mask')}
+    hosts = {h.get('ip') for h in state.get('known_hosts', []) if isinstance(h, dict) and h.get('ip')}
+    controlled = {h.get('ip') for h in state.get('controlled_hosts', []) if isinstance(h, dict) and h.get('ip')}
     services_raw = state.get('known_services', {}) or {}
     services = {ip: {svc.get('name') for svc in svcs if isinstance(svc, dict)} for ip, svcs in services_raw.items()}
     data_raw = state.get('known_data', {}) or {}
-    data_ids = {ip: {d.get('id') for d in ds if isinstance(d, dict)} for ip, ds in data_raw.items()}
-    return dict(networks=nets, hosts=hosts, controlled=controlled, services=services, data=data_ids)
+    data_items: Dict[str, Set[str]] = {}
+
+    def _iterate_data(ds: Any) -> Iterable:
+        if isinstance(ds, dict):
+            return ds.values()
+        if isinstance(ds, (list, tuple, set)):
+            return ds
+        if ds is None:
+            return []
+        return [ds]
+
+    for ip, ds in data_raw.items():
+        key = str(ip)
+        entries: Set[str] = set()
+        for item in _iterate_data(ds):
+            entries.add(_format_data_object(item))
+        data_items[key] = entries
+    return dict(networks=nets, hosts=hosts, controlled=controlled, services=services, data=data_items)
 
 
 def compute_diffs(steps: List[Step]):
@@ -331,27 +457,28 @@ def compute_diffs(steps: List[Step]):
             )
         else:
             continue
-            # Hosts
-            st.new_hosts = sorted(list(state['hosts'] - prev_state['hosts']))
-            # Networks
-            st.new_networks = sorted(list(state['networks'] - prev_state['networks']))
-            # Services
-            new_services: Dict[str, List[str]] = {}
-            for ip, svcs in state['services'].items():
-                prev_svcs = prev_state['services'].get(ip, set()) if isinstance(prev_state['services'], dict) else set()
-                added = sorted(list(svcs - prev_svcs))
-                if added:
-                    new_services[ip] = added
-            st.new_services = new_services
-            # Data
-            new_data: Dict[str, List[str]] = {}
-            for ip, ds in state['data'].items():
-                prev_ds = prev_state['data'].get(ip, set()) if isinstance(prev_state['data'], dict) else set()
-                added = sorted(list(ds - prev_ds))
-                if added:
-                    new_data[ip] = added
-            st.new_data = new_data
-            prev_state = state
+
+        # Hosts
+        st.new_hosts = sorted(list(state['hosts'] - prev_state['hosts']))
+        # Networks
+        st.new_networks = sorted(list(state['networks'] - prev_state['networks']))
+        # Services
+        new_services: Dict[str, List[str]] = {}
+        for ip, svcs in state['services'].items():
+            prev_svcs = prev_state['services'].get(ip, set()) if isinstance(prev_state['services'], dict) else set()
+            added = sorted(list(svcs - prev_svcs))
+            if added:
+                new_services[ip] = added
+        st.new_services = new_services
+        # Data
+        new_data: Dict[str, List[str]] = {}
+        for ip, ds in state['data'].items():
+            prev_ds = prev_state['data'].get(ip, set()) if isinstance(prev_state['data'], dict) else set()
+            added = sorted(list(ds - prev_ds))
+            if added:
+                new_data[ip] = added
+        st.new_data = new_data
+        prev_state = state
 
 
 def style_reward(reward: Optional[int]) -> str:
@@ -434,21 +561,27 @@ def render_step(step: Step, show_json: bool = False) -> Panel:
             body_renderables.append(tbl)
 
     # Env response summary
-    # Build env state view (JSON structured or textual parsed)
+    # Build env state view by merging JSON (if present) with parsed textual fragments
     if step.received or step.parsed_state is not None:
+        obs_state = dict(networks=set(), hosts=set(), controlled=set(), services={}, data={})
         if step.received:
-            received = step.received
-            obs_state = normalize_state(extract_state(received))
-        else:
-            # Already similar format; ensure parsed_state exists
-            ps = step.parsed_state or {}
-            obs_state = dict(
-                networks=ps.get('networks', set()),
-                hosts=ps.get('hosts', set()),
-                controlled=ps.get('controlled', set()),
-                services=ps.get('services', {}),
-                data=ps.get('data', {}),
-            )
+            js = normalize_state(extract_state(step.received))
+            obs_state['networks'] |= set(js.get('networks', set()))
+            obs_state['hosts'] |= set(js.get('hosts', set()))
+            obs_state['controlled'] |= set(js.get('controlled', set()))
+            for ip, svcs in (js.get('services') or {}).items():
+                obs_state['services'].setdefault(ip, set()).update(svcs)
+            for ip, items in (js.get('data') or {}).items():
+                obs_state['data'].setdefault(ip, set()).update(items)
+        if step.parsed_state is not None:
+            ps = step.parsed_state
+            obs_state['networks'] |= set(ps.get('networks', set()))
+            obs_state['hosts'] |= set(ps.get('hosts', set()))
+            obs_state['controlled'] |= set(ps.get('controlled', set()))
+            for ip, svcs in (ps.get('services') or {}).items():
+                obs_state['services'].setdefault(ip, set()).update(svcs)
+            for ip, items in (ps.get('data') or {}).items():
+                obs_state['data'].setdefault(ip, set()).update(items)
         # Detailed multiline listing instead of counts
         detail_text = Text()
         networks = sorted(obs_state['networks'])
