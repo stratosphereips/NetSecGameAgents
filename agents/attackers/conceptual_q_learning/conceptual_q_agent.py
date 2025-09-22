@@ -95,17 +95,23 @@ class QAgent(BaseAgent):
         # Epsilon 0 means only exploit, which is very good if the env does not change.
         if random.uniform(0, 1) <= self.current_epsilon and not testing:
             # We are training
-            # Random choose an ation from the list of actions?
+            # Random choose an action from the list of actions?
+            if not actions:
+                # No valid actions available, return None to indicate this state
+                return None, state_id
             action = random.choice(list(actions))
             if (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
             return action, state_id
-        else: 
+        else:
             # Here we can be during training outside the e-greede, or during testing
             # Select the action with highest q_value, or random pick to break the ties
             # The default initial q-value for a (state, action) pair is 0.
             initial_q_value = 0
             tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
+            if not tmp:
+                # No valid actions available, return None to indicate this state
+                return None, state_id
             ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], random.random()))
             try:
                 self.q_values[state_id, action]
@@ -181,6 +187,12 @@ class QAgent(BaseAgent):
             start_time = time.time()
             # Get next action. If we are not training, selection is different, so pass it as argument
             concept_action, state_id = self.select_action(concept_observation.observation, testing)
+
+            # Check if no valid actions are available
+            if concept_action is None:
+                self.logger.info(f"\n\n ==================================== \n\n[+] No valid actions available. Episode ending.")
+                return None, num_steps
+
             self.logger.info(f"\n\n ==================================== \n\n[+] Concept Action selected:{concept_action}")
 
             # Convert the action with concepts to the action with IPs
