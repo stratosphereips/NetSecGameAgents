@@ -575,10 +575,7 @@ if __name__ == '__main__':
                             test_average_max_steps_steps = np.mean(test_num_max_steps_steps)
                             test_std_max_steps_steps = np.std(test_num_max_steps_steps)
 
-                            # Store the model every --eval_each episodes. 
-                            # Use episode (training counter) and not test_episode (test counter)
-                            if episode % args.store_models_every == 0 and episode != 0:
-                                agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
+                            # Model saving moved outside testing loop to prevent multiple saves
 
                         text = f'''Tested for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
@@ -619,6 +616,10 @@ if __name__ == '__main__':
                         if test_win_rate >= args.early_stop_threshold:
                             agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
                             early_stop = True
+
+                        # Store the model every store_models_every episodes (moved outside testing loop)
+                        if episode % args.store_models_every == 0 and episode != 0:
+                            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
 
             
             # Log the last final episode when it ends
