@@ -95,23 +95,17 @@ class QAgent(BaseAgent):
         # Epsilon 0 means only exploit, which is very good if the env does not change.
         if random.uniform(0, 1) <= self.current_epsilon and not testing:
             # We are training
-            # Random choose an action from the list of actions?
-            if not actions:
-                # No valid actions available, return None to indicate this state
-                return None, state_id
+            # Random choose an ation from the list of actions?
             action = random.choice(list(actions))
             if (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
             return action, state_id
-        else:
+        else: 
             # Here we can be during training outside the e-greede, or during testing
             # Select the action with highest q_value, or random pick to break the ties
             # The default initial q-value for a (state, action) pair is 0.
             initial_q_value = 0
             tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
-            if not tmp:
-                # No valid actions available, return None to indicate this state
-                return None, state_id
             ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], random.random()))
             try:
                 self.q_values[state_id, action]
@@ -187,12 +181,6 @@ class QAgent(BaseAgent):
             start_time = time.time()
             # Get next action. If we are not training, selection is different, so pass it as argument
             concept_action, state_id = self.select_action(concept_observation.observation, testing)
-
-            # Check if no valid actions are available
-            if concept_action is None:
-                self.logger.info(f"\n\n ==================================== \n\n[+] No valid actions available. Episode ending.")
-                return None, num_steps
-
             self.logger.info(f"\n\n ==================================== \n\n[+] Concept Action selected:{concept_action}")
 
             # Convert the action with concepts to the action with IPs
@@ -298,7 +286,7 @@ if __name__ == '__main__':
     # Check that the directory for the logs exist
     if not path.exists(args.logdir):
         makedirs(args.logdir)
-    log_level = logging.INFO if args.enhanced_logging else logging.INFO
+    log_level = logging.INFO if args.enhanced_logging else logging.ERROR
     logging.basicConfig(filename=path.join(args.logdir, "conceptual_q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=log_level)
 
     # Create agent object
@@ -334,6 +322,9 @@ if __name__ == '__main__':
         # Experiment name        
         experiment_name = "Testing of Conceptual Q-learning Agent against defender agent"
 
+
+
+
     # This code runs for both training and testing. 
     # How ti works:
     # - Train for --episodes episodes
@@ -363,26 +354,15 @@ if __name__ == '__main__':
                 name=f"ConceptualQ-{experiment_name}.ID{args.experiment_id}",
                 mode=args.wandb_mode
             )
-        
-        try:
-            # To keep statistics of each episode
-            wins = 0
-            detected = 0
-            max_steps = 0
-            num_win_steps = []
-            num_detected_steps = []
-            num_max_steps_steps = []
-            num_detected_returns = []
-            num_win_returns = []
-            num_max_steps_returns = []
 
+        try:
             # Get git commit information
             netsecenv_command = "cd ..; git rev-parse HEAD"
             netsecenv_git_result = subprocess.run(netsecenv_command, shell=True, capture_output=True, text=True).stdout
             agents_command = "git rev-parse HEAD"
             agents_git_result = subprocess.run(agents_command, shell=True, capture_output=True, text=True).stdout
             agent._logger.info(f'Using commits. NetSecEnv: {netsecenv_git_result}. Agents: {agents_git_result}')
-            
+
             # Log configuration to Wandb if enabled
             if args.use_wandb:
                 wandb.config.update({
@@ -419,6 +399,28 @@ if __name__ == '__main__':
             agent._logger.info(f'Epsilon End: {agent.epsilon_end}')
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
 
+            
+            # To keep statistics of each training episode
+            wins = 0
+            detected = 0
+            max_steps = 0
+            num_win_steps = []
+            num_detected_steps = []
+            num_max_steps_steps = []
+            num_detected_returns = []
+            num_win_returns = []
+            num_max_steps_returns = []
+
+            # Loop five times (1,2,3,4,5)
+                # Reset env with new ips
+                    # Train
+                        # Store metrics train N
+                    # Eval in same env. no change ips
+                        # Store metrics
+            # Rest env with new ips
+                # Test
+                    # Store metrics
+        
             # Start training
             for episode in range(1, args.episodes + 1):
                 if not early_stop:
@@ -575,7 +577,10 @@ if __name__ == '__main__':
                             test_average_max_steps_steps = np.mean(test_num_max_steps_steps)
                             test_std_max_steps_steps = np.std(test_num_max_steps_steps)
 
-                            # Model saving moved outside testing loop to prevent multiple saves
+                            # Store the model every --eval_each episodes. 
+                            # Use episode (training counter) and not test_episode (test counter)
+                            if episode % args.store_models_every == 0 and episode != 0:
+                                agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
 
                         text = f'''Tested for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
@@ -617,10 +622,6 @@ if __name__ == '__main__':
                             agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
                             early_stop = True
 
-                        # Store the model every store_models_every episodes (moved outside testing loop)
-                        if episode % args.store_models_every == 0 and episode != 0:
-                            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
-
             
             # Log the last final episode when it ends
             text = f'''Final model performance after {episode} episodes.
@@ -649,8 +650,8 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-KeyboardInterrupt.pickle')
+            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
     finally:
         # Store the q-table
         if not args.testing:
-            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-finally.pickle')
+            agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
