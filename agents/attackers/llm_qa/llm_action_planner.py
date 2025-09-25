@@ -73,11 +73,16 @@ class LLMActionPlanner:
         self.use_reflection = use_reflection
         self.use_self_consistency = use_self_consistency
 
-        if "gpt" in self.model:
+        if "gpt" in self.model and api_url is None:
+            # Only use OpenAI default endpoint if no custom api_url provided
             env_config = dotenv_values(".env")
             self.client = OpenAI(api_key=env_config["OPENAI_API_KEY"])
         else:
-            self.client = OpenAI(base_url=api_url, api_key="ollama")
+            # Use custom endpoint (even for GPT models) or non-OpenAI models
+            env_config = dotenv_values(".env")
+            #api_key = env_config.get("OPENAI_API_KEY", "ollama")  # Try to get API key from env
+            self.client = OpenAI(base_url=api_url, api_key=env_config["OPENAI_API_KEY"])
+            #self.client = OpenAI(base_url=api_url, api_key=api_key)
 
         self.memory_len = memory_len
         self.logger = logging.getLogger("REACT-agent")
@@ -113,16 +118,129 @@ class LLMActionPlanner:
             prompt += f"You have taken action {memory} in the past. This action was {goodness}.\n"
         return prompt
 
+    def filter_messages(self, messages: list) -> list:
+        """Filter out messages with None content and fix roles for API compatibility"""
+        filtered = []
+        for msg in messages:
+            if msg.get("content") is not None and msg.get("content").strip():
+                # Use 'system' role for instructions, 'user' for queries
+                role = "system" if any(keyword in str(msg.get("content", "")).lower()
+                                     for keyword in ["instruction", "goal", "you are", "your task"]) else "user"
+                filtered.append({"role": role, "content": msg["content"]})
+        return filtered
+
+    def extract_json_from_response(self, response: str) -> str:
+        """Extract JSON from response that may contain prefixes like 'Action: {...}'"""
+        if not response:
+            return response
+
+        # Look for JSON objects in the response
+        import re
+
+        # Pattern to match JSON objects (starting with { and ending with })
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+
+        matches = re.findall(json_pattern, response)
+        if matches:
+            # Return the first (likely only) JSON object found
+            return matches[0].strip()
+
+        # If no clear JSON found, try to extract everything after common prefixes
+        prefixes = ["Action:", "Response:", "Output:", "Result:"]
+        for prefix in prefixes:
+            if prefix in response:
+                json_part = response.split(prefix, 1)[1].strip()
+                if json_part.startswith('{') and json_part.endswith('}'):
+                    return json_part
+
+        # Return original if no extraction worked
+        return response.strip()
+
+    def fix_incomplete_json(self, response: str) -> str:
+        """Try to fix JSON responses that are missing the 'action' field"""
+        if not response or not response.strip():
+            return response
+
+        try:
+            parsed = json.loads(response)
+
+            # If it's already a complete response with action field, return as-is
+            if isinstance(parsed, dict) and "action" in parsed:
+                return response
+
+            # If it looks like parameters only, try to infer the action
+            if isinstance(parsed, dict) and "action" not in parsed:
+                # Infer action based on parameters
+                inferred_action = self.infer_action_from_parameters(parsed)
+                if inferred_action:
+                    fixed_response = {
+                        "action": inferred_action,
+                        "parameters": parsed
+                    }
+                    return json.dumps(fixed_response)
+
+        except json.JSONDecodeError:
+            # If JSON parsing fails, return original
+            pass
+
+        return response
+
+    def infer_action_from_parameters(self, params: dict) -> str:
+        """Infer the action type based on parameter keys"""
+        if not isinstance(params, dict):
+            return None
+
+        param_keys = set(params.keys())
+
+        # Common parameter patterns for each action
+        if {"target_host", "data", "source_host"}.issubset(param_keys):
+            return "ExfiltrateData"
+        elif {"target_network", "source_host"}.issubset(param_keys):
+            return "ScanNetwork"
+        elif {"target_host", "source_host"}.issubset(param_keys) and "service" in param_keys:
+            return "ExploitService"
+        elif {"target_host", "source_host"}.issubset(param_keys):
+            # Could be ScanServices or FindData, default to ScanServices
+            return "ScanServices"
+
+        return None
+
     @retry(stop=stop_after_attempt(3))
-    def openai_query(self, msg_list: list, max_tokens: int = 60, model: str = None, fmt=None, temperature: float = 0.0):
+    def openai_query(self, msg_list: list, max_tokens: int = 80 , model: str = None, fmt=None, temperature: float = 0.0):
+        # Filter messages to remove None content and fix roles
+        filtered_messages = self.filter_messages(msg_list)
+
         llm_response = self.client.chat.completions.create(
             model=model or self.model,
-            messages=msg_list,
+            messages=filtered_messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            response_format=fmt or {"type": "text"},
+            extra_body={
+                "reasoning": False,
+                "use_reasoning": False,
+                "disable_reasoning": True,
+            },
         )
-        return llm_response.choices[0].message.content
+
+        # Handle both content and reasoning_content fields
+        content = llm_response.choices[0].message.content
+        if content is None:
+            # Try reasoning_content for reasoning models
+            reasoning_content = getattr(llm_response.choices[0].message, 'reasoning_content', None)
+            if reasoning_content:
+                content = reasoning_content
+
+        # Clean markdown formatting if present
+        if content and content.startswith('```json'):
+            content = content.replace('```json\n', '').replace('\n```', '').strip()
+
+        # Extract JSON from response that may have prefixes like "Action: {..."
+        if content:
+            content = self.extract_json_from_response(content)
+            # Try to fix incomplete JSON responses
+            content = self.fix_incomplete_json(content)
+
+        return content
 
     def parse_response_deprecated(self, llm_response: str, state: Observation.state):
         try:
@@ -255,7 +373,7 @@ class LLMActionPlanner:
             {"role": "user", "content": q4},
         ]
         self.prompts.append(messages)
-        response = self.openai_query(messages, max_tokens=80, fmt={"type": "json_object"})
+        response = self.openai_query(messages, max_tokens=1024)
         
         validated, error_msg = validate_responses.validate_agent_response(response)
         if validated is None:
