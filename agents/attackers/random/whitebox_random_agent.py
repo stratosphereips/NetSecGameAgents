@@ -45,7 +45,7 @@ class RandomWhiteboxAttackerAgent(ActionListAgent):
             observation = self.request_game_reset()
         self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
         # This will be the last observation played before the reset
-        return (last_observation, num_steps)
+        return (last_observation, np.mean(returns), num_steps)
     
     def select_action(self, observation:Observation)->Action:
         # Get the valid action mask (boolean array) for the current state using the parent class method
@@ -126,10 +126,10 @@ if __name__ == '__main__':
                 print(f'Starting the testing for episode {episode}')
 
                 # Play the game for one episode
-                observation, num_steps = agent.play_game(observation, 1)
+                observation, avg_return, num_steps = agent.play_game(observation, 1)
 
                 state = observation.state
-                reward = observation.reward
+                reward = avg_return
                 end = observation.end
                 info = observation.info
 
