@@ -95,7 +95,7 @@ class DualReplayBuffer:
 
 class DDQNAgent(ActionListAgent):
 
-    def __init__(self, host, port, role, lr=0.01, gamma=0.99):
+    def __init__(self, host, port, role, epsilon_decay=1e-4, lr=0.01, gamma=0.99):
         super().__init__(host, port, role)
 
         self.encoder = TextEncoder()        
@@ -107,7 +107,7 @@ class DDQNAgent(ActionListAgent):
         self.action_set = {}
         self.lr = lr
         self.epsilon_end: float = 0.01
-        self.epsilon_decay: float = 1e-4
+        self.epsilon_decay: float = epsilon_decay
         self.epsilon:float = 1.0
 
     def define_networks(self, action_size:int):
@@ -314,11 +314,11 @@ class DDQNAgent(ActionListAgent):
                 # Add intrinsic reward
                 reward = next_observation.reward
                 if observation != next_observation:
-                     reward += 20
+                     reward += 50
                 else:
-                    reward -= 10  
+                    reward -= 50  
 
-                # reward = max(min(reward, 1.0), -1.0)
+                reward = reward / 100.0  # Scale down the reward
 
                 # print(f"Action: {self.get_action(action_id)}, Reward: {next_observation.reward}, Intrinsic reward: {reward - next_observation.reward}")
 
@@ -485,57 +485,16 @@ class DDQNAgent(ActionListAgent):
 
 if __name__ == "__main__":
 
-    wandb.init(
-        project="UTEP-Collaboration",
-        entity="stratosphere",
-        name="DDQN-embed-fixed-actions",
-        config={
-            "learning_rate": 1e-3,
-            "gamma": 0.99,
-            "episodes": 50000,
-            "batch_size": 32,
-            "epsilon_decay_factor": 0.9,  # Decay factor for epsilon
-        },
-    )
-
+    
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--host",
-        help="Host where the game server is",
-        default="127.0.0.1",
-        action="store",
-        required=False,
-    )
-    parser.add_argument(
-        "--port",
-        help="Port where the game server is",
-        default=9000,
-        type=int,
-        action="store",
-        required=False,
-    )
-    parser.add_argument(
-        "--episodes",
-        help="Sets number of episodes to play or evaluate",
-        default=100,
-        type=int,
-    )
-    parser.add_argument(
-        "--logdir",
-        help="Folder to store logs",
-        default=path.join(path.dirname(path.abspath(__file__)), "logs"),
-    )
-    parser.add_argument(
-        "--evaluate",
-        help="Evaluate the agent and report, instead of playing the game only once.",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--cont",
-        help="Continue training the final model from the previous run.",
-        action="store_true",
-    )
+    parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action="store", required=False)
+    parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action="store", required=False)
+    parser.add_argument("--episodes", help="Sets number of episodes to play or evaluate", default=100, type=int)
+    parser.add_argument("--logdir", help="Folder to store logs",default=path.join(path.dirname(path.abspath(__file__)), "logs"))
+    parser.add_argument("--evaluate", help="Evaluate the agent and report, instead of playing the game only once.",action="store_true")
+    # parser.add_argument("--cont", help="Continue training the final model from the previous run.", action="store_true")
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
+    parser.add_argument("--decay", help="Epsilon decay factor", required=False, default=1e-4, type=float)
 
     args = parser.parse_args()
 
@@ -549,11 +508,25 @@ if __name__ == "__main__":
         level=logging.WARNING,
     )
 
+    wandb.init(
+        project="UTEP-Collaboration",
+        entity="stratosphere",
+        name="DDQN-embed-fixed-actions",
+        config={
+            "learning_rate": 1e-3,
+            "gamma": 0.99,
+            "episodes": 50000,
+            "batch_size": 32,
+            "epsilon_decay_factor": args.decay,  # Decay factor for epsilon
+        },
+    )
+
+
     if path.exists(args.env_conf):
         wandb.save(args.env_conf, base_path=path.dirname(path.abspath(args.env_conf)))
 
     # Create agent
-    agent = DDQNAgent(args.host, args.port, "Attacker")
+    agent = DDQNAgent(args.host, args.port, "Attacker", epsilon_decay=args.decay)
     
 
     if not args.evaluate:
