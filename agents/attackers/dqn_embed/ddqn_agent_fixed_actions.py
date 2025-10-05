@@ -1,7 +1,7 @@
 from AIDojoCoordinator.game_components import Action, Observation, AgentStatus
 # from agents.base_agent import BaseAgent
 from agents.action_list_base_agent import ActionListAgent
-from agents.agent_utils import generate_valid_actions, state_as_ordered_string
+from agents.agent_utils import generate_valid_actions, state_as_ordered_string, filter_log_files_from_state
 from random import choice
 
 import torch
@@ -308,8 +308,11 @@ class DDQNAgent(ActionListAgent):
                 # self.epsilon = max(self.epsilon, 0.01)
                 self.epsilon = epsilon_scheduler.get_epsilon()
 
+                # TODO: filter logfile
+                observation = filter_log_files_from_state(observation)
                 action_id = self.select_action(observation, epsilon=self.epsilon)
                 next_observation = self.make_step(self.get_action(action_id))
+                next_observation = filter_log_files_from_state(next_observation)
 
                 # Add intrinsic reward
                 reward = next_observation.reward
@@ -414,9 +417,11 @@ class DDQNAgent(ActionListAgent):
                 episodic_returns.append(observation.reward)
 
                 # Select the best action
+                observation = filter_log_files_from_state(observation)
                 action_id = self.select_action(observation, epsilon=0.0)
                 # print(f"Selected action id: {self.get_action(action_id)}")
                 next_observation = self.make_step(self.get_action(action_id))
+                next_observation = filter_log_files_from_state(next_observation)
 
                 observation = next_observation
                 self._logger.debug(f"Observation received: {observation}")
