@@ -714,7 +714,7 @@ def convert_concepts_to_actions(action, observation):
     return action
 
 
-def filter_log_files_from_data(observation: Observation) -> Observation:
+def filter_log_files_from_state(observation: Observation) -> Observation:
     """
     Function to filter out log files from an observation.
 
