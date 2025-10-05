@@ -712,3 +712,19 @@ def convert_concepts_to_actions(action, observation):
         })
 
     return action
+
+
+def filter_log_files_from_data(observation: Observation) -> Observation:
+    """
+    Function to filter out log files from an observation.
+
+    Args:
+        data_list: List of Data objects to filter
+
+    Returns:
+        Filtered observation without log files
+    """
+    for host, data_list in observation.state.known_data.items():
+        filtered_data = [data for data in data_list if data.id != 'logfile']
+        observation.state.known_data[host] = filtered_data
+    return observation
