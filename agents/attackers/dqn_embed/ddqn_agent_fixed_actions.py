@@ -293,6 +293,8 @@ class DDQNAgent(ActionListAgent):
         epsilon_scheduler = EpsilonScheduler(epsilon_start=1.0, epsilon_end=self.epsilon_end, decay_rate=self.epsilon_decay)
         returns = []
         wins = 0
+        observation = filter_log_files_from_state(observation)
+
         for ep in range(num_episodes):
             num_steps = 0
             self._logger.info(f"Playing episode {ep}")
@@ -307,12 +309,12 @@ class DDQNAgent(ActionListAgent):
                 # self.epsilon = 1.0 - (ep / num_episodes) * 0.99
                 # self.epsilon = max(self.epsilon, 0.01)
                 self.epsilon = epsilon_scheduler.get_epsilon()
-
-                # TODO: filter logfile
-                observation = filter_log_files_from_state(observation)
                 action_id = self.select_action(observation, epsilon=self.epsilon)
+
                 next_observation = self.make_step(self.get_action(action_id))
+                self._logger.debug(f"Before filtering: {next_observation.state}")
                 next_observation = filter_log_files_from_state(next_observation)
+                self._logger.debug(f"After filtering: {next_observation.state}")
 
                 # Add intrinsic reward
                 reward = next_observation.reward
@@ -510,7 +512,7 @@ if __name__ == "__main__":
         filemode="w",
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
-        level=logging.WARNING,
+        level=logging.ERROR,
     )
 
     wandb.init(
