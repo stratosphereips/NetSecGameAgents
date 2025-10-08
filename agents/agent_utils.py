@@ -725,6 +725,6 @@ def filter_log_files_from_state(observation: Observation) -> Observation:
         Filtered observation without log files
     """
     for host, data_list in observation.state.known_data.items():
-        filtered_data = [data for data in data_list if data.type != 'log']
+        filtered_data = [data for data in data_list if data.id != 'logfile']
         observation.state.known_data[host] = filtered_data
     return observation
