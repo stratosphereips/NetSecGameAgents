@@ -323,7 +323,7 @@ class DDQNAgent(ActionListAgent):
                 else:
                     reward -= 50  
 
-                reward = reward / 100.0  # Scale down the reward
+                reward = reward / 10.0  # Scale down the reward
 
                 # print(f"Action: {self.get_action(action_id)}, Reward: {next_observation.reward}, Intrinsic reward: {reward - next_observation.reward}")
 
