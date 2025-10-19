@@ -109,6 +109,7 @@ class DDQNAgent(ActionListAgent):
         self.epsilon_end: float = 0.01
         self.epsilon_decay: float = epsilon_decay
         self.epsilon:float = 1.0
+        self.max_win_rate = 0.0
 
     def define_networks(self, action_size:int):
         self.q_net = QNetwork(self.encoder.embedding_dim, action_size)
@@ -360,11 +361,15 @@ class DDQNAgent(ActionListAgent):
             if ep % 2000 == 0 and ep != 0:
                 self.save(f"checkpoints/ddqn_checkpoint_{ep}.pt")
 
-            if ep % 200 == 0 and ep != 0:
+            if ep % 400 == 0 and ep != 0:
                 # Run evaluation every 200 episodes
                 self.q_net.eval()
-                win_rate = self.eval(self.request_game_reset(), ep, num_episodes=100)
+                win_rate = self.eval(self.request_game_reset(), ep, num_episodes=250)
                 self.q_net.train()
+                if win_rate > self.max_win_rate:
+                    self.max_win_rate = win_rate
+                    self.save("checkpoints/ddqn_checkpoint_best.pt")
+
                 if win_rate >= 90.0:
                     self._logger.info(f"Early stopping at episode {ep} with win rate {win_rate}%")
                     print(f"Early stopping at episode {ep} with win rate {win_rate}%")
@@ -502,6 +507,7 @@ if __name__ == "__main__":
     # parser.add_argument("--cont", help="Continue training the final model from the previous run.", action="store_true")
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--decay", help="Epsilon decay factor", required=False, default=1e-4, type=float)
+    parser.add_argument("--lr", help="Learning rate", required=False, default=1e-3, type=float)
 
     args = parser.parse_args()
 
@@ -520,7 +526,7 @@ if __name__ == "__main__":
         entity="stratosphere",
         name="DDQN-embed-fixed-actions",
         config={
-            "learning_rate": 1e-3,
+            "learning_rate": args.lr,
             "gamma": 0.99,
             "episodes": 50000,
             "batch_size": 32,
@@ -533,7 +539,7 @@ if __name__ == "__main__":
         wandb.save(args.env_conf, base_path=path.dirname(path.abspath(args.env_conf)))
 
     # Create agent
-    agent = DDQNAgent(args.host, args.port, "Attacker", epsilon_decay=args.decay)
+    agent = DDQNAgent(args.host, args.port, "Attacker", lr=args.lr, epsilon_decay=args.decay)
     
 
     if not args.evaluate:
@@ -554,7 +560,7 @@ if __name__ == "__main__":
 
         # Final evaluation
         agent.q_net.eval()
-        agent.eval(observation, args.episodes, num_episodes=100)
+        agent.eval(observation, args.episodes, num_episodes=250)
 
         agent._logger.info("Terminating interaction")
         agent.terminate_connection()
@@ -578,7 +584,7 @@ if __name__ == "__main__":
         experiment_name = "DDQN Embed Agent Eval"
 
         # Load the final checkpoint
-        agent.load("checkpoints/ddqn_checkpoint_final.pt")
+        agent.load("checkpoints/ddqn_checkpoint_best.pt")
         agent.q_net.eval()
 
         agent.eval(observation, args.episodes, args.episodes)
