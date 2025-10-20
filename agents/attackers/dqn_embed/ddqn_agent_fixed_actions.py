@@ -280,7 +280,6 @@ class DDQNAgent(ActionListAgent):
     def soft_update(self, tau=0.005):
         for target_param, online_param in zip(self.target_net.parameters(), self.q_net.parameters()):
             target_param.data.copy_(tau * online_param.data + (1.0 - tau) * target_param.data)
-
     
     def update_epsilon(self):
         """Decay epsilon"""
@@ -361,7 +360,7 @@ class DDQNAgent(ActionListAgent):
             if ep % 2000 == 0 and ep != 0:
                 self.save(f"checkpoints/ddqn_checkpoint_{ep}.pt")
 
-            if ep % 400 == 0 and ep != 0:
+            if ep % 200 == 0 and ep != 0:
                 # Run evaluation every 200 episodes
                 self.q_net.eval()
                 win_rate = self.eval(self.request_game_reset(), ep, num_episodes=250)
@@ -370,7 +369,7 @@ class DDQNAgent(ActionListAgent):
                     self.max_win_rate = win_rate
                     self.save("checkpoints/ddqn_checkpoint_best.pt")
 
-                if win_rate >= 90.0:
+                if win_rate >= 98.0:
                     self._logger.info(f"Early stopping at episode {ep} with win rate {win_rate}%")
                     print(f"Early stopping at episode {ep} with win rate {win_rate}%")
                     break
@@ -381,7 +380,7 @@ class DDQNAgent(ActionListAgent):
             # print(f"Episode: {ep} ReplayBuffer: {len(self.buffer.general)} general, {len(self.buffer.success)} success")
 
             # To return
-            last_observation = observation
+            # last_observation = observation
             self._logger.debug(f"Observation received:{observation}")
             returns.append(np.sum(episodic_returns))
             self._logger.info(
@@ -405,9 +404,8 @@ class DDQNAgent(ActionListAgent):
         self._logger.info(
             f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}"
         )
-        # This will be the last observation played before the reset
-        # TODO: do we really need to return the last observation?
-        return (last_observation, num_steps)
+        # Return the episode in case of early stopping
+        return ep
 
     def eval(self, observation, train_episode, num_episodes=1) -> float:
         returns = []
@@ -555,12 +553,12 @@ if __name__ == "__main__":
         #     agent.q_net.train()
         #     agent.epsilon = 0.1  # Start with a lower epsilon for continued training
 
-        agent.train(observation, args.episodes)
+        num_episodes = agent.train(observation, args.episodes)
         agent.save("checkpoints/ddqn_checkpoint_final.pt")
 
         # Final evaluation
         agent.q_net.eval()
-        agent.eval(observation, args.episodes, num_episodes=250)
+        agent.eval(observation, num_episodes, num_episodes=250)
 
         agent._logger.info("Terminating interaction")
         agent.terminate_connection()
