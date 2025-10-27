@@ -58,21 +58,27 @@ class TextEncoder:
 class QNetwork(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(QNetwork, self).__init__()
-        self.fc1 = nn.Linear(state_dim+action_dim, 1024)
-        self.fc2 = nn.Linear(1024, 512)
-        self.out = nn.Linear(512, 1)  # Output is a single Q-value
+        # self.fc1 = nn.Linear(state_dim+action_dim, 1024)
+        # self.fc2 = nn.Linear(1024, 512)
+        # self.out = nn.Linear(512, 1)  # Output is a single Q-value
+        input_dim = state_dim + action_dim
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1) # Output a single scalar Q-value
+        )
 
     def forward(self, state_emb, action_emb):
-        # x = torch.cat((state_emb, dim=-1)
         if state_emb.dim() == 1:
             state_emb = state_emb.unsqueeze(0)
             action_emb = action_emb.unsqueeze(0)
+            
         # Concatenate the embeddings along the feature dimension (dim=1)
         x = torch.cat([state_emb, action_emb], dim=1)
         
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.out(x)
+        return self.net(x).squeeze(-1)
 
 
 class DualReplayBuffer:
@@ -105,7 +111,7 @@ class DDQNAgent(BaseAgent):
         super().__init__(host, port, role)
 
         self.state_encoder = TextEncoder()
-        self.action_encoder = TextEncoder(model_name="all-MiniLM-L6-v2")       
+        self.action_encoder = TextEncoder()       
         
         self.gamma = gamma
         self.buffer = DualReplayBuffer()
@@ -113,7 +119,7 @@ class DDQNAgent(BaseAgent):
         self.state_set = {}
         self.action_set = {}
         self.lr = lr
-        self.epsilon_end: float = 0.01
+        self.epsilon_end: float = 0.1
         self.epsilon_decay: float = epsilon_decay
         self.epsilon:float = 1.0
         self.max_win_rate = 0.0
@@ -129,15 +135,24 @@ class DDQNAgent(BaseAgent):
 
     @torch.no_grad()
     def select_action(self, observation: Observation, epsilon: float):
-        # return the index of the best action based on the Q-values
-        # state_str = str(observation.state)
+
         state_str = state_as_ordered_string(observation.state)
-        if state_str not in self.state_set.keys():
-            state_emb = self.state_encoder.encode(state_str).to(self.device)
-            self.state_set[state_str] = state_emb
-        else:
-            state_emb = self.state_set[state_str].to(self.device)
+        state_emb = self.state_set.get(state_str, None)
+        if state_emb is None:
+            # 2. Key not found (cache miss): Compute the embedding
+            # Note: Ensure the encoder output is moved to the correct device/format
+            state_emb = self.state_encoder.encode(state_str)
+            # state_emb = torch.tensor(state_emb, dtype=torch.float, device=self.device)
+            state_emb = state_emb.detach().float().cpu()
         
+            # 3. Store the result in the cache
+            self.state_set[state_str] = state_emb
+            # 4. Move to device when needed
+            state_emb = state_emb.clone().to(self.device)
+        else:
+            state_emb = state_emb.to(self.device).float()
+
+
         valid_actions = generate_valid_actions(observation.state)
         if random.random() < epsilon:
             action = choice(valid_actions)
@@ -145,14 +160,27 @@ class DDQNAgent(BaseAgent):
 
         valid_action_embs = []
         for action in valid_actions:
-            if str(action) not in self.action_set.keys():
-                action_emb = self.action_encoder.encode(str(action)).to(self.device)
-                self.action_set[str(action)] = action_emb
-                valid_action_embs.append(action_emb)
-            else:
-                valid_action_embs.append(self.action_set[str(action)].to(self.device))
+            # if str(action) not in self.action_set.keys():
+            action_emb = self.action_set.get(str(action), None)
+            if action_emb is None:
+                # 2. Key not found (cache miss): Compute the embedding
+                # Note: Ensure the encoder output is moved to the correct device/format
+                action_emb = self.action_encoder.encode(str(action))
+                # action_emb = torch.tensor(action_emb, dtype=torch.float, device=self.device)
+                action_emb = action_emb.detach().float().cpu()
 
-        valid_action_embs = torch.stack(valid_action_embs)  # (N_valid, D_A)
+                # 3. Store the result in the cache as a CPU tensor to save GPU memory
+                self.action_set[str(action)] = action_emb
+
+            #     # 4. Move to device when needed
+            #     action_emb = action_emb.clone().to(self.device)
+            # else:
+            #     action_emb = action_emb.to(self.device).float()
+
+            valid_action_embs.append(action_emb)
+
+
+        valid_action_embs = torch.stack(valid_action_embs).to(self.device)  # (N_valid, D_A)
         num_valid_actions = len(valid_action_embs)
     
         # 1. Expand state embedding to match the number of valid actions
@@ -181,7 +209,6 @@ class DDQNAgent(BaseAgent):
 
         for _ in range(num_epochs):
             batch = self.buffer.sample(batch_size)
-            # print("Sampled batch size:", len(batch))
 
             # losses = []
             state_embs = []
@@ -193,30 +220,30 @@ class DDQNAgent(BaseAgent):
             for observation, action_emb_taken, reward, next_observation, done in batch:
 
                 state_str = state_as_ordered_string(observation.state)
-                # state_str = str(observation)
 
-                # Get the valid action mask for the current observation
-                # valid_action_mask = self.get_valid_action_mask(observation)
                 if state_str not in self.state_set.keys():
-                    s = self.state_encoder.encode(state_str).to(self.device)
+                    s = self.state_encoder.encode(state_str).cpu()
                     self.state_set[state_str] = s
                 else:
-                    s = self.state_set[state_str].to(self.device)
+                    s = self.state_set[state_str]
                 
                 rewards.append(reward)
                 state_embs.append(s)
                 action_embs_taken.append(action_emb_taken) # Action embedding of the action taken
                 dones.append(done)
 
+                state_str = state_as_ordered_string(observation.state)
+                next_s = self.state_set.get(state_str, None)
+                if next_s is None:
+                    # This should not be needed (?)
+                    # 2. Key not found (cache miss): Compute the embedding
+                    with torch.no_grad():
+                        next_s = self.state_encoder.encode(state_str)
+                        next_s = next_s.detach().float().cpu()
+            
+                        # 3. Store the result in the cache
+                        self.state_set[state_str] = next_s
 
-                with torch.no_grad():
-                    next_state_str = state_as_ordered_string(next_observation.state)
-                    # next_state_str = str(next_observation)
-                    if next_state_str not in self.state_set.keys():
-                        next_s = self.state_encoder.encode(next_state_str).to(self.device)
-                        self.state_set[next_state_str] = next_s
-                    else:
-                        next_s =  s = self.state_set[next_state_str].to(self.device)
                 next_state_embs.append(next_s)
                 
 
@@ -231,7 +258,6 @@ class DDQNAgent(BaseAgent):
             # --- Compute current Q(s,a) ---
             # Q-value for the state and the action actually taken
             q_values = self.q_net(state_batch, actions_emb_taken_batch) # (B,)
-            q_values = q_values.squeeze(-1)
             
             # ---- Double DQN target Q ----
             with torch.no_grad():
@@ -343,11 +369,9 @@ class DDQNAgent(BaseAgent):
                     float(next_observation.end),
                 )
                 observation = next_observation
-                # possible_actions = next_actions
-                # Update the network after each step
+                # Soft update the network after each step
                 self.update(episode=ep)
-                self.soft_update(tau=0.005)
-                # self.update_epsilon()
+                # self.soft_update(tau=0.005)
 
         
             # Add the last observation reward to the episodic returns
@@ -357,14 +381,14 @@ class DDQNAgent(BaseAgent):
                 # Make sure the last one is added
                 episodic_returns.append(observation.reward)
 
-            # if ep % 12 == 0 and ep != 0:
-            #     self.update_target()
+            if ep % 100 == 0 and ep != 0:
+                self.update_target()
 
             # Update the epsilon counter after each episode
             epsilon_scheduler.step()
 
-            if ep % 2000 == 0 and ep != 0:
-                self.save(f"checkpoints/ddqn_checkpoint_{ep}.pt")
+            # if ep % 2000 == 0 and ep != 0:
+            #     self.save(f"checkpoints/ddqn_checkpoint_{ep}.pt")
 
             if ep % 200 == 0 and ep != 0:
                 # Run evaluation every 200 episodes
@@ -457,9 +481,6 @@ class DDQNAgent(BaseAgent):
             observation = self.request_game_reset()
             
 
-        # self._logger.info(
-        #     f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}"
-        # )
 
         text = f"""Final results for {self.__class__.__name__} after {num_episodes} episodes: 
                 Returns: {np.mean(returns)}±{np.std(returns)}
@@ -574,15 +595,9 @@ if __name__ == "__main__":
         # Evaluate the agent performance
         print("Evaluating the agent performance")
 
-    #     # How it works:
-    #     # - Evaluate for several 'episodes' (parameter)
-    #     # - Each episode finishes with: steps played, return, win/lose. Store all
-    #     # - Each episode compute the avg and std of all.
-    #     # - Every X episodes (parameter), report in log and mlflow
-    #     # - At the end, report in log and mlflow and console
         observation = agent.register()
-        action_list = agent._action_list
-        agent.define_networks(len(action_list))
+        # action_list = agent._action_list
+        agent.define_networks()
 
     #     # Wandb experiment name
         experiment_name = "DDQN Embed Agent Eval"
