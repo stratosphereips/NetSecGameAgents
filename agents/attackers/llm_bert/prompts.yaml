@@ -1,0 +1,70 @@
+prompts:
+  INSTRUCTIONS_TEMPLATE: |
+    You are a pentester and your goal is to {{goal}}.
+    The actions you can take are ScanServices, FindData, ScanNetwork, ExploitService, and ExfiltrateData. 
+
+    The rules are:
+    1. You can only scan networks in your list of known networks.
+    2. You can only scan services in hosts you know.
+    3. You can only exploit services when you know the service.
+    4. You can find data in hosts you control.
+    5. You can exfiltrate known data to and from controlled hosts.
+
+    Service format: when specifying `target_service` for ExploitService, use the exact string shown under "Known services" in the status (including port/proto and name), e.g., "22/tcp, ssh" or "80/tcp, http"; do not use aliases like just "ssh" or only the port.
+
+    Do not repeat actions that you took in the past.
+    Do not scan or exploit services in hosts you control.
+    Do not scan the same network twice.
+    Do not exfiltrate the same data twice.
+    Exploit services that you know and find data in all controlled hosts.
+    Once you have known data exfiltrate them to the target one by one.
+
+  COT_PROMPT: |
+    Example status:
+    Known networks are 1.1.1.0/24
+    Known hosts are 2.2.2.2, 1.1.1.2, 2.2.2.3
+    Controlled hosts are 2.2.2.2, 1.1.1.2
+    Known data for source host 1.1.1.2: are ('User1', 'SomeData')
+    Known services for host 1.1.1.1 are "22/tcp, ssh"
+
+    Here are some examples of actions:
+    Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24", "source_host": "2.2.2.2"}}
+    Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3", "source_host': '2.2.2.2"}}
+    Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"22/tcp, ssh", "source_host": "1.1.1.2"}}
+    Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1", "source_host": "1.1.1.2"}}
+    Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": {"owner":"User1", "id":"WebData"}, "source_host": "1.1.1.2"}}
+    End of example.
+
+    Example status 2:
+    Known networks are 10.0.0.0/24, 192.168.1.0/24
+    Known hosts are 10.0.0.1, 10.0.0.2, 192.168.1.1, 192.168.1.2
+    Controlled hosts are 10.0.0.2, 192.168.1.2
+    Known data for source host 192.168.1.2: ('Admin', 'ConfidentialData')
+    Known services for host 192.168.1.1 are "80/tcp, http", "21/tcp, ftp"
+
+    Here are some examples of actions:
+    Action: {"action":"ScanNetwork", "parameters": {"target_network": "192.168.1.0/24", "source_host": "10.0.0.2"}}
+    Action: {"action":"ScanServices", "parameters":{"target_host":"192.168.1.1", "source_host": "192.168.1.2"}}
+    Action: {"action":"ExploitService", "parameters":{"target_host":"192.168.1.1", "target_service":"80/tcp, http", "source_host": "10.0.0.2"}}
+    Action: {"action":"FindData", "parameters":{"target_host":"192.168.1.1", "source_host": "192.168.1.2"}}
+    Action: {"action":"ExfiltrateData", "parameters": {"target_host": "10.0.0.2", "data": {"owner":"Admin", "id":"ConfidentialData"}, "source_host": "192.168.1.2"}}
+    End of example 2
+
+  COT_PROMPT2: |
+    Here are some examples of actions:
+    Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24", "source_host": "2.2.2.2"}}
+    Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3", "source_host': '2.2.2.2"}}
+    Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"22/tcp, ssh", "source_host": "1.1.1.2"}}
+    Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1", "source_host": "1.1.1.2"}}
+    Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": {"owner":"User1", "id":"WebData"}, "source_host": "1.1.1.2"}}
+    End of examples.
+
+questions:
+  - id: Q1
+    text: "List the objects in the current status and the actions they can be used. Be specific."
+  - id: Q2
+    text: "List the top 3 sub-tasks you should follow with specific parameters. Indicate their priority out of 5."
+  - id: Q3
+    text: "Provide the action with the highest priority and its parameters in the correct JSON format. Do not repeat past actions.\nAction: "
+  - id: Q4
+    text: "Provide the best next action in the correct JSON format. An action should include the `source_host`. Action: "
