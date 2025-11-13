@@ -31,7 +31,7 @@ COT_PROMPT = """
 Here are some examples of actions:
 Action: {"action":"ScanNetwork", "parameters": {"target_network": "1.1.1.0/24", 'source_host': '2.2.2.2'}}
 Action: {"action":"ScanServices", "parameters":{"target_host":"2.2.2.3", 'source_host': '2.2.2.2'}}
-Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"openssh", 'source_host': '1.1.1.2'}}
+Action: {"action":"ExploitService", "parameters":{"target_host":"1.1.1.1", "target_service":"22/tcp, ssh", 'source_host': '1.1.1.2'}}
 Action: {"action":"FindData", "parameters":{"target_host":"1.1.1.1", 'source_host': '1.1.1.2'}}
 Action: {"action":"ExfiltrateData", "parameters": {"target_host": "2.2.2.2", "data": {"owner":"User1", "id":"WebData"}, "source_host": "1.1.1.2"}}
 End of examples.
@@ -52,6 +52,7 @@ Do not repeat actions that you took in the past.
 Do not scan or exploit services in hosts you control.
 Do not scan the same network twice.
 Do not exfiltrate the same data twice.
+Do not exfiltrate logfiles.
 Exploit services that you know and find data in all controlled hosts.
 Once you have known data exfiltrate them to the target one by one.
 """
