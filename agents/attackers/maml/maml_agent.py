@@ -528,6 +528,7 @@ class MAMLAgent(BaseAgent):
             })
         
         # 2) roll out until terminal
+        # TODO What if it ends sooner ???
         for step in range(self.max_steps):
             num_steps += 1
             action, state_vec, logits, action_idx = self.select_action(observation, params)
@@ -631,7 +632,7 @@ class MAMLAgent(BaseAgent):
         num_win_returns, num_detected_returns, num_max_steps_returns = [], [], []
 
         # register once
-        self.register()
+        # self.register()
 
         for i in range(total_episodes):
             
@@ -766,41 +767,14 @@ class MAMLAgent(BaseAgent):
         except Exception as e:
             self._logger.info(f"[results_csv] failed to write: {e}")
 
-    def process_training_data(self, training_data_all):
+    def process_training_data(self, training_data_all:list[list[tuple]])-> list[tuple[torch.Tensor, torch.Tensor]]:
         """
-        training_data_all: list of episodes; each ep is a list of
-            (state_vec, cand_logits[N], chosen_idx, reward)
+        Converts raw training data into log_probs and returns for policy gradient.
+        Args:
+            training_data_all: list of episodes; each ep is a list of
+                (state_vec, cand_logits[N], chosen_idx, reward)
         Returns:
             log_probs [total_steps], returns [total_steps], []
-        """
-        # all_log_probs, all_returns = [], []
-
-        # for ep in training_data_all:
-        #     if not ep:
-        #         continue
-        #     _, cand_logits_list, chosen_idx_list, rewards = zip(*ep)
-
-        #     # log-prob from the N-way candidate dist at each step
-        #     ep_log_probs = torch.stack([
-        #         F.log_softmax(cand_logits, dim=0)[idx]
-        #         for cand_logits, idx in zip(cand_logits_list, chosen_idx_list)
-        #     ])
-
-        #     rewards_t = torch.tensor(rewards, dtype=torch.float32, device=ep_log_probs.device)
-        #     ep_returns = self.compute_returns(rewards_t)  # discounted within the episode
-
-        #     all_log_probs.append(ep_log_probs)
-        #     all_returns.append(ep_returns)
-
-        # if not all_log_probs:
-        #     d = device if torch.cuda.is_available() else 'cpu'
-        #     return torch.tensor([], device=d), torch.tensor([], device=d), []
-
-        # log_probs = torch.cat(all_log_probs).to(device)
-        # returns   = torch.cat(all_returns).to(device)
-        # return log_probs, returns, []
-        """
-        Returns: list of (log_probs_tensor, returns_tensor) per episode
         """
         per_ep = []
         for ep in training_data_all:
@@ -818,8 +792,14 @@ class MAMLAgent(BaseAgent):
             per_ep.append((ep_log_probs, ep_returns))
         return per_ep
 
-
-    def compute_returns(self, rewards):
+    def compute_returns(self, rewards:torch.Tensor)-> torch.Tensor:
+        """
+        Computes discounted returns for a single episode.
+        Args:
+            rewards: tensor of shape [T] with rewards for each time step
+        Returns:
+            returns: tensor of shape [T] with discounted returns
+        """
         returns = []
         R = 0
         for r in reversed(rewards):
@@ -827,19 +807,16 @@ class MAMLAgent(BaseAgent):
             returns.insert(0, R)
         return torch.tensor(returns, dtype=torch.float32, device=device)
 
-    # def compute_policy_loss_vanilla_RL(self, log_probs, returns):
-    #     """
-    #     'returns' are already per-episode discounted returns.
-    #     We just normalize and do REINFORCE.
-    #     """
-    #     if log_probs.numel() == 0:
-    #         return torch.tensor(0.0, device=device)
-
-    #     # Normalize returns for stability
-    #     returns = (returns - returns.mean()) / (returns.std() + 1e-8)
-    #     return -torch.sum(log_probs * returns)
-
     def compute_policy_loss_vanilla_RL(self, per_episode):
+        """
+        Computes policy loss using REINFORCE for multiple episodes.
+        'per_episode' is a list of (log_probs_tensor, returns_tensor) for each episode.
+        We normalize returns per episode and compute the loss.
+        Args:
+            per_episode: list of tuples (log_probs, returns) for each episode
+        Returns:
+            mean_loss: scalar tensor, average policy loss across episodes
+        """
         if not per_episode:
             return torch.tensor(0.0, device=device)
         losses = []
@@ -850,32 +827,48 @@ class MAMLAgent(BaseAgent):
             # print(f"[LOSS] returns={returns}, advantage= {adv}, loss= {loss}")
         return torch.stack(losses).mean()
 
-    def inner_loop(self, flag_eval):
+    def inner_loop(self, flag_eval:bool, batch_size:int)-> tuple[dict, list]:
+        """
+        Performs inner loop adaptation for one task. The inner loop consists of self.inner_steps updates.
+        Each update uses batch_size episodes to compute policy gradients and update the adapted parameters.
+        Returns:
+            adapted_params: dict of adapted parameters after inner loop
+            before_returns: list of returns before adaptation
+        Args:
+            flag_eval: bool, whether in evaluation mode (affects batch size)
+            batch_size: int, number of episodes to collect per 1 update inside the inner loop
+        """
         if flag_eval: # evaluation
             batch_size = self.eval_meta_batch_size
         else: # training
             batch_size = self.meta_batch_size
-        
+
+        # Initialize adapted parameters as a copy of the initial policy parameters
         adapted_params = {name: param.clone().requires_grad_(True) for name, param in self.policy.named_parameters()}
 
         before_returns = []
         # after_returns = []
 
+        # TODO MOVE THIS OUT OF inner_loop???
         # In this first episode, we should change the network layout by setting randomize_topology=True.
         # [For log] Before adaptation
         _, _, total_rewards, win_rate = self.collect_episodes(1, params=adapted_params, randomize_topology=True)
         before_returns.append(np.mean(total_rewards))
         
+
+        # Inner loop adaptation steps
+        # Play self.inner_steps episodes, each time updating adapted_params with policy gradient
         for i in range(self.inner_steps):
-            # Collect episodes with support set using current policy.
+            # Collect batch size episodes using the current adapted parameters
             episodes, training_data_all, all_total_rewards, win_rate = self.collect_episodes(batch_size, params=adapted_params, randomize_topology=False) 
-            # log_probs, returns, _ = self.process_training_data(training_data_all)
-            # loss = self.compute_policy_loss_vanilla_RL(log_probs, returns)
+            # process training data per episode
             per_episode = self.process_training_data(training_data_all)
+
+            # compute loss
             loss = self.compute_policy_loss_vanilla_RL(per_episode)
-           
+            # Compute gradients of the loss w.r.t. the adapted parameters
             grads = torch.autograd.grad(loss, adapted_params.values(), create_graph=True, allow_unused=True)
-            
+            # Update adapted parameters using gradient descent
             new_adapted = {}
             for (name, param), grad in zip(adapted_params.items(), grads):
                 if grad is None:
@@ -883,15 +876,18 @@ class MAMLAgent(BaseAgent):
                 else:
                     new_adapted[name] = (param - self.inner_lr * grad).to(device)
             adapted_params = new_adapted
-        
-            # [For log] After each step -> 7/31 deleted. not using.
-            # _, _, total_rewards, win_rate = self.collect_episodes(1, params=adapted_params, randomize_topology=False)
-            # after_returns.append(np.mean(total_rewards))
-            # print(f"[{i}th] Inner loop win_rate: {win_rate}")
-
+        # return adapted parameters - END OF inner loop
+        # TODO: what is 'before returns' and 'after_returns' here????
         return adapted_params, before_returns
 
-    def outer_loop(self):
+    def outer_loop(self)-> tuple[float, np.ndarray, float]:
+        """
+        Performs one outer loop meta-update across self.num_meta_batches tasks.
+        Returns:
+            meta_loss: float, the meta loss value
+            avg_before: np.ndarray, average returns before adaptation across tasks
+            avg_after: float, average returns after adaptation across tasks
+        """
         # prepare accumulators 
         N = self.num_meta_batches
         B = self.inner_steps + 1
@@ -899,26 +895,28 @@ class MAMLAgent(BaseAgent):
         acc_after  = 0.0
         all_task_losses = [] 
         after_returns = []
-
-        for i in range(self.num_meta_batches): 
-            # inner loop adaptation
-            # adapted_params, before_returns, after_returns = self.inner_loop()
+        
+        # collect meta-batch of tasks
+        # each task: inner loop adaptation (self.inner_steps updates)
+        # each tasks returns its adapted parameters + average loss after adaptation
+        for i in range(self.num_meta_batches):
+            # TODO - run topology change here???
+            # run inner loop adaptation
             flag_eval = False
-            adapted_params, before_returns = self.inner_loop(flag_eval)
-
+            adapted_params, before_returns = self.inner_loop(flag_eval=False, batch_size=self.meta_batch_size)
+            # Query set evaluation (no further update) - evaluation for this task
             _, training_data_all, total_rewards, win_rate = self.collect_episodes(self.test_batch_size, params=adapted_params, randomize_topology=False)
             
             # accumulate returns across meta-batch
             acc_before += float(np.mean(before_returns))
             acc_after  += np.mean(total_rewards)
 
-            # log_probs, returns, _ = self.process_training_data(training_data_all)
-            # loss = self.compute_policy_loss_vanilla_RL(log_probs, returns)
             per_episode = self.process_training_data(training_data_all)
             loss = self.compute_policy_loss_vanilla_RL(per_episode)
 
             all_task_losses.append(loss)
-
+        
+        # Meta-update: average loss across tasks
         self.optimizer.zero_grad()
         meta_loss = torch.stack(all_task_losses).mean()
 
@@ -929,6 +927,7 @@ class MAMLAgent(BaseAgent):
             l2_reg += torch.norm(param, p=2)  # or p=1 for L1
         meta_loss += lmbda * l2_reg
         # -----------------------------
+        # compute gradients and update initial policy parameters
         meta_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=1.0)
         self.optimizer.step()
@@ -979,8 +978,7 @@ class MAMLAgent(BaseAgent):
         # print(f"\n[EVAL SUMMARY] Avg Reward: {avg_eval_rewards:.2f}, Avg Win Rate: {avg_eval_win_rate:.2f}")
         return avg_pre_adapt, avg_eval_win_rate, avg_eval_rewards
 
-
-def save_checkpoint(policy: nn.Module, optimizer: optim.Optimizer, epoch: int, metric: float, path: str):
+def save_checkpoint(policy: nn.Module, optimizer: optim.Optimizer, epoch: int, metric: float, path: str)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save({
         "epoch": epoch,
@@ -990,7 +988,6 @@ def save_checkpoint(policy: nn.Module, optimizer: optim.Optimizer, epoch: int, m
         "torch_version": torch.__version__,
         "device": str(device),
     }, path)
-
 
 def load_checkpoint(policy: nn.Module, optimizer: optim.Optimizer | None, path: str, map_location=None):
     if map_location is None:
@@ -1089,7 +1086,7 @@ if __name__ == "__main__":
         eval_test_batch_size=eval_test_batch_size,
         request_trajectory = request_trajectory
     )
-    
+    agent.register()
     print(f"[MAML Agent Connected] {args.host}:{args.port}")
 
     # Set up MLflow
