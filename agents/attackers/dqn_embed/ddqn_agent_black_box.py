@@ -21,7 +21,7 @@ import logging
 import wandb
 
 class EpsilonScheduler:
-    def __init__(self, epsilon_start=1.0, epsilon_end=0.05, decay_rate=1e-4):
+    def __init__(self, epsilon_start=1.0, epsilon_end=0.1, decay_rate=1e-4):
         self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end
         self.decay_rate = decay_rate
@@ -54,7 +54,6 @@ class TextEncoder:
             embedding = self.model.encode(input_str)
         return torch.tensor(embedding).float()
     
-
 class QNetwork(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(QNetwork, self).__init__()
@@ -63,7 +62,9 @@ class QNetwork(nn.Module):
         # self.out = nn.Linear(512, 1)  # Output is a single Q-value
         input_dim = state_dim + action_dim
         self.net = nn.Sequential(
-            nn.Linear(input_dim, 512),
+            nn.Linear(input_dim, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
             nn.ReLU(),
             nn.Linear(512, 256),
             nn.ReLU(),
@@ -324,6 +325,9 @@ class DDQNAgent(BaseAgent):
         The main function for the gameplay. Handles agent registration and the main interaction loop.
         """
 
+        # TODO: Put the scheduler as a class attribute
+        # Initialize schedule outside the training method to allow
+        #  continuing training with a different epsilon start
         epsilon_scheduler = EpsilonScheduler(epsilon_start=1.0, epsilon_end=self.epsilon_end, decay_rate=self.epsilon_decay)
         returns = []
         wins = 0
@@ -338,10 +342,8 @@ class DDQNAgent(BaseAgent):
                 self._logger.debug(f"Observation received:{observation}")
                 # Store returns in the episode
                 episodic_returns.append(observation.reward)
+
                 # Select the best action
-                # TODO: use epsilon decay starting with 1.0 and decaying to 0.01
-                # self.epsilon = 1.0 - (ep / num_episodes) * 0.99
-                # self.epsilon = max(self.epsilon, 0.01)
                 self.epsilon = epsilon_scheduler.get_epsilon()
                 action, action_emb = self.select_action(observation, epsilon=self.epsilon)
 
@@ -399,7 +401,7 @@ class DDQNAgent(BaseAgent):
                     self.max_win_rate = win_rate
                     self.save("checkpoints/ddqn_checkpoint_best.pt")
 
-                if win_rate >= 98.0:
+                if win_rate >= 60.0:
                     self._logger.info(f"Early stopping at episode {ep} with win rate {win_rate}%")
                     print(f"Early stopping at episode {ep} with win rate {win_rate}%")
                     break
@@ -529,7 +531,7 @@ if __name__ == "__main__":
     parser.add_argument("--episodes", help="Sets number of episodes to play or evaluate", default=100, type=int)
     parser.add_argument("--logdir", help="Folder to store logs",default=path.join(path.dirname(path.abspath(__file__)), "logs"))
     parser.add_argument("--evaluate", help="Evaluate the agent and report, instead of playing the game only once.",action="store_true")
-    # parser.add_argument("--cont", help="Continue training the final model from the previous run.", action="store_true")
+    parser.add_argument("--cont", help="Continue training the final model from the previous run.", action="store_true")
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--decay", help="Epsilon decay factor", required=False, default=1e-4, type=float)
     parser.add_argument("--lr", help="Learning rate", required=False, default=1e-3, type=float)
@@ -549,7 +551,7 @@ if __name__ == "__main__":
     wandb.init(
         project="UTEP-Collaboration",
         entity="stratosphere",
-        name="DDQN-embed-black-box",
+        name="DDQN-embed-black-box-troubleshoot",
         config={
             "learning_rate": args.lr,
             "gamma": 0.99,
@@ -574,10 +576,10 @@ if __name__ == "__main__":
         agent.define_networks()
         wandb.watch(agent.q_net, log="all")
 
-        # if args.cont:
-        #     print("Continuing training from the last checkpoint")
-        #     agent.load("checkpoints/ddqn_checkpoint_final.pt")
-        #     agent.q_net.train()
+        if args.cont:
+            print("Continuing training from the last checkpoint")
+            agent.load("checkpoints/ddqn_checkpoint_best.pt")
+            agent.q_net.train()
         #     agent.epsilon = 0.1  # Start with a lower epsilon for continued training
 
         num_episodes = agent.train(observation, args.episodes)
