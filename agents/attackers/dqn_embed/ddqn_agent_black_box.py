@@ -233,7 +233,7 @@ class DDQNAgent(BaseAgent):
                 action_embs_taken.append(action_emb_taken) # Action embedding of the action taken
                 dones.append(done)
 
-                state_str = state_as_ordered_string(observation.state)
+                state_str = state_as_ordered_string(next_observation.state)
                 next_s = self.state_set.get(state_str, None)
                 if next_s is None:
                     # This should not be needed (?)
@@ -275,7 +275,7 @@ class DDQNAgent(BaseAgent):
                     next_s_emb = next_state_batch[i].unsqueeze(0) 
 
                     # 1. Online net selects the best next action (action a')
-                    _, best_action_emb_online = self.select_action(next_observation, 0.0) # (D_A)
+                    _, best_action_emb_online = self.select_action(batch[i][3], 0.0) # (D_A)
 
                     # 2. Target net evaluates Q(s', a')
                     # Use the target network to evaluate the action selected by the online network
