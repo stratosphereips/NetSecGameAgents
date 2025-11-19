@@ -846,7 +846,6 @@ class MAMLAgent(BaseAgent):
             # print(f"[LOSS] returns={returns}, advantage= {adv}, loss= {loss}")
         return torch.stack(losses).mean()
 
-
     def change_topology(self, seed:int|None=None)-> Observation:
         """
         Requests a topology change in the environment by resetting with randomize_topology=True.
@@ -1004,25 +1003,37 @@ class MAMLAgent(BaseAgent):
     def evaluate(self, traj_logger=None, epoch=None, log_one_idx=None):
         N = self.num_eval_batches
         pre_adapt_rewards = []
+        pre_adapt_win_rates = []
         after_win_rates = []
         after_rewards = []
 
-        for i in range(self.num_eval_batches): 
-            # print(f"\n[Eval Task {i+1}/{self.num_meta_batches}]")
-
-            # inner loop adaptation
-            # adapted_params, before_returns, after_returns = self.inner_loop()
+        for task_id in range(self.num_eval_batches): 
             flag_eval = True
-            # We need to do the adaptation with steps (inner loop)
-            adapted_params, before_returns = self.inner_loop(flag_eval, batch_size=self.eval_meta_batch_size)
-            pre_adapt_rewards.append(np.mean(before_returns))
+            # Create a new task by changing the topology
+            self.change_topology()
+            # copy initial parameters for adaptation
+            input_params = {name: param.clone().requires_grad_(True) for name, param in self.policy.named_parameters()}
+            # collect pre-adaptation performance
+            _, _, total_rewards, win_rate, pre_adapt_trajectories = self.collect_episodes(
+                self.eval_test_batch_size,
+                params=input_params,
+                randomize_topology=False,
+                collect_trajectories=False
+            )
+            # store pre-adaptation metrics
+            pre_adapt_rewards.append(np.mean(total_rewards))
+            pre_adapt_win_rates.append(win_rate)
+            print(f"[Eval Task {task_id+1}] Pre-Adaptation Win Rate: {win_rate:.2f}%, Average Reward: {np.mean(total_rewards):.2f}")
+
+            # Adapt to this task (inner loop)
+            adapted_params = self.inner_loop(input_params=input_params, flag_eval=flag_eval, batch_size=self.eval_meta_batch_size)
+            
 
             # log only on the FIRST task (task_i == 0), ONE episode picked by log_one_idx
-            use_logger = traj_logger if (traj_logger is not None and epoch is not None and i == 0 and log_one_idx is not None) else None
-            
+            use_logger = traj_logger if (traj_logger is not None and epoch is not None and task_id == 0 and log_one_idx is not None) else None
             # After the adaptation, we evaluate on the query set
             # Query set evaluation (no further update)
-            _, _, total_rewards, win_rate, trajectories = self.collect_episodes(
+            _, _, total_rewards, win_rate, pos_adapt_trajectories = self.collect_episodes(
                 self.eval_test_batch_size,
                 params=adapted_params,
                 randomize_topology=False,
@@ -1032,15 +1043,26 @@ class MAMLAgent(BaseAgent):
                 # or: log_all=False, log_one_idx=some_index    # ← log just one query episode
                 collect_trajectories=True
             )
-            print(f"[Eval Task {i+1}] Win Rate: {win_rate:.2f}%, Average Reward: {np.mean(total_rewards):.2f}"
-            )
-            trajectory_filename = path.join("./logs/eval_trajectories", f"eval_epoch-{epoch:04d}_task-{i+1}_trajectories.jsonl")
-            with jsonlines.open(trajectory_filename, "a") as writer:
-                for traj in trajectories:
-                    writer.write(traj)
-            print(f"Storing trajectories to {trajectory_filename}")
+            # log post-adaptation metrics
+            after_rewards.append(np.mean(total_rewards))
             after_win_rates.append(win_rate)
-            after_rewards.append(np.mean(total_rewards))  # average over query episodes
+            print(f"[Eval Task {task_id}] Post-Adapt Win Rate: {win_rate:.2f}%, Average Reward: {np.mean(total_rewards):.2f}"
+            )
+
+            # store trajectories if needed
+            # pre-adapt trajectories
+            trajectory_filename_pre_adapt = path.join("./logs/eval_trajectories", f"eval_epoch-{epoch:04d}_task-{task_id}_pre-adapt-trajectories.jsonl")
+            with jsonlines.open(trajectory_filename_pre_adapt, "a") as writer:
+                for traj in pre_adapt_trajectories:
+                    writer.write(traj)
+            print(f"Storing pre-adapt-trajectories to {trajectory_filename_pre_adapt}")
+            
+            # post-adapt trajectories
+            trajectory_filename_post_adapt = path.join("./logs/eval_trajectories", f"eval_epoch-{epoch:04d}_task-{task_id}_post-adapt-trajectories.jsonl")
+            with jsonlines.open(trajectory_filename_post_adapt, "a") as writer:
+                for traj in pos_adapt_trajectories:
+                    writer.write(traj)
+            print(f"Storing post-adapt-trajectories to {trajectory_filename_post_adapt}")
 
         avg_pre_adapt = np.mean(pre_adapt_rewards)
         avg_eval_win_rate = np.mean(after_win_rates)
@@ -1069,11 +1091,11 @@ def load_checkpoint(policy: nn.Module, optimizer: optim.Optimizer | None, path: 
         optimizer.load_state_dict(ckpt["optimizer_state"])
     return ckpt
 
-def switch_env(agent, host, port):
-    agent.host = host
-    agent.port = port
-    agent.terminate_connection()
-    agent.reconnect()
+# def switch_env(agent, host, port):
+#     agent.host = host
+#     agent.port = port
+#     agent.terminate_connection()
+#     agent.reconnect()
 
 
 if __name__ == "__main__":
@@ -1132,7 +1154,7 @@ if __name__ == "__main__":
     
     num_eval_batches = 5
     eval_meta_batch_size = 50	# for evaluation 
-    eval_test_batch_size = 500  
+    eval_test_batch_size = 100  
 
     # For performance comparison: DQN 
     # eval_meta_batch_size = 10	# for evaluation 
