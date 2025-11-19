@@ -859,7 +859,7 @@ class MAMLAgent(BaseAgent):
         obs = self.request_game_reset(request_trajectory=False, randomize_topology=True)
         return obs
 
-    def inner_loop(self, flag_eval:bool, batch_size:int)-> tuple[dict, list, list]:
+    def inner_loop(self, input_params: dict, flag_eval:bool, batch_size:int)-> dict:
         """
         Performs inner loop adaptation for one task. The inner loop consists of self.inner_steps updates.
         Each update uses batch_size episodes to compute policy gradients and update the adapted parameters.
@@ -867,6 +867,7 @@ class MAMLAgent(BaseAgent):
             adapted_params: dict of adapted parameters after inner loop
             before_returns: list of returns before adaptation
         Args:
+            input_params: dict, initial policy parameters for adaptation
             flag_eval: bool, whether in evaluation mode (affects batch size)
             batch_size: int, number of episodes to collect per 1 update inside the inner loop
         """
@@ -875,17 +876,18 @@ class MAMLAgent(BaseAgent):
         else: # training
             batch_size = self.meta_batch_size
 
-        # Initialize adapted parameters as a copy of the initial policy parameters
-        adapted_params = {name: param.clone().requires_grad_(True) for name, param in self.policy.named_parameters()}
+        # # Initialize adapted parameters as a copy of the initial policy parameters
+        # adapted_params = {name: param.clone().requires_grad_(True) for name, param in self.policy.named_parameters()}
+        adapted_params = input_params
 
-        before_returns = []
-        # after_returns = []
+        # before_returns = []
+        # # after_returns = []
 
-        # TODO MOVE THIS OUT OF inner_loop???
-        # In this first episode, we should change the network layout by setting randomize_topology=True.
-        # [For log] Before adaptation
-        _, _, total_rewards, win_rate,_ = self.collect_episodes(1, params=adapted_params, randomize_topology=True)
-        before_returns.append(np.mean(total_rewards))
+        # # TODO MOVE THIS OUT OF inner_loop???
+        # # In this first episode, we should change the network layout by setting randomize_topology=True.
+        # # [For log] Before adaptation
+        # _, _, total_rewards, win_rate,_ = self.collect_episodes(1, params=adapted_params, randomize_topology=True)
+        # before_returns.append(np.mean(total_rewards))
         
 
         # Inner loop adaptation steps
@@ -893,6 +895,7 @@ class MAMLAgent(BaseAgent):
         for i in range(self.inner_steps):
             # Collect batch size episodes using the current adapted parameters
             episodes, training_data_all, all_total_rewards, win_rate, _ = self.collect_episodes(batch_size, params=adapted_params, randomize_topology=False) 
+            
             # process training data per episode
             per_episode = self.process_training_data(training_data_all)
 
@@ -911,9 +914,9 @@ class MAMLAgent(BaseAgent):
         # return adapted parameters - END OF inner loop
         # TODO: what is 'before returns' and 'after_returns' here????
         # TODO: Why not run evaluation of adapted model here???
-        return adapted_params, before_returns
+        return adapted_params #, before_returns
 
-    def outer_loop(self)-> tuple[float, np.ndarray, float]:
+    def outer_loop(self)-> tuple:
         """
         Performs one outer loop meta-update across self.num_meta_batches tasks.
         Returns:
@@ -928,6 +931,10 @@ class MAMLAgent(BaseAgent):
         acc_after  = 0.0
         all_task_losses = [] 
         after_returns = []
+        before_returns = np.zeros(N, dtype=np.float32)
+        before_winrates = np.zeros(N, dtype=np.float32)
+        after_returns = np.zeros(N, dtype=np.float32)
+        after_winrates = np.zeros(N, dtype=np.float32)
         
         # collect meta-batch of tasks
         # each task: inner loop adaptation (self.inner_steps updates)
@@ -942,15 +949,27 @@ class MAMLAgent(BaseAgent):
         # meta-update: average loss across tasks, compute gradients and update initial policy parameters
         # compute average before/after returns across tasks
 
-        for i in range(self.num_meta_batches):
-            # TODO - run topology change here???
-            # run inner loop adaptation
-            flag_eval = False
-            adapted_params, before_returns = self.inner_loop(flag_eval=False, batch_size=self.meta_batch_size)
-            # Query set evaluation (no further update) - evaluation for this task
+        # Meta-batch loop (tasks)
+        for task_id in range(self.num_meta_batches):
+            # A task is defined by a new topology + start and goal conditions
+            # Change topology
+            self.change_topology()
+            # copy initial parameters for adaptation
+            input_params = {name: param.clone().requires_grad_(True) for name, param in self.policy.named_parameters()}
+            # OPTIONAL evaluate pre-adaptation performance
+            _, _, total_rewards, win_rate,_ = self.collect_episodes(self.test_batch_size, params=input_params, randomize_topology=False, collect_trajectories=False)
+            before_returns[task_id] = np.mean(total_rewards)
+            before_winrates[task_id] = np.mean(win_rate)
+            acc_before += float(np.mean(total_rewards))
+
+            # run inner loop adaptation, getting adapted parameters
+            adapted_params = self.inner_loop(input_params=input_params, flag_eval=False, batch_size=self.meta_batch_size)
+            # Query set evaluation (no further update) - evaluation for this task_id
             _, training_data_all, total_rewards, win_rate,_ = self.collect_episodes(self.test_batch_size, params=adapted_params, randomize_topology=False, collect_trajectories=False)
             
             # accumulate returns across meta-batch
+            after_returns[task_id] = np.mean(total_rewards)
+            after_winrates[task_id] = np.mean(win_rate)
             acc_before += float(np.mean(before_returns))
             acc_after  += np.mean(total_rewards)
 
@@ -958,7 +977,7 @@ class MAMLAgent(BaseAgent):
             loss = self.compute_policy_loss_vanilla_RL(per_episode)
 
             all_task_losses.append(loss)
-        
+        # All tasks processed, do meta-update
         # Meta-update: average loss across tasks
         self.optimizer.zero_grad()
         meta_loss = torch.stack(all_task_losses).mean()
@@ -975,12 +994,12 @@ class MAMLAgent(BaseAgent):
         torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=1.0)
         self.optimizer.step()
         
-        # now compute *average* before/after returns
-        # avg_before = acc_before / N      # shape (inner_steps+1,)
-        avg_before = np.array([acc_before / N], dtype=np.float32)  # single pre-adapt metric
-        avg_after  = acc_after  / N      # scalar
+        # # now compute *average* before/after returns
+        # # avg_before = acc_before / N      # shape (inner_steps+1,)
+        # avg_before = np.array([acc_before / N], dtype=np.float32)  # single pre-adapt metric
+        # avg_after  = acc_after  / N      # scalar
 
-        return meta_loss.item(), avg_before, avg_after
+        return meta_loss.item(), np.mean(before_returns), np.mean(after_returns)
 
     def evaluate(self, traj_logger=None, epoch=None, log_one_idx=None):
         N = self.num_eval_batches
@@ -1219,7 +1238,7 @@ if __name__ == "__main__":
                 #     f"elapsed={time.time()-t0:.2f}s")
                 
                 meta_losses.append(meta_loss)
-                before_adapt_returns.append(avg_before[0])         # Pre-adaptation return
+                before_adapt_returns.append(avg_before[0])         # Pre-adaptation return why only first step?
                 after_adapt_returns.append(avg_after)          # Post-adaptation return
                 
                 mlflow.log_metric("meta_loss", meta_loss, step=epoch)
