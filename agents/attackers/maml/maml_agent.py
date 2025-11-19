@@ -2,6 +2,7 @@
 #   Title: maml_agent.py
 #   Purpose: To train a single maml agent with multiple tasks (env) 
 #   Author: Jihoon Shin - jshin4@miners.utep.edu
+#   Adapted by: Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 # ------------------------------------------------------------ 
 import sys
 import os
@@ -31,7 +32,8 @@ from NetSecGameAgents.agents.attackers.random.random_agent import RandomAttacker
 from NetSecGameAgents.agents.attackers.q_learning.q_agent import QAgent
 import psutil
 import csv
-from typing import Optional
+from typing import Optional, Any, Tuple
+import jsonlines
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -408,7 +410,7 @@ class MAMLAgent(BaseAgent):
         ]
         return action_type_list[index]
 
-    def select_action(self, observation: Observation, params=None):
+    def select_action(self, observation: Observation, params=None)-> tuple[Action|None, torch.Tensor|None, torch.Tensor|None, float|None]:
         state = observation.state
         # self._logger.info("[Current Observation]")
         # self._logger.info(f"  • Known Networks : {', '.join(map(str, state.known_networks))}")
@@ -422,10 +424,11 @@ class MAMLAgent(BaseAgent):
         #         self._logger.info(f"         • ID: {d.id}, Owner: {d.owner}, Type: {d.type}, Size: {d.size}")
         # self._logger.info(f"  • Blocked Hosts  : { {str(k): [str(b) for b in v] for k, v in state.known_blocks.items()} }\n")
         
+        # generate the list of valid actions in given state
         valid_actions = generate_valid_actions(state)
-        # self._logger.info(f"        - valid_actions: {valid_actions}")
 
-        if not valid_actions:
+        if len(valid_actions) == 0:
+            # No valid actions available
             return None, None, None, None
 
         # Build ActionType→idx mapping via idx_to_actiontype
@@ -470,6 +473,8 @@ class MAMLAgent(BaseAgent):
         cand_logits = logits.gather(dim=1, index=type_idx_tensor.view(-1, 1)).squeeze(1)  # [N]
 
         # Make a single N-way distribution over candidates and sample
+        # TODO: What if there are 2 actions with the same src and target, but different action type - how to distinguish them?
+        # they will have same feature vector, so they should have same logits, and then sampled with same probability (so basically randomly chosing among them?
         dist = Categorical(logits=cand_logits)  # Converts bigger logits into higher probabilities
         best = dist.sample().item()  # index in [0..N-1]
 
@@ -478,29 +483,36 @@ class MAMLAgent(BaseAgent):
 
         return best_action, best_vec, cand_logits, best
 
-    def play_game(self, params=None, randomize_topology=False, 
+    def play_episode(self, params=None, randomize_topology=False, 
                     traj_logger: 'TrajectoryLogger' = None, traj_meta: dict = None, request_trajectory: bool = False):
         """
         Reset → play one full episode → return the terminal observation + stats.
         If traj_logger is provided, logs a step-by-step trajectory in JSONL.
         """
-        observation = self.request_game_reset(
-            request_trajectory=request_trajectory,
-            randomize_topology=randomize_topology
-            )  
+        # Reset the environment and get initial observation
+        # observation = self.request_game_reset(
+        #     request_trajectory=request_trajectory,
+        #     randomize_topology=randomize_topology
+        #     )  
         
+        # make sure the env is in the initial state (NO TOPOLOGY RANDOMIZATION done here)
+        observation = self.request_game_reset(
+            request_trajectory=False,
+            randomize_topology=False
+            )
+         
+        # Prepare data structures for the episode
         last_observation = observation
         total_reward = 0
         training_data = []
         num_steps = 0
         episodic_returns = []
+        full_trajectory = []
 
+        # 1) log initial trajectory header
         goal_info = observation.info if observation and observation.info else {}
         goal_ip = goal_info.get("goal_ip", None) or goal_info.get("goal", None)
         goal_desc = goal_info.get("goal_description", "Unknown")
-
-        # self._logger.info("Playing one episode")
-        # self._logger.info(f"    → Goal: {goal_desc}")
 
         # compute trajectory identifiers once and write a header row
         epoch_for_id = (traj_meta or {}).get("epoch", -1)
@@ -527,14 +539,15 @@ class MAMLAgent(BaseAgent):
                 "initial_snapshot": init_snapshot,
             })
         
-        # 2) roll out until terminal
-        # TODO What if it ends sooner ???
-        for step in range(self.max_steps):
+        # 2) roll out until terminal state
+        while not last_observation.end:
             num_steps += 1
             action, state_vec, logits, action_idx = self.select_action(observation, params)
             obs_text_str = self._observation_block_text(observation.state)
 
             prev_reward = float(last_observation.reward or 0.0)
+            if action is None:
+                raise RuntimeError("MAMLAgent.play_episode: No valid action could be selected.")
             new_obs = self.make_step(action)
             next_reward = float(new_obs.reward or 0.0)
 
@@ -593,13 +606,17 @@ class MAMLAgent(BaseAgent):
             observation = new_obs
             last_observation = new_obs
 
-            if last_observation.end:
-                break
-           
         # 3) at end, last_observation holds our final valid step
         total_reward = np.sum(episodic_returns)
         # self._logger.info(f"Episode ended → return={total_reward}, steps={num_steps}")
         # self._logger.info(f"Final Observation → end={last_observation.end}, info={last_observation.info}")
+
+        if request_trajectory:
+            obs_reset = self.request_game_reset(
+                request_trajectory=True,
+                randomize_topology=False
+            )
+            full_trajectory = obs_reset.info.get("last_trajectory", {})
 
         if traj_logger is not None:
             info = last_observation.info or {}
@@ -619,11 +636,11 @@ class MAMLAgent(BaseAgent):
                 "end_reason": end_reason,
             })
 
-        return last_observation, total_reward, num_steps, training_data
+        return last_observation, total_reward, num_steps, training_data, full_trajectory
     
     def collect_episodes(self, total_episodes: int, params=None, randomize_topology=False, 
                      traj_logger: 'TrajectoryLogger' = None, traj_meta: dict = None,
-                     log_one_idx: int | None = None, log_all: bool = False):
+                     log_one_idx: int | None = None, log_all: bool = False, collect_trajectories: bool = False):
         episodes = []
         training_data_all = []
         all_total_rewards = []
@@ -631,8 +648,7 @@ class MAMLAgent(BaseAgent):
         num_win_steps, num_detected_steps, num_max_steps_steps = [], [], []
         num_win_returns, num_detected_returns, num_max_steps_returns = [], [], []
 
-        # register once
-        # self.register()
+        trajectories = []
 
         for i in range(total_episodes):
             
@@ -652,12 +668,12 @@ class MAMLAgent(BaseAgent):
             try: 
                 meta = dict(traj_meta or {})
                 meta["episode_id"] = i
-                last_obs, total_reward, num_steps, training_data = self.play_game(
+                last_obs, total_reward, num_steps, training_data, full_trajectory = self.play_episode(
                     params,
                     randomize_topology=randomize_topology,
                     traj_logger=use_logger,
                     traj_meta=meta if use_logger is not None else None,
-                    request_trajectory=self.request_trajectory
+                    request_trajectory=collect_trajectories
                 )
                 # print(f"[Episode {i+1}] Steps: {num_steps:>3}, Total Reward: {total_reward:>5.1f}, End: {last_obs.info.get('end_reason') if last_obs.info else 'N/A'}")
             finally:
@@ -683,6 +699,9 @@ class MAMLAgent(BaseAgent):
             training_data_all.append(training_data)
             all_total_rewards.append(total_reward)
 
+            if collect_trajectories:
+                trajectories.append(full_trajectory)
+
         self.log_performance(
             episode=total_episodes,
             wins=wins, detected=detected, max_steps=max_steps,
@@ -691,7 +710,7 @@ class MAMLAgent(BaseAgent):
             epoch=(traj_meta or {}).get("epoch")  
         )
         win_rate = (wins / total_episodes) * 100
-        return episodes, training_data_all, all_total_rewards, win_rate
+        return episodes, training_data_all, all_total_rewards, win_rate, trajectories
     
     def _observation_block_text(self, state) -> str:
         lines = []
@@ -827,7 +846,20 @@ class MAMLAgent(BaseAgent):
             # print(f"[LOSS] returns={returns}, advantage= {adv}, loss= {loss}")
         return torch.stack(losses).mean()
 
-    def inner_loop(self, flag_eval:bool, batch_size:int)-> tuple[dict, list]:
+
+    def change_topology(self, seed:int|None=None)-> Observation:
+        """
+        Requests a topology change in the environment by resetting with randomize_topology=True.
+        For now, we ignore the seed argument as the env can't process it.
+        Args:
+            seed: Optional[int], seed for topology randomization
+        Returns:
+            obs: Observation, the initial observation after reset
+        """
+        obs = self.request_game_reset(request_trajectory=False, randomize_topology=True)
+        return obs
+
+    def inner_loop(self, flag_eval:bool, batch_size:int)-> tuple[dict, list, list]:
         """
         Performs inner loop adaptation for one task. The inner loop consists of self.inner_steps updates.
         Each update uses batch_size episodes to compute policy gradients and update the adapted parameters.
@@ -852,7 +884,7 @@ class MAMLAgent(BaseAgent):
         # TODO MOVE THIS OUT OF inner_loop???
         # In this first episode, we should change the network layout by setting randomize_topology=True.
         # [For log] Before adaptation
-        _, _, total_rewards, win_rate = self.collect_episodes(1, params=adapted_params, randomize_topology=True)
+        _, _, total_rewards, win_rate,_ = self.collect_episodes(1, params=adapted_params, randomize_topology=True)
         before_returns.append(np.mean(total_rewards))
         
 
@@ -860,7 +892,7 @@ class MAMLAgent(BaseAgent):
         # Play self.inner_steps episodes, each time updating adapted_params with policy gradient
         for i in range(self.inner_steps):
             # Collect batch size episodes using the current adapted parameters
-            episodes, training_data_all, all_total_rewards, win_rate = self.collect_episodes(batch_size, params=adapted_params, randomize_topology=False) 
+            episodes, training_data_all, all_total_rewards, win_rate, _ = self.collect_episodes(batch_size, params=adapted_params, randomize_topology=False) 
             # process training data per episode
             per_episode = self.process_training_data(training_data_all)
 
@@ -878,6 +910,7 @@ class MAMLAgent(BaseAgent):
             adapted_params = new_adapted
         # return adapted parameters - END OF inner loop
         # TODO: what is 'before returns' and 'after_returns' here????
+        # TODO: Why not run evaluation of adapted model here???
         return adapted_params, before_returns
 
     def outer_loop(self)-> tuple[float, np.ndarray, float]:
@@ -899,13 +932,23 @@ class MAMLAgent(BaseAgent):
         # collect meta-batch of tasks
         # each task: inner loop adaptation (self.inner_steps updates)
         # each tasks returns its adapted parameters + average loss after adaptation
+
+        # 1) create a task (new topology)
+        # 2) evaluate pre-adaptation performance?
+        # 4) run inner loop adaptation on support set -> returns adapted parameters
+        # 5) evaluate on query set (no further update) - accumulate loss for meta-update + after adaptation returns in this task
+
+        # after collecting all tasks:
+        # meta-update: average loss across tasks, compute gradients and update initial policy parameters
+        # compute average before/after returns across tasks
+
         for i in range(self.num_meta_batches):
             # TODO - run topology change here???
             # run inner loop adaptation
             flag_eval = False
             adapted_params, before_returns = self.inner_loop(flag_eval=False, batch_size=self.meta_batch_size)
             # Query set evaluation (no further update) - evaluation for this task
-            _, training_data_all, total_rewards, win_rate = self.collect_episodes(self.test_batch_size, params=adapted_params, randomize_topology=False)
+            _, training_data_all, total_rewards, win_rate,_ = self.collect_episodes(self.test_batch_size, params=adapted_params, randomize_topology=False, collect_trajectories=False)
             
             # accumulate returns across meta-batch
             acc_before += float(np.mean(before_returns))
@@ -951,23 +994,32 @@ class MAMLAgent(BaseAgent):
             # inner loop adaptation
             # adapted_params, before_returns, after_returns = self.inner_loop()
             flag_eval = True
-            adapted_params, before_returns = self.inner_loop(flag_eval)
+            # We need to do the adaptation with steps (inner loop)
+            adapted_params, before_returns = self.inner_loop(flag_eval, batch_size=self.eval_meta_batch_size)
             pre_adapt_rewards.append(np.mean(before_returns))
 
             # log only on the FIRST task (task_i == 0), ONE episode picked by log_one_idx
             use_logger = traj_logger if (traj_logger is not None and epoch is not None and i == 0 and log_one_idx is not None) else None
             
+            # After the adaptation, we evaluate on the query set
             # Query set evaluation (no further update)
-            _, _, total_rewards, win_rate = self.collect_episodes(
+            _, _, total_rewards, win_rate, trajectories = self.collect_episodes(
                 self.eval_test_batch_size,
                 params=adapted_params,
                 randomize_topology=False,
                 traj_logger=traj_logger,                       # ← attach logger here
                 traj_meta={"epoch": epoch, "phase": "eval_query", "task": i},
-                log_all=True                                   # ← log every query episode
+                log_all=True,                                   # ← log every query episode
                 # or: log_all=False, log_one_idx=some_index    # ← log just one query episode
+                collect_trajectories=True
             )
-            
+            print(f"[Eval Task {i+1}] Win Rate: {win_rate:.2f}%, Average Reward: {np.mean(total_rewards):.2f}"
+            )
+            trajectory_filename = path.join("./logs/eval_trajectories", f"eval_epoch-{epoch:04d}_task-{i+1}_trajectories.jsonl")
+            with jsonlines.open(trajectory_filename, "a") as writer:
+                for traj in trajectories:
+                    writer.write(traj)
+            print(f"Storing trajectories to {trajectory_filename}")
             after_win_rates.append(win_rate)
             after_rewards.append(np.mean(total_rewards))  # average over query episodes
 
@@ -978,7 +1030,7 @@ class MAMLAgent(BaseAgent):
         # print(f"\n[EVAL SUMMARY] Avg Reward: {avg_eval_rewards:.2f}, Avg Win Rate: {avg_eval_win_rate:.2f}")
         return avg_pre_adapt, avg_eval_win_rate, avg_eval_rewards
 
-def save_checkpoint(policy: nn.Module, optimizer: optim.Optimizer, epoch: int, metric: float, path: str)
+def save_checkpoint(policy: nn.Module, optimizer: optim.Optimizer, epoch: int, metric: float, path: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save({
         "epoch": epoch,
@@ -992,7 +1044,7 @@ def save_checkpoint(policy: nn.Module, optimizer: optim.Optimizer, epoch: int, m
 def load_checkpoint(policy: nn.Module, optimizer: optim.Optimizer | None, path: str, map_location=None):
     if map_location is None:
         map_location = device
-    ckpt = torch.load(path, map_location=map_location)
+    ckpt = torch.load(path, map_location=map_location, weights_only=False)
     policy.load_state_dict(ckpt["policy_state"])
     if optimizer is not None and "optimizer_state" in ckpt:
         optimizer.load_state_dict(ckpt["optimizer_state"])
@@ -1011,7 +1063,7 @@ if __name__ == "__main__":
     parser.add_argument("--env", default=1, type=int)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=9000, type=int)
-    parser.add_argument("--meta_epochs", default=1, type=int)   # 1000
+    parser.add_argument("--meta_epochs", default=500, type=int)   # 1000
     parser.add_argument("--logdir", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
     parser.add_argument("--mlflow_url", default=None)
     parser.add_argument("--experiment_name", default="NetSecGame_MAML")
@@ -1059,9 +1111,9 @@ if __name__ == "__main__":
     # Per task: 150 episodes (support set, 50*3 inner steps) + 100 episodes (query set) = 250 episodes.
     # Per Epoch: 250 episodes * 1 tasks = 250 episodes. (run 1 evaluation = 250 episodes)
     
-    num_eval_batches = 1
+    num_eval_batches = 5
     eval_meta_batch_size = 50	# for evaluation 
-    eval_test_batch_size = 100  
+    eval_test_batch_size = 500  
 
     # For performance comparison: DQN 
     # eval_meta_batch_size = 10	# for evaluation 
@@ -1207,7 +1259,7 @@ if __name__ == "__main__":
                     else:
                         current_metric = -meta_loss  # negate so higher is better
 
-                    if current_metric > best_metric or epoch == args.meta_epochs:
+                    if current_metric > best_metric or  epoch % 50 == 0:
                         best_metric = current_metric
                         ckpt_path = path.join(
                             args.checkpoint_dir,
@@ -1220,13 +1272,6 @@ if __name__ == "__main__":
                         except Exception:
                             pass
                         no_improve = 0
-                    # else: # 10/08 it stopped to early. Temporary removed. 
-                    #     no_improve += 1
-                    #     if no_improve >= patience:
-                    #         print(f"* Early stopping at epoch {epoch} (no improvement in {patience} evals).")
-                    #         early_stopping = epoch
-                    #         break
-
 
                 if epoch % 50 == 0 or epoch == args.meta_epochs or epoch == early_stopping:
                     # --- 1) Meta-Loss Plot ---
