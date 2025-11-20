@@ -860,11 +860,10 @@ class MAMLAgent(BaseAgent):
 
     def inner_loop(self, input_params: dict, flag_eval:bool, batch_size:int)-> dict:
         """
-        Performs inner loop adaptation for one task. The inner loop consists of self.inner_steps updates.
-        Each update uses batch_size episodes to compute policy gradients and update the adapted parameters.
+        Performs inner loop adaptation for one task starting with input_params.The inner loop consists of self.inner_steps updates.
+        Each update uses batch_size episodes to compute policy gradients and update the parameters.
         Returns:
-            adapted_params: dict of adapted parameters after inner loop
-            before_returns: list of returns before adaptation
+            adapted_params: dict of adapted parameters after self.inner_steps updates
         Args:
             input_params: dict, initial policy parameters for adaptation
             flag_eval: bool, whether in evaluation mode (affects batch size)
@@ -1018,12 +1017,12 @@ class MAMLAgent(BaseAgent):
                 self.eval_test_batch_size,
                 params=input_params,
                 randomize_topology=False,
-                collect_trajectories=False
+                collect_trajectories=True
             )
             # store pre-adaptation metrics
             pre_adapt_rewards.append(np.mean(total_rewards))
             pre_adapt_win_rates.append(win_rate)
-            print(f"[Eval Task {task_id+1}] Pre-Adaptation Win Rate: {win_rate:.2f}%, Average Reward: {np.mean(total_rewards):.2f}")
+            print(f"[Eval Task {task_id}] Pre-Adaptation Win Rate: {win_rate:.2f}%, Average Reward: {np.mean(total_rewards):.2f}")
 
             # Adapt to this task (inner loop)
             adapted_params = self.inner_loop(input_params=input_params, flag_eval=flag_eval, batch_size=self.eval_meta_batch_size)
@@ -1038,7 +1037,7 @@ class MAMLAgent(BaseAgent):
                 params=adapted_params,
                 randomize_topology=False,
                 traj_logger=traj_logger,                       # ← attach logger here
-                traj_meta={"epoch": epoch, "phase": "eval_query", "task": i},
+                traj_meta={"epoch": epoch, "phase": "eval_query", "task": task_id},
                 log_all=True,                                   # ← log every query episode
                 # or: log_all=False, log_one_idx=some_index    # ← log just one query episode
                 collect_trajectories=True
@@ -1068,7 +1067,7 @@ class MAMLAgent(BaseAgent):
         avg_eval_win_rate = np.mean(after_win_rates)
         avg_eval_rewards = np.mean(after_rewards)
 
-        # print(f"\n[EVAL SUMMARY] Avg Reward: {avg_eval_rewards:.2f}, Avg Win Rate: {avg_eval_win_rate:.2f}")
+        print(f"\n[EVAL SUMMARY] Avg Reward: {avg_eval_rewards:.2f}, Avg Win Rate: {avg_eval_win_rate:.2f}")
         return avg_pre_adapt, avg_eval_win_rate, avg_eval_rewards
 
 def save_checkpoint(policy: nn.Module, optimizer: optim.Optimizer, epoch: int, metric: float, path: str):
