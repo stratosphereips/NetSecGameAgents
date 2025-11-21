@@ -295,9 +295,9 @@ class DDQNAgent(BaseAgent):
                     _, best_action_emb_online = self.select_action(next_observation, 0.0) # (D_A)
 
                     next_q_value = self.target_net(
-                        next_s.unsqueeze(0),
-                        next_concept_emb.unsqueeze(0),
-                        best_action_emb_online.unsqueeze(0) # Need (1, D_A)
+                        next_s.unsqueeze(0).to(self.device),
+                        next_concept_emb.unsqueeze(0).to(self.device),
+                        best_action_emb_online.unsqueeze(0).to(self.device) # Need (1, D_A)
                     ).squeeze(0) # scalar
 
                     next_q_values.append(next_q_value)
