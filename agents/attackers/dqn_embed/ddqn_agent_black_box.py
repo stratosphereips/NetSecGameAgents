@@ -37,7 +37,7 @@ class EpsilonScheduler:
         self.step_count += 1
 
 class TextEncoder:
-    def __init__(self, model_name="microsoft/codebert-base"):
+    def __init__(self, model_name="Qwen/Qwen3-Embedding-0.6B"):
     # def __init__(self, model_name="all-MiniLM-L6-v2"):
         word_embedding_model = models.Transformer(model_name)
         pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(),
@@ -572,7 +572,7 @@ if __name__ == "__main__":
     wandb.init(
         project="UTEP-Collaboration",
         entity="stratosphere",
-        name="DDQN-embed-black-box-codebert",
+        name="DDQN-embed-black-box",
         config={
             "learning_rate": args.lr,
             "gamma": 0.99,
