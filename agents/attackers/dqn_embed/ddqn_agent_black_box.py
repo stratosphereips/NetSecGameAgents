@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, models
 import numpy as np
 import random
 import json
@@ -37,8 +37,14 @@ class EpsilonScheduler:
         self.step_count += 1
 
 class TextEncoder:
-    def __init__(self, model_name="Qwen/Qwen3-Embedding-0.6B"):
+    def __init__(self, model_name="microsoft/codebert-base"):
     # def __init__(self, model_name="all-MiniLM-L6-v2"):
+        word_embedding_model = models.Transformer(model_name)
+        pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(),
+                               pooling_mode_mean_tokens=True,
+                               pooling_mode_cls_token=False,
+                               pooling_mode_max_tokens=False)
+        self.model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
         self.model = SentenceTransformer(model_name)
         self.embedding_dim = self.model.get_sentence_embedding_dimension()
         self.model.eval()  # Set the model to evaluation mode
@@ -62,9 +68,9 @@ class QNetwork(nn.Module):
         # self.out = nn.Linear(512, 1)  # Output is a single Q-value
         input_dim = state_dim + action_dim
         self.net = nn.Sequential(
-            nn.Linear(input_dim, 1024),
+            nn.Linear(input_dim, 768),
             nn.ReLU(),
-            nn.Linear(1024, 512),
+            nn.Linear(768, 512),
             nn.ReLU(),
             nn.Linear(512, 256),
             nn.ReLU(),
@@ -217,6 +223,7 @@ class DDQNAgent(BaseAgent):
             rewards = []
             dones = []
             action_embs_taken = []
+            next_q_values = []
 
             for observation, action_emb_taken, reward, next_observation, done in batch:
 
@@ -247,35 +254,11 @@ class DDQNAgent(BaseAgent):
 
                 next_state_embs.append(next_s)
                 
-
-
-            # Stack and compute batch loss
-            state_batch = torch.stack(state_embs).to(self.device)
-            next_state_batch = torch.stack(next_state_embs).to(self.device)
-            actions_emb_taken_batch = torch.stack(action_embs_taken).to(self.device) # (B, D_A)
-            dones = torch.tensor(dones, dtype=torch.float, device=self.device)
-            rewards = torch.tensor(rewards, dtype=torch.float, device=self.device)
-            
-            # --- Compute current Q(s,a) ---
-            # Q-value for the state and the action actually taken
-            q_values = self.q_net(state_batch, actions_emb_taken_batch) # (B,)
-            
-            # ---- Double DQN target Q ----
-            with torch.no_grad():
-                # --- Double DQN Target Q ---
-                # This requires iterating through the batch since the number of valid actions varies.
-
-                next_q_values = []
-                # next_actions = generate_valid_actions(next_observation)
-
-                for i in range(len(next_state_batch)):
-
-
-                    # State embeddings for the i-th next state (1, D_S)
-                    next_s_emb = next_state_batch[i].unsqueeze(0) 
+                with torch.no_grad():
+                    next_s_emb = next_s.unsqueeze(0).to(self.device)  # (1, D_S)
 
                     # 1. Online net selects the best next action (action a')
-                    _, best_action_emb_online = self.select_action(batch[i][3], 0.0) # (D_A)
+                    _, best_action_emb_online = self.select_action(next_observation, 0.0) # (D_A)
 
                     # 2. Target net evaluates Q(s', a')
                     # Use the target network to evaluate the action selected by the online network
@@ -286,10 +269,48 @@ class DDQNAgent(BaseAgent):
 
                     next_q_values.append(next_q_value)
 
-                next_q_values = torch.tensor(next_q_values, dtype=torch.float, device=self.device) # (B,)
 
-                # 3. Bellman target
-                expected_q = rewards + self.gamma * next_q_values * (1 - dones)
+            # Stack and compute batch loss
+            state_batch = torch.stack(state_embs).to(self.device)
+            # next_state_batch = torch.stack(next_state_embs).to(self.device)
+            actions_emb_taken_batch = torch.stack(action_embs_taken).to(self.device) # (B, D_A)
+            dones = torch.tensor(dones, dtype=torch.float, device=self.device)
+            rewards = torch.tensor(rewards, dtype=torch.float, device=self.device)
+            next_q_values = torch.tensor(next_q_values, dtype=torch.float, device=self.device) # (B,)
+
+            # --- Compute current Q(s,a) ---
+            # Q-value for the state and the action actually taken
+            q_values = self.q_net(state_batch, actions_emb_taken_batch) # (B,)
+            
+            # ---- Double DQN target Q ----
+            # with torch.no_grad():
+            #     # --- Double DQN Target Q ---
+            #     # This requires iterating through the batch since the number of valid actions varies.
+
+            #     next_q_values = []
+            #     # next_actions = generate_valid_actions(next_observation)
+
+            #     for i in range(len(next_state_batch)):
+
+
+            #         # State embeddings for the i-th next state (1, D_S)
+            #         next_s_emb = next_state_batch[i].unsqueeze(0) 
+
+            #         # 1. Online net selects the best next action (action a')
+            #         _, best_action_emb_online = self.select_action(batch[i][3], 0.0) # (D_A)
+
+            #         # 2. Target net evaluates Q(s', a')
+            #         # Use the target network to evaluate the action selected by the online network
+            #         next_q_value = self.target_net(
+            #             next_s_emb, 
+            #             best_action_emb_online.unsqueeze(0) # Need (1, D_A)
+            #         ).squeeze(0) # scalar
+
+            #         next_q_values.append(next_q_value)
+
+            
+            # 3. Bellman target
+            expected_q = rewards + self.gamma * next_q_values * (1 - dones)
 
             # loss = F.mse_loss(q_values, expected_q.detach())
             loss = F.smooth_l1_loss(q_values, expected_q.detach())
@@ -551,7 +572,7 @@ if __name__ == "__main__":
     wandb.init(
         project="UTEP-Collaboration",
         entity="stratosphere",
-        name="DDQN-embed-black-box-troubleshoot",
+        name="DDQN-embed-black-box-codebert",
         config={
             "learning_rate": args.lr,
             "gamma": 0.99,
