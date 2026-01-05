@@ -34,8 +34,8 @@ class BaseAgent(ABC):
             except socket.error as e:
                 print(f"Error closing socket: {e}")
     
-    def terminate_connection(self):
-        "Method for graceful termination of connection. Should be used by any class extending the BaseAgent."
+    def terminate_connection(self)->None:
+        """Method for graceful termination of connection. Should be used by any class extending the BaseAgent."""
         if self._socket:
             try:
                 self._socket.close()
@@ -44,7 +44,7 @@ class BaseAgent(ABC):
             except socket.error as e:
                 print(f"Error closing socket: {e}")
     @property
-    def socket(self)->socket.socket:
+    def socket(self)->socket.socket | None:
         return self._socket
     
     @property
@@ -55,7 +55,7 @@ class BaseAgent(ABC):
     def logger(self)->logging.Logger:
         return self._logger
 
-    def make_step(self, action: Action) -> Observation:
+    def make_step(self, action: Action) -> Observation | None:
         """
         Executes a single step in the environment by sending the agent's action to the server and receiving the resulting observation.
 
@@ -94,10 +94,10 @@ class BaseAgent(ABC):
             Exception: If there is an error sending data to the server.
         """
 
-        def _send_data(socket, data:str)->None:
+        def _send_data(socket, msg:str)->None:
             try:
-                self._logger.debug(f'Sending: {data}')
-                socket.sendall(data.encode())
+                self._logger.debug(f'Sending: {msg}')
+                socket.sendall(msg.encode())
             except Exception as e:
                 self._logger.error(f'Exception in _send_data(): {e}')
                 raise e
@@ -124,11 +124,11 @@ class BaseAgent(ABC):
             # extract data from string representation
             data_dict = json.loads(data)
             # Add default values if dict keys are missing
-            status = data_dict["status"] if "status" in data_dict else {}
+            status = data_dict["status"] if "status" in data_dict else ""
             observation = data_dict["observation"] if "observation" in data_dict else {}
             message = data_dict["message"] if "message" in data_dict else None
 
-            return GameStatus.from_string(status), observation, message
+            return GameStatus.from_string(str(status)), observation, message
         
         if isinstance(data, Action):
             data = data.to_json()
@@ -138,7 +138,7 @@ class BaseAgent(ABC):
         _send_data(self._socket, data)
         return _receive_data(self._socket)
     
-    def register(self)->Observation:
+    def register(self)->Observation | None:
         """
         Method for registering agent to the game server.
         Classname is used as agent name and the role is based on the 'role' argument.
@@ -162,7 +162,7 @@ class BaseAgent(ABC):
         except Exception as e:
             self._logger.error(f'Exception in register(): {e}')
 
-    def request_game_reset(self, request_trajectory=False, randomize_topology=True, randomize_topology_seed=None) -> Observation:
+    def request_game_reset(self, request_trajectory=False, randomize_topology=True, randomize_topology_seed=None) -> Observation|None:
         """
         Requests a game reset from the server. Optionally requests a trajectory and/or topology randomization.
         Args:
