@@ -68,9 +68,9 @@ class QNetwork(nn.Module):
         # self.out = nn.Linear(512, 1)  # Output is a single Q-value
         input_dim = state_dim + action_dim
         self.net = nn.Sequential(
-            nn.Linear(input_dim, 768),
+            nn.Linear(input_dim, 1024),
             nn.ReLU(),
-            nn.Linear(768, 512),
+            nn.Linear(1024, 512),
             nn.ReLU(),
             nn.Linear(512, 256),
             nn.ReLU(),
@@ -282,33 +282,6 @@ class DDQNAgent(BaseAgent):
             # Q-value for the state and the action actually taken
             q_values = self.q_net(state_batch, actions_emb_taken_batch) # (B,)
             
-            # ---- Double DQN target Q ----
-            # with torch.no_grad():
-            #     # --- Double DQN Target Q ---
-            #     # This requires iterating through the batch since the number of valid actions varies.
-
-            #     next_q_values = []
-            #     # next_actions = generate_valid_actions(next_observation)
-
-            #     for i in range(len(next_state_batch)):
-
-
-            #         # State embeddings for the i-th next state (1, D_S)
-            #         next_s_emb = next_state_batch[i].unsqueeze(0) 
-
-            #         # 1. Online net selects the best next action (action a')
-            #         _, best_action_emb_online = self.select_action(batch[i][3], 0.0) # (D_A)
-
-            #         # 2. Target net evaluates Q(s', a')
-            #         # Use the target network to evaluate the action selected by the online network
-            #         next_q_value = self.target_net(
-            #             next_s_emb, 
-            #             best_action_emb_online.unsqueeze(0) # Need (1, D_A)
-            #         ).squeeze(0) # scalar
-
-            #         next_q_values.append(next_q_value)
-
-            
             # 3. Bellman target
             expected_q = rewards + self.gamma * next_q_values * (1 - dones)
 
@@ -463,6 +436,7 @@ class DDQNAgent(BaseAgent):
     def eval(self, observation, train_episode, num_episodes=1) -> float:
         returns = []
         steps = []
+        # trajectories = []
         wins = 0
         for ep in range(num_episodes):
             num_steps = 0
@@ -502,8 +476,13 @@ class DDQNAgent(BaseAgent):
 
             # Reset the episode
             observation = self.request_game_reset()
+            # observation = self.request_game_reset(request_trajectory=True)
+            # trajectories.append(json.dumps(observation.info["last_trajectory"])+'\n')  # Request the last trajectory for logging
             
 
+        # with open(f"trajectories/ddqn_embed_black_box_eval_trajectories_ep{train_episode}_test.jsonl", "w") as f:
+        #     # for line in trajectories:
+        #     f.writelines(trajectories)
 
         text = f"""Final results for {self.__class__.__name__} after {num_episodes} episodes: 
                 Returns: {np.mean(returns)}±{np.std(returns)}
