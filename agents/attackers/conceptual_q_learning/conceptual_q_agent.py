@@ -12,6 +12,7 @@ import logging
 import subprocess
 import time
 import wandb
+import json
 
 from os import path, makedirs
 # with the path fixed, we can import now
@@ -264,6 +265,7 @@ if __name__ == '__main__':
     parser.add_argument("--gamma", help="Sets gamma discount for Q-learing during training.", default=0.9, type=float)
     parser.add_argument("--alpha", help="Sets alpha for learning rate during training.", default=0.1, type=float)
     parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
+    parser.add_argument("--trajectoriesdir", help="Folder to store trajectories", default=path.join(path.dirname(path.abspath(__file__)), "trajectories"))
     parser.add_argument("--models_dir", help="Folder to store models", default=path.join(path.dirname(path.abspath(__file__)), "models"))
     parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", type=str)
     parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
@@ -409,6 +411,8 @@ if __name__ == '__main__':
 
             # Start training
             for episode in range(1, args.episodes + 1):
+                # Reset the var to keep the trajectories
+                train_trajectories = []
                 if not early_stop:
                     # Play 1 episode only
                     observation, num_steps = agent.play_game(concept_observation, testing=args.testing, episode_num=episode)       
@@ -440,7 +444,9 @@ if __name__ == '__main__':
 
                     # Reset the game here, after we analyzed the data of the last observation.
                     # After each episode we need to reset the game 
-                    observation = agent.request_game_reset()
+                    observation = agent.request_game_reset(request_trajectory=True)
+                    train_trajectories.append(json.dumps(observation.info["last_trajectory"])+'\n')
+
                     # Reset the history of actions
                     agent.actions_history = set()
 
@@ -515,6 +521,10 @@ if __name__ == '__main__':
                         # Test
                         for test_episode in range(1, args.test_for + 1):
                             # Play 1 episode
+                            
+                            # Reset the var to keep the trajectories for this episode
+                            test_trajectories = []
+
                             # See that we force the model to freeze by telling it that it is in 'testing' mode.
                             # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
                             test_observation, test_num_steps = agent.play_game(concept_observation, testing=True, episode_num=episode)       
@@ -542,7 +552,9 @@ if __name__ == '__main__':
                                 agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
 
                             # Reset the game
-                            test_observation = agent.request_game_reset()
+                            test_observation = agent.request_game_reset(request_trajectory=True)
+                            test_trajectories.append(json.dumps(test_observation.info["last_trajectory"])+'\n')
+
                             # Reset the history of actions
                             agent.actions_history = set()
 
@@ -607,6 +619,13 @@ if __name__ == '__main__':
                         if test_win_rate >= args.early_stop_threshold:
                             agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
                             early_stop = True
+
+                        # Store the test trajectories
+                        with open(args.trajectoriesdir + f"/trajectories_testing.jsonl", "w") as f: 
+                            f.writelines(test_trajectories)
+            # Store the train trajectories
+            with open(args.trajectoriesdir + f"/trajectories_training.jsonl", "w") as f: 
+                f.writelines(train_trajectories)
 
             
             # Log the last final episode when it ends
