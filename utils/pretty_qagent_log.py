@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Iterable, Any, Set
 
 from rich.console import Console, Group
+from rich.columns import Columns
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
@@ -88,6 +89,8 @@ REAL_STATE_DATA_RE = re.compile(r"I2C: Real state known data: \{(.*)\}$")
 CONCEPT_STATE_SERVICES_RE = re.compile(r"I2C: New concept known_services: \{(.*)\}$")
 CONCEPT_STATE_DATA_RE = re.compile(r"I2C: New concept known_data: \{(.*)\}$")
 CONCEPT_STATE_KNOWN_HOSTS_RE = re.compile(r"I2C: New concept known_hosts: \{(.*)\}$")
+CONCEPT_STATE_CONTROLLED_HOSTS_RE = re.compile(r"I2C: New concept controlled_hosts: \{(.*)\}$")
+CONCEPT_STATE_NETWORKS_RE = re.compile(r"I2C: New concept known_nets: \{(.*)\}$")
 
 # Service name extraction inside service listing
 SERVICE_NAME_RE = re.compile(r"Service\(name='([^']+)'")
@@ -298,21 +301,40 @@ def _maybe_parse_textual_state(step: Step, line: str):
     data_m = REAL_STATE_DATA_RE.search(line)
     concept_services_m = CONCEPT_STATE_SERVICES_RE.search(line)
     concept_data_m = CONCEPT_STATE_DATA_RE.search(line)
-    if not any([nets_m, hosts_m, controlled_m, services_m, data_m, concept_services_m, concept_data_m]):
+    concept_hosts_m = CONCEPT_STATE_KNOWN_HOSTS_RE.search(line) or CONCEPT_STATE_CONTROLLED_HOSTS_RE.search(line)
+    concept_networks_m = CONCEPT_STATE_NETWORKS_RE.search(line)
+    concept_controlled_m = CONCEPT_STATE_CONTROLLED_HOSTS_RE.search(line)
+    if not any([
+        nets_m,
+        hosts_m,
+        controlled_m,
+        services_m,
+        data_m,
+        concept_services_m,
+        concept_data_m,
+        concept_hosts_m,
+        concept_networks_m,
+        concept_controlled_m,
+    ]):
         return
     # Now initialize container since something matched
     if step.parsed_state is None:
         step.parsed_state = {
+            # Real (IP-level) view reconstructed from INFO logs
             'networks': set(),
             'hosts': set(),
             'controlled': set(),
-            'services': {},
-            'data': {},
-            'concept_hosts_map': {},
+            'services': {},   # ip -> set(service_name)
+            'data': {},       # ip -> set(data_summaries)
+            # Concept-level view parsed from I2C: New concept ... lines
+            'concept_hosts_map': {},   # concept_host -> real_ip (when known)
+            'concept_services': {},    # concept_host -> set(service_name)
+            'concept_data': {},        # concept_host -> set(data_summaries)
+            'concept_networks': {},    # concept_net -> real_network_str
+            'concept_controlled_hosts': set(),  # set of concept host keys
         }
     ps = step.parsed_state
-    # Concept known_hosts mapping (concept -> IP)
-    concept_hosts_m = CONCEPT_STATE_KNOWN_HOSTS_RE.search(line)
+    # Concept known_hosts / controlled_hosts mapping (concept -> IP)
     if concept_hosts_m:
         blob = concept_hosts_m.group(1)
         mapping: Dict[str, str] = {}
@@ -321,6 +343,12 @@ def _maybe_parse_textual_state(step: Step, line: str):
             val = _clean_host_token(v)
             mapping[key] = val
         ps['concept_hosts_map'].update(mapping)
+    # Concept controlled hosts (track which concepts are controlled)
+    if concept_controlled_m:
+        blob = concept_controlled_m.group(1)
+        for k, _ in CONCEPT_KV_RE.findall(blob):
+            key = _clean_host_token(k)
+            ps['concept_controlled_hosts'].add(key)
     if nets_m:
         nets_raw = [n.strip() for n in nets_m.group(1).split(',') if n.strip()]
         ps['networks'].update(nets_raw)
@@ -351,9 +379,7 @@ def _maybe_parse_textual_state(step: Step, line: str):
                 svc_part = host_match.group(2)
                 names = set(SERVICE_NAME_RE.findall(svc_part))
                 if host_key:
-                    # Map concept host to IP when possible
-                    ip_key = ps.get('concept_hosts_map', {}).get(host_key, host_key)
-                    ps['services'].setdefault(ip_key, set()).update(names)
+                    ps['concept_services'].setdefault(host_key, set()).update(names)
         except Exception:
             pass
     # Real-state data
@@ -366,9 +392,21 @@ def _maybe_parse_textual_state(step: Step, line: str):
     if concept_data_m:
         parsed = _parse_textual_known_data(concept_data_m.group(1))
         for host_key, items in parsed.items():
-            ip_key = ps.get('concept_hosts_map', {}).get(host_key, host_key)
-            bucket = ps['data'].setdefault(ip_key, set())
+            bucket = ps['concept_data'].setdefault(host_key, set())
             bucket.update(items)
+    # Concept-level networks
+    if concept_networks_m:
+        blob = concept_networks_m.group(1)
+        # Example blob: net_0_0hosts/24: 192.168.93.0/24, net_1_1hosts/24: 192.168.94.0/24
+        # Keys may not be quoted, so we cannot rely on CONCEPT_KV_RE here.
+        for pair in blob.split(','):
+            if ':' not in pair:
+                continue
+            key_str, val_str = pair.split(':', 1)
+            key = _clean_host_token(key_str)
+            val = _clean_host_token(val_str)
+            if key:
+                ps['concept_networks'][key] = val
 
 
 def assign_episodes(steps: List[Step]):
@@ -582,7 +620,8 @@ def render_step(step: Step, show_json: bool = False) -> Panel:
                 obs_state['services'].setdefault(ip, set()).update(svcs)
             for ip, items in (ps.get('data') or {}).items():
                 obs_state['data'].setdefault(ip, set()).update(items)
-        # Detailed multiline listing instead of counts
+
+        # ---------------- Real (IP-level) environment view ----------------
         detail_text = Text()
         networks = sorted(obs_state['networks'])
         hosts = sorted(obs_state['hosts'])
@@ -591,19 +630,19 @@ def render_step(step: Step, show_json: bool = False) -> Panel:
         data_items = obs_state['data']
 
         # Networks
-        detail_text.append("Networks (" + str(len(networks)) + ")\n", style="bold yellow")
+        detail_text.append(f"Networks ({len(networks)})\n", style="bold yellow")
         for n in networks:
             detail_text.append(f"  • {n}\n", style="yellow")
 
         # Hosts (mark controlled)
-        detail_text.append("Hosts (" + str(len(hosts)) + ")\n", style="bold cyan")
+        detail_text.append(f"Hosts ({len(hosts)})\n", style="bold cyan")
         for h in hosts:
             mark = " *" if h in controlled else ""
             style = "bold green" if h in controlled else "cyan"
             detail_text.append(f"  • {h}{mark}\n", style=style)
 
         # Controlled (explicit list)
-        detail_text.append("Controlled Hosts (" + str(len(controlled)) + ")\n", style="bold green")
+        detail_text.append(f"Controlled Hosts ({len(controlled)})\n", style="bold green")
         for ch in sorted(controlled):
             detail_text.append(f"  • {ch}\n", style="green")
 
@@ -625,7 +664,72 @@ def render_step(step: Step, show_json: bool = False) -> Panel:
             for di in ids:
                 detail_text.append(f"      - {di}\n", style="bright_blue")
 
-        body_renderables.append(Panel(detail_text, title="Environment State", border_style="yellow"))
+        real_panel = Panel(detail_text, title="Environment State (Real)", border_style="yellow")
+
+        # ---------------- Concept-level view (kept separate) ----------------
+        concept_panel = None
+        if step.parsed_state is not None:
+            ps = step.parsed_state
+            concept_hosts_map = ps.get('concept_hosts_map') or {}
+            concept_services = ps.get('concept_services') or {}
+            concept_data = ps.get('concept_data') or {}
+            concept_networks = ps.get('concept_networks') or {}
+            concept_controlled = ps.get('concept_controlled_hosts') or set()
+
+            if concept_hosts_map or concept_services or concept_data or concept_networks:
+                concept_text = Text()
+
+                if concept_networks:
+                    concept_text.append(f"Concept Networks ({len(concept_networks)})\n", style="bold yellow")
+                    for cn, real_net in sorted(concept_networks.items(), key=lambda kv: kv[0]):
+                        if real_net:
+                            concept_text.append(f"  • {cn} → {real_net}\n", style="yellow")
+                        else:
+                            concept_text.append(f"  • {cn}\n", style="yellow")
+
+                if concept_hosts_map:
+                    concept_text.append("Concept Hosts\n", style="bold cyan")
+                    for ch, ip in sorted(concept_hosts_map.items(), key=lambda kv: kv[0]):
+                        mark = " *" if ch in concept_controlled else ""
+                        if ip:
+                            concept_text.append(f"  • {ch}{mark} → {ip}\n", style="cyan")
+                        else:
+                            concept_text.append(f"  • {ch}{mark}\n", style="cyan")
+
+                if concept_controlled:
+                    concept_text.append(f"Concept Controlled Hosts ({len(concept_controlled)})\n", style="bold green")
+                    for ch in sorted(concept_controlled):
+                        target_ip = concept_hosts_map.get(ch)
+                        if target_ip:
+                            concept_text.append(f"  • {ch} → {target_ip}\n", style="green")
+                        else:
+                            concept_text.append(f"  • {ch}\n", style="green")
+
+                if concept_services:
+                    total_c_services = sum(len(v) for v in concept_services.values())
+                    concept_text.append(f"Concept Services ({total_c_services})\n", style="bold magenta")
+                    for ch in sorted(concept_services.keys()):
+                        svc_list = sorted(list(concept_services[ch]))
+                        concept_text.append(f"  • {ch}\n", style="magenta")
+                        for svc in svc_list:
+                            concept_text.append(f"      - {svc}\n", style="bright_magenta")
+
+                if concept_data:
+                    total_c_data = sum(len(v) for v in concept_data.values())
+                    concept_text.append(f"Concept Data ({total_c_data})\n", style="bold blue")
+                    for ch in sorted(concept_data.keys()):
+                        ids = sorted(list(concept_data[ch]))
+                        concept_text.append(f"  • {ch}\n", style="blue")
+                        for di in ids:
+                            concept_text.append(f"      - {di}\n", style="bright_blue")
+
+                concept_panel = Panel(concept_text, title="Concept State", border_style="cyan")
+
+        # Layout: show real and concept state side by side when both exist
+        if concept_panel is not None:
+            body_renderables.append(Columns([real_panel, concept_panel], equal=True, expand=True))
+        else:
+            body_renderables.append(real_panel)
 
     # Diffs section
     diffs_lines = []
