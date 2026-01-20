@@ -69,6 +69,7 @@ class QAgent(BaseAgent):
     def get_state_id(self, state:GameState) -> int:
         """ For each state, get a unique id number """
         # Here the state has to be ordered, so different orders are not taken as two different states.
+        # We execute this code and add to _str_to_id even in testing mode, but I see no problem with
         state_str = state_as_ordered_string(state)
         if state_str not in self._str_to_id:
             self._str_to_id[state_str] = len(self._str_to_id) 
@@ -102,7 +103,7 @@ class QAgent(BaseAgent):
                 self.q_values[state_id, action] = 0
             return action, state_id
         else: 
-            # Here we can be during training outside the e-greede, or during testing
+            # Here we can be during training outside the e-greedy, or during testing
             # Select the action with highest q_value, or random pick to break the ties
             # The default initial q-value for a (state, action) pair is 0.
             initial_q_value = 0
@@ -288,6 +289,9 @@ if __name__ == '__main__':
     # Check that the directory for the logs exist
     if not path.exists(args.logdir):
         makedirs(args.logdir)
+    # Check that the directory for the trajectories exist
+    if not path.exists(args.trajectoriesdir):
+        makedirs(args.trajectoriesdir)
     log_level = logging.INFO if args.enhanced_logging else logging.INFO
     logging.basicConfig(filename=path.join(args.logdir, "conceptual_q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=log_level)
 
@@ -409,10 +413,13 @@ if __name__ == '__main__':
             agent._logger.info(f'Epsilon End: {agent.epsilon_end}')
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
 
-            # Start training
+            # Containers for trajectories
+            training_trajectories = []
+            evaluation_trajectories = []
+            testing_trajectories = []
+
+            # Start training / testing loop
             for episode in range(1, args.episodes + 1):
-                # Reset the var to keep the trajectories
-                train_trajectories = []
                 if not early_stop:
                     # Play 1 episode only
                     observation, num_steps = agent.play_game(concept_observation, testing=args.testing, episode_num=episode)       
@@ -445,7 +452,11 @@ if __name__ == '__main__':
                     # Reset the game here, after we analyzed the data of the last observation.
                     # After each episode we need to reset the game 
                     observation = agent.request_game_reset(request_trajectory=True)
-                    train_trajectories.append(json.dumps(observation.info["last_trajectory"])+'\n')
+                    # Store trajectory depending on the current mode
+                    if args.testing:
+                        testing_trajectories.append(json.dumps(observation.info["last_trajectory"]) + '\n')
+                    else:
+                        training_trajectories.append(json.dumps(observation.info["last_trajectory"]) + '\n')
 
                     # Reset the history of actions
                     agent.actions_history = set()
@@ -518,13 +529,9 @@ if __name__ == '__main__':
                         test_num_win_returns = []
                         test_num_max_steps_returns = []
 
-                        # Test
+                        # Test (evaluation episodes during training)
                         for test_episode in range(1, args.test_for + 1):
-                            # Play 1 episode
-                            
-                            # Reset the var to keep the trajectories for this episode
-                            test_trajectories = []
-
+                            # Play 1 evaluation episode
                             # See that we force the model to freeze by telling it that it is in 'testing' mode.
                             # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
                             test_observation, test_num_steps = agent.play_game(concept_observation, testing=True, episode_num=episode)       
@@ -553,7 +560,8 @@ if __name__ == '__main__':
 
                             # Reset the game
                             test_observation = agent.request_game_reset(request_trajectory=True)
-                            test_trajectories.append(json.dumps(test_observation.info["last_trajectory"])+'\n')
+                            # Accumulate all evaluation trajectories across all eval episodes
+                            evaluation_trajectories.append(json.dumps(test_observation.info["last_trajectory"]) + '\n')
 
                             # Reset the history of actions
                             agent.actions_history = set()
@@ -620,12 +628,19 @@ if __name__ == '__main__':
                             agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
                             early_stop = True
 
-                        # Store the test trajectories
-                        with open(args.trajectoriesdir + f"/trajectories_testing.jsonl", "w") as f: 
-                            f.writelines(test_trajectories)
-            # Store the train trajectories
-            with open(args.trajectoriesdir + f"/trajectories_training.jsonl", "w") as f: 
-                f.writelines(train_trajectories)
+                        # Note: trajectories for these evaluation episodes are accumulated
+                        # in evaluation_trajectories and stored after the loop.
+
+            # Store the trajectories collected during this run
+            if training_trajectories:
+                with open(path.join(args.trajectoriesdir, "trajectories_training.jsonl"), "w") as f:
+                    f.writelines(training_trajectories)
+            if evaluation_trajectories:
+                with open(path.join(args.trajectoriesdir, "trajectories_evaluation.jsonl"), "w") as f:
+                    f.writelines(evaluation_trajectories)
+            if testing_trajectories:
+                with open(path.join(args.trajectoriesdir, "trajectories_testing.jsonl"), "w") as f:
+                    f.writelines(testing_trajectories)
 
             
             # Log the last final episode when it ends
