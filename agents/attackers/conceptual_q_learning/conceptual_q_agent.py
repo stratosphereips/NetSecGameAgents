@@ -38,10 +38,12 @@ class QAgent(BaseAgent):
     ) -> None:
         super().__init__(host, port, role)
         # Fix the agent-side random seed so that behaviour is reproducible
-        # independently of the environment seed.
+        # independently of the environment seed. Use a dedicated RNG instance
+        # so that external libraries using the global random module do not
+        # affect the agent's behaviour.
         self._seed = seed
-        random.seed(self._seed)
-        np.random.seed(self._seed)
+        self._rng = random.Random(self._seed)
+        self._np_rng = np.random.default_rng(self._seed)
         self.alpha = alpha
         self.gamma = gamma
         self.q_values = {}
@@ -112,10 +114,10 @@ class QAgent(BaseAgent):
         # E-greedy play. If the random number is less than the e, then choose random to explore.
         # But do not do it if we are testing a model. In testing is always exploit so it is deterministic. 
         # Epsilon 0 means only exploit, which is very good if the env does not change.
-        if random.uniform(0, 1) <= self.current_epsilon and not testing:
+        if self._rng.uniform(0, 1) <= self.current_epsilon and not testing:
             # We are training
             # Random choose an ation from the list of actions?
-            action = random.choice(list(actions))
+            action = self._rng.choice(list(actions))
             if (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
             return action, state_id
@@ -125,7 +127,7 @@ class QAgent(BaseAgent):
             # The default initial q-value for a (state, action) pair is 0.
             initial_q_value = 0
             tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
-            ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], random.random()))
+            ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], self._rng.random()))
             try:
                 self.q_values[state_id, action]
             except KeyError:
@@ -203,7 +205,7 @@ class QAgent(BaseAgent):
             self.logger.info(f"\n\n ==================================== \n\n[+] Concept Action selected:{concept_action}")
 
             # Convert the action with concepts to the action with IPs
-            action = convert_concepts_to_actions(concept_action, concept_observation, self.concept_logger)
+            action = convert_concepts_to_actions(concept_action, concept_observation, self.concept_logger, rng=self._rng)
             self.logger.info(f"\n[+] Real Action selected:{action}")
 
             if self.concept_logger:
