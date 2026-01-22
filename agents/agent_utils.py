@@ -565,7 +565,7 @@ def _convert_source_host_concept_to_ip(src_host_concept, concept_observation):
     if src_host_concept in controlled_hosts_dict:
         return controlled_hosts_dict[src_host_concept]
 
-def _convert_network_concept_to_ip(target_net_concept, concept_observation):
+def _convert_network_concept_to_ip(target_net_concept, concept_observation, rng=None):
     """
     Helper function to convert network concept to actual network.
 
@@ -581,15 +581,19 @@ def _convert_network_concept_to_ip(target_net_concept, concept_observation):
     # Check if the target network concept exists in the mapping
     if target_net_concept in networks_dict:
         mapped_value = networks_dict[target_net_concept]
-        # Keep randomness via random.choice, but apply it over a deterministically
+        # Keep randomness via choice, but apply it over a deterministically
         # ordered list so that with a fixed seed the behaviour is reproducible.
         if isinstance(mapped_value, set):
-            return random.choice(sorted(mapped_value, key=str))
+            choices = sorted(mapped_value, key=str)
+            if rng is not None:
+                return rng.choice(choices)
+            return random.choice(choices)
         return mapped_value
 
     return target_net_concept
 
-def convert_concepts_to_actions(action, observation, concept_logger=None):
+
+def convert_concepts_to_actions(action, observation, concept_logger=None, rng=None):
     """
     Function to convert the concepts learned before into IPs and networks
     so the env knows where to really act
@@ -637,7 +641,7 @@ def convert_concepts_to_actions(action, observation, concept_logger=None):
 
     elif action.type == ActionType.ScanNetwork:
         # Convert network and source host using helper functions
-        new_target_network = _convert_network_concept_to_ip(action.parameters['target_network'], observation)
+        new_target_network = _convert_network_concept_to_ip(action.parameters['target_network'], observation, rng=rng)
         new_src_host = _convert_source_host_concept_to_ip(action.parameters['source_host'], observation)
 
         action = Action(ActionType.ScanNetwork, parameters={
