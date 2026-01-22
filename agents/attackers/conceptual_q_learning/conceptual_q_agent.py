@@ -338,13 +338,15 @@ if __name__ == '__main__':
     # - Every --test_for episodes and at the end of the testing, report results in log file, remote log and console.
 
     # Register the agent
-    # Obsservation is in IPs
+    # Observation is in IPs
     observation = agent.register()
     if not observation:
         raise Exception("Problem registering the agent")
-    # Convert the obvervation to conceptual observation
+    # Log the initial state received from the environment before any action is taken
+    agent.logger.info(f"\n[+] Initial state before first action:{observation}")
+    # Convert the observation to conceptual observation
     concept_observation = convert_ips_to_concepts(observation, agent._logger, agent.concept_logger)
-    # From now one the observation will be in concepts
+    # From now on the observation will be in concepts
 
     # Start the train/eval/test loop
     try:
@@ -452,6 +454,8 @@ if __name__ == '__main__':
                     # Reset the game here, after we analyzed the data of the last observation.
                     # After each episode we need to reset the game 
                     observation = agent.request_game_reset(request_trajectory=True)
+                    # Log the initial state for the new episode before any action is taken
+                    agent.logger.info(f"\n[+] Initial state before first action:{observation}")
                     # Store trajectory depending on the current mode
                     if args.testing:
                         testing_trajectories.append(json.dumps(observation.info["last_trajectory"]) + '\n')
@@ -560,6 +564,8 @@ if __name__ == '__main__':
 
                             # Reset the game
                             test_observation = agent.request_game_reset(request_trajectory=True)
+                            # Log the initial state for the evaluation episode before any action is taken
+                            agent.logger.info(f"\n[+] Initial state before first action:{test_observation}")
                             # Accumulate all evaluation trajectories across all eval episodes
                             evaluation_trajectories.append(json.dumps(test_observation.info["last_trajectory"]) + '\n')
 
