@@ -49,6 +49,7 @@ LINE_RE = re.compile(r"^(?P<ts>\d{2}:\d{2}:\d{2})\s+(?P<component>\S+)\s+(?P<lev
 CONCEPT_ACTION_RE = re.compile(r"\[\+\]\s+Concept Action selected:Action <([^>]+)>")
 REAL_ACTION_RE = re.compile(r"\[\+\]\s+Real Action selected:Action <([^>]+)>")
 REWARD_RE = re.compile(r"\[\+\]\s+Reward of last action.*: ([-+]?\d+)")
+INITIAL_STATE_RE = re.compile(r"\[\+\]\s+Initial state before first action:(.*)")
 SENDING_PREFIX = "Sending: "
 RECEIVED_PREFIX = "Data received from env: "
 
@@ -182,6 +183,30 @@ def parse_log_lines(path: Path) -> List[Step]:
             # Timestamped line
             last_ts = m.group('ts')
             msg = m.group('msg')
+
+            # If we haven't started a step yet, look for the initial state
+            # information (either explicit "Initial state..." log or the first
+            # I2C real-state dump after registration) and create a synthetic
+            # step for it so it is visible in the summary.
+            if current is None:
+                initial_m = INITIAL_STATE_RE.search(msg)
+                has_real_state = any(
+                    pat.search(msg)
+                    for pat in (
+                        REAL_STATE_NETS_RE,
+                        REAL_STATE_HOSTS_RE,
+                        REAL_STATE_CONTROLLED_RE,
+                        REAL_STATE_SERVICES_RE,
+                        REAL_STATE_DATA_RE,
+                    )
+                )
+                if initial_m or has_real_state:
+                    label = "Initial state before first action"
+                    current = Step(index=len(steps)+1, timestamp=last_ts, concept=label)
+                    steps.append(current)
+                    current.raw_lines.append(raw_line)
+                    _maybe_parse_textual_state(current, msg)
+                    continue
             # Attach raw line to current step (for context) AFTER we possibly detect step boundaries
             concept_m = CONCEPT_ACTION_RE.search(msg)
             if concept_m:
@@ -240,6 +265,29 @@ def parse_log_lines(path: Path) -> List[Step]:
             if concept_m:
                 current = Step(index=len(steps)+1, timestamp=last_ts, concept=concept_m.group(1).strip())
                 steps.append(current)
+                continue
+            # Handle initial state logs and I2C state lines that appear before the
+            # first Concept Action. We treat them as a dedicated "initial state"
+            # step so the first environment state (before any action) is visible.
+            if current is None:
+                initial_m = INITIAL_STATE_RE.search(raw_line)
+                has_real_state = any(
+                    pat.search(raw_line)
+                    for pat in (
+                        REAL_STATE_NETS_RE,
+                        REAL_STATE_HOSTS_RE,
+                        REAL_STATE_CONTROLLED_RE,
+                        REAL_STATE_SERVICES_RE,
+                        REAL_STATE_DATA_RE,
+                    )
+                )
+                if initial_m or has_real_state:
+                    # Create a synthetic step 0 representing the initial state.
+                    label = "Initial state before first action"
+                    current = Step(index=len(steps)+1, timestamp=last_ts, concept=label)
+                    steps.append(current)
+                    current.raw_lines.append(raw_line)
+                    _maybe_parse_textual_state(current, raw_line)
                 continue
             if current is None:
                 continue
