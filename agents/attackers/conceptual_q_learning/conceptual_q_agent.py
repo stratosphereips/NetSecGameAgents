@@ -23,8 +23,25 @@ from NetSecGameAgents.utils.concept_mapping_logger import ConceptMappingLogger
 
 class QAgent(BaseAgent):
 
-    def __init__(self, host, port, role="Attacker", alpha=0.1, gamma=0.6, epsilon_start=0.9, epsilon_end=0.1, epsilon_max_episodes=5000, apm_limit:int=None) -> None:
+    def __init__(
+        self,
+        host,
+        port,
+        role: str = "Attacker",
+        alpha: float = 0.1,
+        gamma: float = 0.6,
+        epsilon_start: float = 0.9,
+        epsilon_end: float = 0.1,
+        epsilon_max_episodes: int = 5000,
+        apm_limit: int | None = None,
+        seed: int = 42,
+    ) -> None:
         super().__init__(host, port, role)
+        # Fix the agent-side random seed so that behaviour is reproducible
+        # independently of the environment seed.
+        self._seed = seed
+        random.seed(self._seed)
+        np.random.seed(self._seed)
         self.alpha = alpha
         self.gamma = gamma
         self.q_values = {}
@@ -284,6 +301,7 @@ if __name__ == '__main__':
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
     parser.add_argument("--apm", help="Maximum actions per minute", default=1000000, type=int, required=False)
     parser.add_argument("--enhanced_logging", help="Enable enhanced concept mapping logging", default=False, action='store_true')
+    parser.add_argument("--agent_seed", help="Random seed for the conceptual agent.", default=42, type=int)
     args = parser.parse_args()
 
     # Check that the directory for the logs exist
@@ -296,7 +314,17 @@ if __name__ == '__main__':
     logging.basicConfig(filename=path.join(args.logdir, "conceptual_q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=log_level)
 
     # Create agent object
-    agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes, apm_limit=args.apm)
+    agent = QAgent(
+        args.host,
+        args.port,
+        alpha=args.alpha,
+        gamma=args.gamma,
+        epsilon_start=args.epsilon_start,
+        epsilon_end=args.epsilon_end,
+        epsilon_max_episodes=args.epsilon_max_episodes,
+        apm_limit=args.apm,
+        seed=args.agent_seed,
+    )
     
     if args.enhanced_logging:
         agent.enable_enhanced_logging(verbose=True)
