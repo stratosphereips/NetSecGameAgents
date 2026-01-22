@@ -28,9 +28,15 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
 
     valid_actions = set()
 
-    for source_host in state.controlled_hosts:
+    # Use deterministic ordering over sets/dicts so that, given the same
+    # state, the generated actions are produced in a stable order across runs.
+    controlled_hosts = sorted(state.controlled_hosts, key=str)
+    known_hosts = sorted(state.known_hosts, key=str)
+    known_networks = sorted(state.known_networks, key=str)
+
+    for source_host in controlled_hosts:
         # Network Scans
-        for network in state.known_networks:
+        for network in known_networks:
             # TODO ADD neighbouring networks
             # Only scan local from local hosts
             # If the network or source_host are str and not 'external', they are concepts and also private.
@@ -46,7 +52,7 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                     valid_actions.add(action)
 
         # Service Scans
-        for target_host in state.known_hosts:
+        for target_host in known_hosts:
             # Do not scan a service from an external host
             # Do not scan a service in an external host
             # If the network or source_host are str, they are concepts and also private.
@@ -72,7 +78,7 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                     valid_actions.add(action)
 
         # Service Exploits
-        for target_host, service_list in state.known_services.items():
+        for target_host, service_list in sorted(state.known_services.items(), key=lambda kv: str(kv[0])):
             # Do not exploit a service from an external host
             # Do not exploit a service in an external host
             # If the network or source_host are str, they are concepts and also private.
@@ -95,7 +101,7 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                     and target_host not in state.controlled_hosts
                 )
             ):
-                for service in service_list:
+                for service in sorted(service_list, key=lambda s: getattr(s, "name", "")):
                     # Do not consider local services, which are internal to the target_host
                     if not service.is_local:
                         action = Action(ActionType.ExploitService, parameters={"target_host": target_host,"target_service": service,"source_host": source_host,})
@@ -104,7 +110,7 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                             valid_actions.add(action)
 
         # Find Data Scans
-        for target_host in state.controlled_hosts:
+        for target_host in controlled_hosts:
             # Do not find data from external hosts
             # Do not find data in external hosts
             # Only find data in hosts we control (implicit from the source of data)
@@ -131,8 +137,8 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                     valid_actions.add(action)
 
         # Data Exfiltration
-        for source_host, data_list in state.known_data.items():
-            for target_host in state.controlled_hosts:
+        for source_host, data_list in sorted(state.known_data.items(), key=lambda kv: str(kv[0])):
+            for target_host in controlled_hosts:
                 # Do not exfiltrate data from external hosts
                 # Do not exfiltrate data to internal hosts
                 # Only exfiltrate data from hosts we control (implicit from the source of data)
@@ -157,7 +163,7 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                         and target_host != source_host
                     )
                 ): 
-                    for data in data_list:
+                    for data in sorted(data_list, key=lambda d: (getattr(d, "owner", ""), getattr(d, "id", ""))):
                         # This check not to exfiltrate the data several times is more organic here
                         # checking if the data is already in the target controlled host
                         data_was_not_exfiltrated_before = True
@@ -213,15 +219,16 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                     )
                 )
             ): 
-                for source_host in state.controlled_hosts:
-                    for target_host in state.controlled_hosts:
+                for source_host in controlled_hosts:
+                    for target_host in controlled_hosts:
                         if not is_fw_blocked(state, source_host, target_host):
-                            for blocked_host in state.known_hosts:
+                            for blocked_host in known_hosts:
                                 # Check if the action is in the history of actions
                                 action = Action(ActionType.BlockIP, {"target_host":target_host, "source_host":source_host, "blocked_host":blocked_host})
                                 if action not in action_history:
                                     valid_actions.add(action)
-    return list(valid_actions)
+    # Return actions in a deterministic order
+    return sorted(valid_actions, key=str)
 
 def generate_valid_actions(state: GameState, include_blocks=False)->list:
     """Function that generates a list of all valid actions in a given state"""
@@ -391,10 +398,11 @@ def convert_ips_to_concepts(observation, logger, concept_logger=None):
     # known_hosts and services and data. In that way we can keep track of the correct counters. 
     # So no need to do it separated here.
 
-     ##########################
+    ##########################
     # Convert the known hosts
     # Counter to separate concepts in same category
-    for host in state.known_hosts:
+    # Iterate in deterministic order over real hosts
+    for host in sorted(state.known_hosts):
         # If the host is external
         if not host.is_private():
             external_hosts_idx = external_hosts_concept + str(external_hosts_concept_counter)
@@ -431,10 +439,11 @@ def convert_ips_to_concepts(observation, logger, concept_logger=None):
     # It is ok to add the services one by one in the concept even if the were before all together in a set() in the real state
     # because later when the actions are created each service is used for a new action.
 
-    for ip, services in state.known_services.items():
+    for ip in sorted(state.known_services.keys()):
+        services = state.known_services[ip]
         # Get port numbers
         port_numbers = ''
-        for service in services:
+        for service in sorted(services, key=lambda s: s.name):
             # Ignore local services since can not be attacked from the outside
             if not service.is_local:
                 try:
@@ -528,7 +537,7 @@ def convert_ips_to_concepts(observation, logger, concept_logger=None):
     #   Data - Object
     #       data.ownwer
     #       data.id
-    for ip, data in state.known_data.items():
+    for ip, data in sorted(state.known_data.items(), key=lambda kv: str(kv[0])):
         concept_host_idx = ip_to_concept[ip]
         concept_mapping['known_data'][concept_host_idx] = data
 
@@ -536,14 +545,14 @@ def convert_ips_to_concepts(observation, logger, concept_logger=None):
     ##########################
     # Convert Networks
 
-    for network in state.known_networks:
+    for network in sorted(state.known_networks):
         # We dont want to use external networks
         if not network.is_private():
             continue
 
         # Find if we know hosts in this network, if we do, assign new name
         number_hosts = 0
-        for known_host in state.known_hosts:
+        for known_host in sorted(state.known_hosts):
             if ipaddress.IPv4Address(known_host.ip) in ipaddress.IPv4Network(f'{network.ip}/{network.mask}'):
                 # There are hosts we know in this network
                 number_hosts += 1
@@ -629,18 +638,11 @@ def _convert_network_concept_to_ip(target_net_concept, concept_observation):
     # Check if the target network concept exists in the mapping
     if target_net_concept in networks_dict:
         mapped_value = networks_dict[target_net_concept]
-        if 'unknown' in str(target_net_concept):
-            # For unknown networks, choose randomly from the mapped set/value
-            if isinstance(mapped_value, set):
-                return random.choice(list(mapped_value))
-            else:
-                return mapped_value
-        else:
-            # For known networks, the mapped value might be a set of networks
-            if isinstance(mapped_value, set):
-                return random.choice(list(mapped_value))
-            else:
-                return mapped_value
+        # Keep randomness via random.choice, but apply it over a deterministically
+        # ordered list so that with a fixed seed the behaviour is reproducible.
+        if isinstance(mapped_value, set):
+            return random.choice(sorted(mapped_value, key=str))
+        return mapped_value
 
     return target_net_concept
 
