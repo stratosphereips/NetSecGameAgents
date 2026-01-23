@@ -13,7 +13,7 @@ import numpy as np
 import json
 
 model_name = "Qwen/Qwen3-Embedding-0.6B"
-model_name = "stratosphere/Qwen3-Embedding-0.6B-netsecgame-finetuned"
+# model_name = "stratosphere/Qwen3-Embedding-0.6B-netsecgame-finetuned"
 model = SentenceTransformer(model_name)
 # dataset = load_dataset("stratosphere/netsecgame-embedding-finetuning")
 
@@ -33,10 +33,10 @@ def run_sensitivity_test(model, baseline_json):
     )
     
     # 3. Structural Mutation - Major (Empty the networks)
-    major_mutation = baseline_json.replace('"known_data": {', '"known_data": {"192.168.2.5": ["id": "sensitive_info"]}')
+    major_mutation = baseline_json.replace('"known_data": {}', '"known_data": {"192.168.2.5": [{"id": "sensitive_info", "owner":"maria"}]}')
 
     # Encode all scenarios
-    states = [baseline_json, ip_mutated, minor_mutation, major_mutation]
+    states = [json.loads(baseline_json), json.loads(ip_mutated), json.loads(minor_mutation), json.loads(major_mutation)]
     embeddings = model.encode(states, convert_to_tensor=True)
     
     # Calculate Cosine Similarities against the Baseline
