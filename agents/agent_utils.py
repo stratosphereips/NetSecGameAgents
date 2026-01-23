@@ -726,5 +726,8 @@ def filter_log_files_from_state(observation: Observation) -> Observation:
     """
     for host, data_list in observation.state.known_data.items():
         filtered_data = [data for data in data_list if data.id != 'logfile']
-        observation.state.known_data[host] = filtered_data
+        if len(filtered_data) > 0:
+            observation.state.known_data[host] = filtered_data
+        else:
+            del observation.state.known_data[host]
     return observation
