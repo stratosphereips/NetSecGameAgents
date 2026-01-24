@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import json
 from os import path
-from netsecgame import Action, Observation, GameState, BaseAgent, generate_valid_actions
+from netsecgame import Action, Observation, GameState, BaseAgent, generate_valid_actions, AgentRole
 
 
 class ActionListAgent(BaseAgent):
@@ -14,7 +14,7 @@ class ActionListAgent(BaseAgent):
     Compatible with the WhiteBoxNSGCoordinator.
     """
 
-    def __init__(self, host, port, role: str):
+    def __init__(self, host, port, role: AgentRole):
         super().__init__(host, port, role)
         self._action_list = []
         self._action_to_idx = {}
@@ -70,7 +70,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     log_filename = path.dirname(path.abspath(__file__)) + '/action_List_base_agent.log'
-    agent = ActionListAgent(args.host, args.port, "Attacker")
+    agent = ActionListAgent(args.host, args.port, AgentRole.Attacker)
     observation = agent.register()
     print(f"Total actions: {len(agent._action_list)}")
     print(f"Valid action mask: {agent.get_valid_action_mask(observation.state)}")

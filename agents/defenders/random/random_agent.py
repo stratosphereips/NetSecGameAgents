@@ -8,7 +8,7 @@ import time
 import mlflow
 
 from random import uniform, choice
-from AIDojoCoordinator.game_components import Action, Observation, ActionType
+from AIDojoCoordinator.game_components import Action, Observation, ActionType, AgentRole
 from NetSecGameAgents.agents.base_agent import BaseAgent
 from NetSecGameAgents.agents.agent_utils import generate_valid_actions
 
@@ -88,7 +88,7 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(args.logdir, "defender_random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.DEBUG)
 
     # Create agent
-    agent = RandomDefenderAgent(args.host, args.port, "Defender", allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices, ActionType.BlockIP], apm_limit=args.apm)
+    agent = RandomDefenderAgent(args.host, args.port, AgentRole.Defender, allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices, ActionType.BlockIP], apm_limit=args.apm)
 
     print("Agent created. Starting interaction with the game server...")
 
