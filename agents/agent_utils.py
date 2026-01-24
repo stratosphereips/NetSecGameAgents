@@ -9,7 +9,8 @@ from collections import namedtuple
 import random
 import ipaddress
 import warnings
-from netsecgame import Action, ActionType, GameState, Observation, Network, AgentStatus
+from netsecgame import Action, ActionType, GameState, Observation, Network
+from netsecgame.game_components import AgentStatus
 from netsecgame import generate_valid_actions as _generate_valid_actions_core
 from netsecgame import state_as_ordered_string as _state_as_ordered_string_core
 
