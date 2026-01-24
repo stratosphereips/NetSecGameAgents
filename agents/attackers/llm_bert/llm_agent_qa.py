@@ -18,8 +18,8 @@ try:
 except ImportError:
     from llm_action_planner import LLMActionPlanner
 
-from AIDojoCoordinator.game_components import AgentStatus, Action, ActionType
-from NetSecGameAgents.agents.base_agent import BaseAgent
+from netsecgame.game_components import AgentStatus, Action, ActionType, AgentRole
+from netsecgame import BaseAgent
 
 #mlflow.set_tracking_uri("http://147.32.83.60")
 #mlflow.set_experiment("LLM_QA_netsecgame_dec2024")
@@ -159,7 +159,7 @@ if __name__ == "__main__":
 
     logger = logging.getLogger("llm_react")
     logger.info("Start")
-    agent = BaseAgent(args.host, args.port, "Attacker")
+    agent = BaseAgent(args.host, args.port, role=AgentRole.Attacker)
     
     if not args.disable_mlflow:
         mlflow.set_tracking_uri(args.mlflow_tracking_uri)
