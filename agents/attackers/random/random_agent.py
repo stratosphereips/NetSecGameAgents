@@ -6,19 +6,38 @@ import numpy as np
 import mlflow
 from os import path, makedirs
 from random import choice
-from AIDojoCoordinator.game_components import Action, Observation, AgentStatus
-from NetSecGameAgents.agents.base_agent import BaseAgent
-from NetSecGameAgents.agents.agent_utils import generate_valid_actions
+from netsecgame import Action, Observation, BaseAgent, generate_valid_actions, AgentRole
+from netsecgame.game_components import AgentStatus
 
 class RandomAttackerAgent(BaseAgent):
+    """
+    An attacker agent that selects actions randomly without learning.
+    Inherits from BaseAgent.
+    """
 
-    def __init__(self, host, port,role, seed) -> None:
+    def __init__(self, host, port, role, agent_seed) -> None:
+        """
+        Initialize the RandomAttackerAgent.
+        
+        Args:
+            host (str): Host address to connect to.
+            port (int): Port number to connect to.
+            role (AgentRole): The role of the agent (e.g., Attacker).
+            agent_seed (int): Seed for random number generation for the agent's decisions.
+        """
         super().__init__(host, port, role)
     
 
     def play_game(self, observation, num_episodes=1):
         """
         The main function for the gameplay. Handles agent registration and the main interaction loop.
+        
+        Args:
+           observation (Observation): The initial observation from the environment.
+           num_episodes (int): Number of episodes to play. Defaults to 1.
+           
+        Returns:
+            tuple: (last_observation, average_return, total_steps)
         """
         returns = []
         num_steps = 0
@@ -45,6 +64,15 @@ class RandomAttackerAgent(BaseAgent):
         return (last_observation, num_steps)
     
     def select_action(self, observation:Observation)->Action:
+        """
+        Selects a random action from the set of valid actions in the current state.
+        
+        Args:
+            observation (Observation): The current observation including the game state.
+            
+        Returns:
+            Action: The randomly selected action.
+        """
         valid_actions = generate_valid_actions(observation.state)
         action = choice(valid_actions)
         return action
@@ -66,7 +94,7 @@ if __name__ == '__main__':
     logging.basicConfig(filename=path.join(args.logdir, "random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
     # Create agent
-    agent = RandomAttackerAgent(args.host, args.port,"Attacker", seed=42)
+    agent = RandomAttackerAgent(args.host, args.port, AgentRole.Attacker, seed=42)
 
     if not args.evaluate:
         # Play the normal game
