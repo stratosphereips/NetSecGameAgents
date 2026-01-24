@@ -53,13 +53,7 @@ try:
 except ImportError:
     import validate_responses
 
-# Add parent directories dynamically
-sys.path.append(
-    path.dirname(path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__))))))
-)
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
-
-from AIDojoCoordinator.game_components import ActionType, Observation
+from netsecgame import ActionType, Observation
 from NetSecGameAgents.agents.llm_utils import create_action_from_response, create_status_from_state
 
 
