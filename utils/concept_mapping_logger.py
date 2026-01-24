@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Dict, Any, Set, List
 from datetime import datetime
-from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation
+from netsecgame import Action, ActionType, GameState, Observation
 
 
 class ConceptMappingLogger:
