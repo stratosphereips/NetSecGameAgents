@@ -154,3 +154,5 @@ agents/*/*/mlruns/
 agents/*/*/logs
 aim/*
 wandb
+agents/*/*/*log*.txt
+agents/*/*/checkpoints/
