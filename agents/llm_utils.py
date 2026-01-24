@@ -3,7 +3,7 @@ Collection of functions used by LLM agents.
 
 author: Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
 """
-from AIDojoCoordinator.game_components import (
+from netsecgame.game_components import (
     ActionType,
     Action,
     IP,
