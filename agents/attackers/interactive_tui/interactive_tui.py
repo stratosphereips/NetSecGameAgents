@@ -217,9 +217,13 @@ class InteractiveTUI(App):
         yield Horizontal(
             Button("Take Action", variant="primary", id="act"),
             Button("Assist", variant="primary", id="assist"),
-            Button("Assist & Play", variant="warning", id="play"),
+            Button("Play", variant="warning", id="play"),
+            Button("Hack the Future", variant="error", id="hack"),
+            Vertical(classes="spacer"),
+            Button("Reset", id="reset"),
+            Button("Quit", id="quit"),
+            classes="buttons-row"
         )
-        yield Button("Hack the Future", variant="error", id="hack")
 
     @on(Select.Changed)
     def select_changed(self, event: Select.Changed) -> None:
@@ -402,6 +406,22 @@ class InteractiveTUI(App):
                         log.write(msg)
 
                 asyncio.create_task(do_ask_llm())
+        elif event.button.id == "quit":
+             if self.agent.socket:
+                self.agent.terminate_connection()
+             self.exit()
+        elif event.button.id == "reset":
+            log.write("Resetting the episode...")
+            obs = self.agent.request_game_reset()
+            if obs:
+                self.current_obs = obs
+                self._clear_state()
+                tree_state = self.query_one(TreeState)
+                tree = tree_state.children[0]
+                self.update_tree(tree)
+                log.write("Episode reset successfully.")
+            else:
+                 log.write("[bold red]Reset failed![/bold red]")
         else:
             if self.model is not None:
                 log.write(":hourglass: Waiting for the LLM...")

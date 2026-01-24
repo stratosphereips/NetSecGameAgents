@@ -40,3 +40,32 @@ Screen {
 #hack {
     margin: 0 1;
 }
+
+#reset {
+    background: darkcyan;
+    color: white; 
+}
+#reset:hover {
+    background: cyan;
+    color: black;
+}
+
+#quit {
+    background: indigo;
+    color: white;
+}
+#quit:hover {
+    background: purple;
+    color: white;
+}
+
+.spacer {
+    width: 1fr;
+    height: 1;
+}
+
+.buttons-row {
+    height: auto;
+    width: 100%;
+    column-span: 3;
+}
