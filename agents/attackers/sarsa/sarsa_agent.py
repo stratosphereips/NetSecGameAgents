@@ -6,13 +6,12 @@ import pickle
 import argparse
 import logging
 
-from AIDojoCoordinator.game_components import Action, GameState
-from NetSecGameAgents.agents.base_agent import BaseAgent
-from NetSecGameAgents.agents.agent_utils import generate_valid_actions, state_as_ordered_string
+from netsecgame import Action, GameState, BaseAgent, generate_valid_actions, state_as_ordered_string
+from netsecgame.game_components import AgentRole
 
 class SARSAAgent(BaseAgent):
 
-    def __init__(self, host, port, role="Attacker", alpha=0.1, gamma=0.6, epsilon=0.1) -> None:
+    def __init__(self, host, port, role=AgentRole.Attacker, alpha=0.1, gamma=0.6, epsilon=0.1) -> None:
         super().__init__(host, port, role)
         self.alpha = alpha
         self.gamma = gamma
