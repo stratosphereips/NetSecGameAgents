@@ -12,7 +12,7 @@ from textual.validation import Function
 from textual import on
 from textual.reactive import reactive
 from NetSecGameAgents.agents.attackers.interactive_tui.assistant import LLMAssistant
-from netsecgame.game_components import Network, IP, ActionType, Action, GameState, Observation, AgentStatus
+from netsecgame.game_components import Network, IP, ActionType, Action, GameState, Observation, AgentStatus, AgentRole
 from netsecgame import BaseAgent
 log_filename = os.path.dirname(os.path.abspath(__file__)) + "/interactive_tui_agent.log"
 logging.basicConfig(
@@ -113,7 +113,7 @@ class InteractiveTUI(App):
         self,
         host: str,
         port: int,
-        role: str,
+        role: AgentRole,
         mode: str,
         llm: str,
         api_url: str,
@@ -129,8 +129,9 @@ class InteractiveTUI(App):
         self.service_input = ""
         self.data_input = ""
         self.agent = BaseAgent(host, port, role)
-        self.agent.register()
-        self.current_obs = self.agent.request_game_reset()
+        self.current_obs = self.agent.register()
+        if self.current_obs is None:
+             raise ConnectionError("Could not register agent. Check if any other agent is already connected.")
         self.mode = mode
 
         # Keep track of the actions played previously
@@ -687,7 +688,7 @@ if __name__ == "__main__":
     app = InteractiveTUI(
         args.host,
         args.port,
-        args.role,
+        AgentRole.from_string(args.role),
         args.mode,
         args.llm,
         args.api_url,
