@@ -5,7 +5,7 @@ import argparse
 import numpy as np
 import mlflow
 from os import path, makedirs
-from random import choice
+import random
 from netsecgame import Action, Observation, BaseAgent, generate_valid_actions, AgentRole
 from netsecgame.game_components import AgentStatus
 
@@ -22,10 +22,11 @@ class RandomAttackerAgent(BaseAgent):
         Args:
             host (str): Host address to connect to.
             port (int): Port number to connect to.
-            role (AgentRole): The role of the agent (e.g., Attacker).
-            agent_seed (int): Seed for random number generation for the agent's decisions.
+            role (AgentRole): The role of the agent (e.g., AgentRole.Attacker).
+            seed (int): Seed for random number generation for the agent's decisions.
         """
         super().__init__(host, port, role)
+        self.rng = random.Random(seed)
 
     def select_action(self, observation:Observation)->Action:
         """
@@ -38,13 +39,15 @@ class RandomAttackerAgent(BaseAgent):
             Action: The randomly selected action.
         """
         valid_actions = generate_valid_actions(observation.state)
-        action = choice(valid_actions)
+        # randomly choose with the seeded rng
+        action = self.rng.choice(valid_actions)
         return action
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of episodes to play", default=100, type=int) 
+    parser.add_argument("--episodes", help="Sets number of episodes to play", default=100, type=int)
+    parser.add_argument("--seed", help="Sets random seed for agent's decisions", default=42, type=int) 
     parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
     parser.add_argument("--mlflow_url", help="URL for mlflow tracking server. If not provided, mlflow will store locally.", default=None)
     args = parser.parse_args()
@@ -54,7 +57,7 @@ def main():
     logging.basicConfig(filename=path.join(args.logdir, "random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
     # Create agent
-    agent = RandomAttackerAgent(args.host, args.port, AgentRole.Attacker, seed=42)
+    agent = RandomAttackerAgent(args.host, args.port, AgentRole.Attacker, seed=args.seed)
 
     # Mlflow experiment name        
     experiment_name = "Random Attacker Agent"
