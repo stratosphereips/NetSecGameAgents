@@ -1,5 +1,4 @@
 # Authors:  Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
-#           Arti
 #           Sebastian Garcia. sebastian.garcia@agents.fel.cvut.cz
 #           Diefo Forni - forni.diego@uncuyo.edu.ar
 
@@ -14,8 +13,7 @@ import subprocess
 
 from os import path, makedirs
 # with the path fixed, we can import now
-from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
+from netsecgame import Action, Observation, GameState, AgentStatus
 from base_agent import BaseAgent
 from agent_utils import generate_valid_actions, state_as_ordered_string
 import json

@@ -14,11 +14,7 @@ from llm_action_planner import LLMActionPlanner
 from os import path
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
-sys.path.append(
-    path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
-)
-
-from AIDojoCoordinator.game_components import AgentStatus
+from netsecgame.game_components import AgentStatus
 from NetSecGameAgents.agents.base_agent import BaseAgent
 
 #mlflow.set_tracking_uri("http://147.32.83.60")
