@@ -8,8 +8,10 @@ author: Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 from collections import namedtuple
 import random
 import ipaddress
-import sys
-from AIDojoCoordinator.game_components import Action, ActionType, GameState, Observation, Network, AgentStatus
+import warnings
+from netsecgame import Action, ActionType, GameState, Observation, Network, AgentStatus
+from netsecgame import generate_valid_actions as _generate_valid_actions_core
+from netsecgame import state_as_ordered_string as _state_as_ordered_string_core
 
 def generate_valid_actions_concepts(state: GameState, action_history: set, include_blocks=False)->list:
     """
@@ -223,83 +225,23 @@ def generate_valid_actions_concepts(state: GameState, action_history: set, inclu
                                     valid_actions.add(action)
     return list(valid_actions)
 
-def generate_valid_actions(state: GameState, include_blocks=False)->list:
-    """Function that generates a list of all valid actions in a given state"""
-    valid_actions = set()
-    def is_fw_blocked(state, src_ip, dst_ip)->bool:
-        blocked = False
-        try:
-            blocked = dst_ip in state.known_blocks[src_ip]
-        except KeyError:
-            pass #this src ip has no known blocks
-        return blocked 
+def generate_valid_actions(state: GameState, include_blocks=False) -> list:
+    warnings.warn(
+        "Importing generate_valid_actions from 'NetSecGameAgents.agents.agent_utils' is deprecated. "
+        "Please import directly from 'netsecgame' as follows: 'from netsecgame import generate_valid_actions'.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return _generate_valid_actions_core(state, include_blocks)    
 
-    for source_host in state.controlled_hosts:
-        #Network Scans
-        for network in state.known_networks:
-            # TODO ADD neighbouring networks
-            valid_actions.add(Action(ActionType.ScanNetwork, parameters={"target_network": network, "source_host": source_host,}))
-
-        # Service Scans
-        for blocked_host in state.known_hosts:
-            if not is_fw_blocked(state, source_host, blocked_host):
-                valid_actions.add(Action(ActionType.FindServices, parameters={"target_host": blocked_host, "source_host": source_host,}))
-
-        # Service Exploits
-        for blocked_host, service_list in state.known_services.items():
-            if not is_fw_blocked(state, source_host,blocked_host):
-                for service in service_list:
-                    valid_actions.add(Action(ActionType.ExploitService, parameters={"target_host": blocked_host,"target_service": service,"source_host": source_host,}))
-        # Data Scans
-        for blocked_host in state.controlled_hosts:
-            if not is_fw_blocked(state, source_host,blocked_host):
-                valid_actions.add(Action(ActionType.FindData, parameters={"target_host": blocked_host, "source_host": blocked_host}))
-
-        # Data Exfiltration
-        for source_host, data_list in state.known_data.items():
-            for data in data_list:
-                for trg_host in state.controlled_hosts:
-                    if trg_host != source_host:
-                        if not is_fw_blocked(state, source_host,trg_host):
-                            valid_actions.add(Action(ActionType.ExfiltrateData, parameters={"target_host": trg_host, "source_host": source_host, "data": data}))
-        
-        # BlockIP
-        if include_blocks:
-            for source_host in state.controlled_hosts:
-                for target_host in state.controlled_hosts:
-                    if not is_fw_blocked(state, source_host,target_host):
-                        for blocked_ip in state.known_hosts:
-                            valid_actions.add(Action(ActionType.BlockIP, {"target_host":target_host, "source_host":source_host, "blocked_host":blocked_ip}))
-    return list(valid_actions)    
-
-def _format_dict_section(section_dict, section_name):
-    """
-    Helper function to format a dictionary section for state string representation.
-
-    Args:
-        section_dict: Dictionary to format
-        section_name: Name of the section
-
-    Returns:
-        Formatted string for the section
-    """
-    result = f"{section_name}:{{"
-    for host in sorted(section_dict.keys()):
-        result += f"{host}:[{','.join([str(x) for x in sorted(section_dict[host])])}]"
-    result += "}"
-    return result
-
-
-def state_as_ordered_string(state:GameState)->str:
-    """Function for generating string representation of a SORTED gamestate components. Can be used as key for dictionaries."""
-    ret = ""
-    ret += f"nets:[{','.join([str(x) for x in sorted(state.known_networks)])}],"
-    ret += f"hosts:[{','.join([str(x) for x in sorted(state.known_hosts)])}],"
-    ret += f"controlled:[{','.join([str(x) for x in sorted(state.controlled_hosts)])}],"
-    ret += _format_dict_section(state.known_services, "services") + ","
-    ret += _format_dict_section(state.known_data, "data") + ","
-    ret += _format_dict_section(state.known_blocks, "blocks")
-    return ret
+def state_as_ordered_string(state: GameState) -> str:
+    warnings.warn(
+        "Importing state_as_ordered_string from 'NetSecGameAgents.agents.agent_utils' is deprecated. "
+        "Please import directly from 'netsecgame' as follows: 'from netsecgame import state_as_ordered_string'.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return _state_as_ordered_string_core(state)
 
 def recompute_reward(observation: Observation) -> Observation:
     """
@@ -643,7 +585,6 @@ def _convert_network_concept_to_ip(target_net_concept, concept_observation):
                 return mapped_value
 
     return target_net_concept
-
 
 def convert_concepts_to_actions(action, observation, concept_logger=None):
     """

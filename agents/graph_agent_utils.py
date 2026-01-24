@@ -7,7 +7,7 @@ author: Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 """
 import ipaddress
 import numpy as np
-from AIDojoCoordinator.game_components import GameState, IP, Network, Data, Service
+from netsecgame import GameState, IP, Network, Data, Service
 
 def state_as_graph(state:GameState) -> tuple:
     node_types = {
