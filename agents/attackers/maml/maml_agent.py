@@ -25,11 +25,7 @@ from random import choice
 from netaddr import IPNetwork
 from netaddr import IPAddress as IP
 from collections import deque, defaultdict
-from AIDojoCoordinator.game_components import Action, ActionType, Observation, AgentStatus, GameState
-from NetSecGameAgents.agents.base_agent import BaseAgent
-from NetSecGameAgents.agents.agent_utils import generate_valid_actions
-from NetSecGameAgents.agents.attackers.random.random_agent import RandomAttackerAgent
-from NetSecGameAgents.agents.attackers.q_learning.q_agent import QAgent
+from netsecgame import Action, ActionType, Observation, AgentStatus, GameState, BaseAgent, generate_valid_actions
 import psutil
 import csv
 from typing import Optional, Any, Tuple
