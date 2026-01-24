@@ -18,6 +18,10 @@ authors = [
 ]
 requires-python = ">=3.12"
 
+dependencies = [
+    "netsecgame"
+]
+
 [project.optional-dependencies]
 
 dev = [
