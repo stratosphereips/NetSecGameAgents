@@ -9,7 +9,7 @@ import json
 from os import path, makedirs
 
 
-from AIDojoCoordinator.game_components import Action, Observation, AgentStatus, ActionType
+from AIDojoCoordinator.game_components import Action, Observation, AgentStatus, ActionType, AgentRole
 
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__) ))))
 
@@ -312,7 +312,7 @@ if __name__ == '__main__':
         level=logging.INFO
     )
 
-    agent = MarkovChainAgent(args.host, args.port, "Attacker", args.episodes)
+    agent = MarkovChainAgent(args.host, args.port, AgentRole.Attacker, args.episodes)
     observation = agent.register()
 
     if not args.evaluate:

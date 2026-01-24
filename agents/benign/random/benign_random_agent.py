@@ -6,13 +6,11 @@ import argparse
 import numpy as np
 import time
 from random import uniform, choice
-from AIDojoCoordinator.game_components import Action, Observation, ActionType
-from NetSecGameAgents.agents.base_agent import BaseAgent
-from NetSecGameAgents.agents.agent_utils import generate_valid_actions
+from netsecgame import Action, Observation, ActionType, BaseAgent, generate_valid_actions, AgentRole
 
 class RandomBenignAgent(BaseAgent):
 
-    def __init__(self, host:str, port:int, role:str, allowed_actions:list, apm_limit:int=None) -> None:
+    def __init__(self, host:str, port:int, role:AgentRole, allowed_actions:list, apm_limit:int=None) -> None:
         super().__init__(host, port, role)
         self._allowed_actions = allowed_actions
         self._apm_limit = apm_limit
@@ -28,6 +26,10 @@ class RandomBenignAgent(BaseAgent):
         """
         
         observation = self.register()
+        if observation is None:
+            self._logger.error("Registration failed. Terminating.")
+            return
+
         returns = []
         for episode in range(num_episodes):
             episodic_returns = []
@@ -79,5 +81,5 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(args.logdir, "benign_random_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.DEBUG)
 
     # Create agent
-    agent = RandomBenignAgent(args.host, args.port, "Benign", allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices], apm_limit=args.apm)
+    agent = RandomBenignAgent(args.host, args.port, AgentRole.Benign, allowed_actions=[ActionType.FindData, ActionType.ExfiltrateData, ActionType.FindServices], apm_limit=args.apm)
     agent.play_game(args.episodes)
