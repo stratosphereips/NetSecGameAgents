@@ -13,13 +13,15 @@ import time
 
 from os import path, makedirs
 # with the path fixed, we can import now
-from AIDojoCoordinator.game_components import Action, Observation, GameState, AgentStatus
-from NetSecGameAgents.agents.base_agent import BaseAgent
-from NetSecGameAgents.agents.agent_utils import generate_valid_actions, state_as_ordered_string
+from netsecgame.game_components import (
+    Action,
+    Observation,
+    GameState, AgentStatus, BaseAgent, generate_valid_actions, state_as_ordered_string, AgentRole
+) 
 
 class QAgent(BaseAgent):
 
-    def __init__(self, host, port, role="Attacker", alpha=0.1, gamma=0.6, epsilon_start=0.9, epsilon_end=0.1, epsilon_max_episodes=5000, apm_limit:int=None) -> None:
+    def __init__(self, host, port, role=AgentRole.Attacker, alpha=0.1, gamma=0.6, epsilon_start=0.9, epsilon_end=0.1, epsilon_max_episodes=5000, apm_limit:int=None) -> None:
         super().__init__(host, port, role)
         self.alpha = alpha
         self.gamma = gamma
