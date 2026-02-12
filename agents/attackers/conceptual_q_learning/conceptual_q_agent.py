@@ -200,6 +200,44 @@ class QAgent(BaseAgent):
             if self.concept_logger:
                 self.concept_logger.set_episode_step(episode_num, num_steps)
             start_time = time.time()
+
+            # Check if there are any valid actions available in the current state.
+            # It may happen that, given the current concept state and action
+            # history, no further actions are possible. In that case we treat the
+            # episode as finished with a strong negative internal reward.
+            available_actions = generate_valid_actions_concepts(
+                concept_observation.observation.state, self.actions_history
+            )
+            if not available_actions:
+                # Log both the conceptual state and the underlying real mapping.
+                self.logger.error(
+                    "\n[!] No available actions for current state.\n"
+                    f"[!] Conceptual state: {concept_observation.observation.state}\n"
+                    f"[!] Concept mapping (concept → real): {concept_observation.concept_mapping}"
+                )
+                # Mark episode as lost with internal reward -100 and end=True.
+                base_info = concept_observation.observation.info or {}
+                # Copy to avoid mutating original info dict
+                info = dict(base_info)
+                info["end_reason"] = AgentStatus.Fail
+                final_observation = Observation(
+                    concept_observation.observation.state,
+                    -100,
+                    True,
+                    info,
+                )
+                # Log episode summary if enhanced logging is enabled.
+                if self.concept_logger:
+                    self.concept_logger.log_episode_summary(
+                        episode_num,
+                        num_steps,
+                        final_observation.reward,
+                        len(self.q_values),
+                        self.current_epsilon,
+                        "no_actions",
+                    )
+                return final_observation, num_steps
+
             # Get next action. If we are not training, selection is different, so pass it as argument
             concept_action, state_id = self.select_action(concept_observation.observation, testing)
             self.logger.info(f"\n\n ==================================== \n\n[+] Concept Action selected:{concept_action}")
