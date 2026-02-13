@@ -81,3 +81,9 @@ maml = [
     "torch",
     "psutils"
 ]
+
+sr_drl = [
+    "torch",
+    "numpy",
+    "wandb",
+]
