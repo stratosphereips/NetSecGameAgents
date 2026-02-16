@@ -111,7 +111,7 @@ Additionally, there are several files with utils functions that can be used by a
 |[InteractiveAgent](./agents/interactive_tui/interactive_tui.py) | [main](https://github.com/stratosphereips/NetSecGame/tree/main) | `HEAD`| ✅ |
 |[Q-learning](./agents/q_learning/q_agent.py) | [main](https://github.com/stratosphereips/NetSecGame/tree/main) | `HEAD`| ✅ |
 |[LLM](./agents/llm/llm_agent.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | [realease_out_of_the_cage](https://github.com/stratosphereips/NetSecGame/tree/release_out_of_cage)| ✅ |
-|[LLM_QA](./agents/llm_qa/llm_agent_qa.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | [realease_out_of_the_cage](https://github.com/stratosphereips/NetSecGame/tree/release_out_of_cage)| ✅ |
+|[LLM_ReAct (previously LLM QA)](./agents/llm_react/llm_agent_react.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | [realease_out_of_the_cage](https://github.com/stratosphereips/NetSecGame/tree/release_out_of_cage)| ✅ |
 |[GNN_REINFORCE](./agents/llm_qa/llm_agent_qa.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | [realease_out_of_the_cage](https://github.com/stratosphereips/NetSecGame/tree/release_out_of_cage)| ✅ |
 |[Random Defender](./agents/defenders/random/random_agent.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | | 👷🏼‍♀️ |
 |[Probabilistic Defender](./agents/defenders/probabilistic/probabilistic_agent.py)| [main](https://github.com/stratosphereips/NetSecGame/tree/main) | | 👷🏼‍♀️ |
