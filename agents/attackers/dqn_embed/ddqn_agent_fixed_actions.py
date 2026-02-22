@@ -410,6 +410,7 @@ class DDQNAgent(ActionListAgent):
     def eval(self, observation, train_episode, num_episodes=1) -> float:
         returns = []
         steps = []
+        trajectories = []
         wins = 0
         for ep in range(num_episodes):
             num_steps = 0
@@ -449,7 +450,14 @@ class DDQNAgent(ActionListAgent):
 
             # Reset the episode
             observation = self.request_game_reset()
+        #     observation = self.request_game_reset(request_trajectory=True)
+        #     # print(f"Trajectory for episode {ep}: {observation.info.get('last_trajectory', 'No trajectory info available')}")
+        #     trajectories.append(json.dumps(observation.info.get('last_trajectory', 'No trajectory info available'))+'\n')  # Request the last trajectory for logging
             
+
+        # with open(f"trajectories/ddqn_embed_white_box_eval_trajectories_ep{train_episode}_train.jsonl", "w") as f:
+        #     # for line in trajectories:
+        #     f.writelines(trajectories)
 
         # self._logger.info(
         #     f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}"
@@ -502,7 +510,7 @@ if __name__ == "__main__":
     parser.add_argument("--episodes", help="Sets number of episodes to play or evaluate", default=100, type=int)
     parser.add_argument("--logdir", help="Folder to store logs",default=path.join(path.dirname(path.abspath(__file__)), "logs"))
     parser.add_argument("--evaluate", help="Evaluate the agent and report, instead of playing the game only once.",action="store_true")
-    # parser.add_argument("--cont", help="Continue training the final model from the previous run.", action="store_true")
+    parser.add_argument("--cont", help="Continue training the final model from the previous run.", action="store_true")
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--decay", help="Epsilon decay factor", required=False, default=1e-4, type=float)
     parser.add_argument("--lr", help="Learning rate", required=False, default=1e-3, type=float)
@@ -547,11 +555,10 @@ if __name__ == "__main__":
         agent.define_networks(len(action_list))
         wandb.watch(agent.q_net, log="all")
 
-        # if args.cont:
-        #     print("Continuing training from the last checkpoint")
-        #     agent.load("checkpoints/ddqn_checkpoint_final.pt")
-        #     agent.q_net.train()
-        #     agent.epsilon = 0.1  # Start with a lower epsilon for continued training
+        if args.cont:
+            print("Continuing training from the last checkpoint")
+            agent.load("checkpoints/ddqn_checkpoint_best.pt")
+            agent.q_net.train()
 
         num_episodes = agent.train(observation, args.episodes)
         agent.save("checkpoints/ddqn_checkpoint_final.pt")
