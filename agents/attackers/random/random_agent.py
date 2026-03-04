@@ -38,7 +38,7 @@ class RandomAttackerAgent(BaseAgent):
         Returns:
             Action: The randomly selected action.
         """
-        valid_actions = generate_valid_actions(observation.state)
+        valid_actions = sorted(generate_valid_actions(observation.state), key=lambda x:str(x))
         # randomly choose with the seeded rng
         action = self.rng.choice(valid_actions)
         return action
