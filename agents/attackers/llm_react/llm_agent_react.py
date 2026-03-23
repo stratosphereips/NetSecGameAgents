@@ -1,5 +1,5 @@
 """
-This module implements an agent that is using LLM as a planning agent 
+This module implements an agent that is using LLM as a planning agent
 Authors:  Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
           Harpo MAxx - harpomaxx@gmail.com
 """
@@ -8,31 +8,70 @@ import argparse
 import numpy as np
 import pandas as pd
 import mlflow
+import os
 import sys
 import json
+import signal
+import urllib.request
+import urllib.error
 from llm_action_planner import LLMActionPlanner
 from os import path
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from dotenv import load_dotenv, find_dotenv
 
-from netsecgame.game_components import AgentStatus
+from netsecgame.game_components import AgentStatus, Action, ActionType
 from NetSecGameAgents.agents.base_agent import BaseAgent
 
-#mlflow.set_tracking_uri("http://147.32.83.60")
-#mlflow.set_experiment("LLM_QA_netsecgame_dec2024")
+
+# ---------------------------------------------------------------------------
+# Terminal colors (no extra dependencies)
+# ---------------------------------------------------------------------------
+class C:
+    RESET   = "\033[0m"
+    BOLD    = "\033[1m"
+    CYAN    = "\033[36m"
+    GREEN   = "\033[32m"
+    YELLOW  = "\033[33m"
+    RED     = "\033[31m"
+    MAGENTA = "\033[35m"
+    BLUE    = "\033[34m"
+    DIM     = "\033[2m"
+
+
+def _fmt_action(response_dict):
+    """Return a compact colored action string from a response dict."""
+    action = response_dict.get("action", "?") if response_dict else "?"
+    params = response_dict.get("parameters", {}) if response_dict else {}
+    src  = params.get("source_host", "")
+    tgt  = params.get("target_host", params.get("target_network", ""))
+    detail = f"{src} → {tgt}" if src and tgt else (src or tgt or "")
+    return f"{C.CYAN}{action:<18}{C.RESET}{C.DIM}{detail}{C.RESET}"
+
+
+def _print_iter(episode, i, num_iterations, response_dict, is_valid, good_action, retried=False):
+    retry_tag = f" {C.MAGENTA}[retry]{C.RESET}" if retried else ""
+    if not is_valid:
+        outcome = f"{C.RED}✗ invalid{C.RESET}"
+    elif good_action:
+        outcome = f"{C.GREEN}✓ helpful{C.RESET}"
+    else:
+        outcome = f"{C.YELLOW}~ no change{C.RESET}"
+    action_str = _fmt_action(response_dict)
+    print(f"  Ep {C.BOLD}{episode}{C.RESET} | {i+1:>3}/{num_iterations} | {action_str}{retry_tag} | {outcome}")
 
 
 if __name__ == "__main__":
+    # Load environment defaults (supports both local .env and inherited env)
+    try:
+        _THIS_DIR = path.dirname(path.abspath(__file__))
+        load_dotenv(path.join(_THIS_DIR, ".env"), override=False)
+        load_dotenv(find_dotenv(), override=False)
+    except Exception:
+        pass
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--llm",
         type=str,
-        # choices=[
-        #     "gpt-4",
-        #     "gpt-4-turbo-preview",
-        #     "gpt-3.5-turbo",
-        #     "gpt-3.5-turbo-16k",
-        #     "HuggingFaceH4/zephyr-7b-beta",
-        # ],
         default="gpt-3.5-turbo",
         help="LLM used with OpenAI API",
     )
@@ -67,12 +106,12 @@ if __name__ == "__main__":
         action="store",
         required=False,
     )
-    
+
     parser.add_argument(
         "--api_url",
-        type=str, 
+        type=str,
         default="http://127.0.0.1:11434/v1/"
-        )
+    )
 
     parser.add_argument(
         "--use_reasoning",
@@ -93,24 +132,31 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--max_tokens_limit",
+        type=int,
+        default=0,
+        help="If cumulative tokens across all episodes exceed this limit, terminate the run. 0 disables the limit.",
+    )
+
+    parser.add_argument(
         "--mlflow_tracking_uri",
         type=str,
-        default="http://147.32.83.60",
-        help="MLflow tracking server URI (default: %(default)s)",
+        default=os.getenv("MLFLOW_TRACKING_URI", "http://147.32.83.60"),
+        help="MLflow tracking server URI (default reads MLFLOW_TRACKING_URI env var)",
     )
 
     parser.add_argument(
         "--mlflow_experiment",
         type=str,
-        default="LLM_QA_netsecgame_dec2024",
-        help="MLflow experiment name (default: %(default)s)",
+        default=os.getenv("MLFLOW_EXPERIMENT", "LLM_QA_netsecgame_dec2024"),
+        help="MLflow experiment name (default reads MLFLOW_EXPERIMENT env var)",
     )
 
     parser.add_argument(
         "--mlflow_description",
         type=str,
-        default=None,
-        help="Optional description for MLflow run (default is generated)",
+        default=os.getenv("MLFLOW_DESCRIPTION", None),
+        help="Optional description for MLflow run (default reads MLFLOW_DESCRIPTION env var)",
     )
 
     parser.add_argument(
@@ -119,7 +165,6 @@ if __name__ == "__main__":
         help="Disable mlflow logging",
     )
 
-    
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -133,14 +178,61 @@ if __name__ == "__main__":
     logger = logging.getLogger("llm_react")
     logger.info("Start")
     agent = BaseAgent(args.host, args.port, "Attacker")
-    
+
+    def _ensure_databricks_workspace_dir(dir_path: str) -> bool:
+        """Ensures a Databricks workspace directory exists using the Workspace API."""
+        host = os.getenv("DATABRICKS_HOST")
+        token = os.getenv("DATABRICKS_TOKEN")
+        if not host or not token or not dir_path:
+            return False
+        try:
+            url = f"{host.rstrip('/')}/api/2.0/workspace/mkdirs"
+            payload = json.dumps({"path": dir_path}).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return 200 <= resp.status < 300
+        except urllib.error.HTTPError as he:
+            logger.warning(f"Databricks mkdirs for '{dir_path}' returned HTTP {he.code}: {he.reason}")
+            return False
+        except Exception as e:
+            logger.warning(f"Failed ensuring Databricks dir '{dir_path}': {e}")
+            return False
+
     if not args.disable_mlflow:
         mlflow.set_tracking_uri(args.mlflow_tracking_uri)
-        mlflow.set_experiment(args.mlflow_experiment)
 
-        # Use custom description if given, otherwise build a default
+        experiment_path = args.mlflow_experiment
+
+        # If using Databricks with a workspace path, ensure parent directory exists
+        if (args.mlflow_tracking_uri == "databricks") and experiment_path.startswith("/"):
+            parent_dir = os.path.dirname(experiment_path.rstrip("/"))
+            if parent_dir and parent_dir != "/":
+                _ensure_databricks_workspace_dir(parent_dir)
+
+        try:
+            mlflow.set_experiment(experiment_path)
+        except Exception as e:
+            msg = str(e)
+            logger.warning(f"mlflow.set_experiment failed for '{experiment_path}': {msg}")
+            if experiment_path.startswith("/Shared/") and "Parent directory" in msg:
+                flattened = experiment_path[len("/Shared/"):].replace("/", "_")
+                fallback_path = f"/Shared/{flattened}"
+                logger.warning(f"Falling back to Databricks experiment path '{fallback_path}'")
+                mlflow.set_experiment(fallback_path)
+                experiment_path = fallback_path
+            else:
+                raise
+
         experiment_description = args.mlflow_description or (
-            f"{args.mlflow_experiment} | Model: {args.llm}"
+            f"{experiment_path} | Model: {args.llm}"
         )
 
         mlflow.start_run(description=experiment_description)
@@ -152,6 +244,7 @@ if __name__ == "__main__":
             "host": args.host,
             "port": args.port,
             "api_url": args.api_url,
+            "max_tokens_limit": args.max_tokens_limit,
         }
         mlflow.log_params(params)
         mlflow.set_tag("agent_role", "Attacker")
@@ -166,53 +259,139 @@ if __name__ == "__main__":
     num_detected_steps = []
     num_actions_repeated = []
     reward_memory = ""
+    total_tokens_used = 0
 
- 
-    # Create an empty DataFrame for storing prompts and responses, and evaluations
-    #prompt_table = pd.DataFrame(columns=["state", "prompt", "response", "evaluation"])
+    # Create an empty list for storing prompts, responses, and evaluations
     prompt_table = []
-    
+
+    def _register_interrupt_saver(get_data_fn, filename: str = "episode_data.json") -> None:
+        """Register Ctrl-C handler to persist current episodes JSON before exiting."""
+        def _handler(signum, frame):
+            try:
+                data = get_data_fn()
+                with open(filename, "w") as json_file:
+                    json.dump(data, json_file, indent=4)
+                print(f"\nInterrupted (Ctrl-C). Saved {len(data)} episodes to {filename}.")
+            except Exception as e:
+                print(f"\nInterrupted (Ctrl-C). Failed to save data: {e}")
+            finally:
+                try:
+                    if not args.disable_mlflow:
+                        mlflow.set_tag("termination_reason", "keyboard_interrupt")
+                        mlflow.log_metric("total_tokens_at_termination", total_tokens_used)
+                        mlflow.end_run("KILLED")
+                except Exception:
+                    pass
+                os._exit(130)
+        signal.signal(signal.SIGINT, _handler)
+        try:
+            signal.signal(signal.SIGTERM, _handler)
+        except Exception:
+            pass
+
+    _register_interrupt_saver(lambda: prompt_table)
+
     # We are still not using this, but we keep track
     is_detected = False
 
     # Initialize the game
-    print("Registering")
+    print(f"{C.DIM}Registering agent...{C.RESET}", end=" ", flush=True)
     agent.register()
-    print("Done")
+    print(f"{C.GREEN}ready{C.RESET}")
+
     for episode in range(1, args.test_episodes + 1):
         actions_took_in_episode = []
-        evaluations = [] # used for prompt table storage.
+        evaluations = []  # used for prompt table storage.
         logger.info(f"Running episode {episode}")
-        print(f"Running episode {episode}")
+        print(f"\n{C.BOLD}{C.BLUE}Episode {episode}/{args.test_episodes}{C.RESET}")
 
         # Reset the game at every episode and store the goal that changes
         observation = agent.request_game_reset()
         num_iterations = observation.info["max_steps"]
         current_state = observation.state
 
-        
         taken_action = None
         memories = []
         total_reward = 0
         num_actions = 0
         repeated_actions = 0
+        tried_in_state = {}       # dict[str, set[Action]] — per-state blacklist
+        tried_globally = set()    # set[Action] — cross-state blacklist for idempotent actions
+        hard_blocked_actions = 0  # LLM proposed a forbidden action despite the prompt
 
         if args.llm is not None:
             llm_query = LLMActionPlanner(
-            model_name=args.llm,
-            goal=observation.info["goal_description"],
-            memory_len=args.memory_buffer,
-            api_url=args.api_url,
-            use_reasoning=args.use_reasoning,
-            use_reflection=args.use_reflection,
-            use_self_consistency=args.use_self_consistency
-        )
-        print(observation)
+                model_name=args.llm,
+                goal=observation.info["goal_description"],
+                memory_len=args.memory_buffer,
+                api_url=args.api_url,
+                use_reasoning=args.use_reasoning,
+                use_reflection=args.use_reflection,
+                use_self_consistency=args.use_self_consistency
+            )
+        print(f"  {C.DIM}Goal: {observation.info.get('goal_description','?')} | Max steps: {num_iterations}{C.RESET}")
+
         for i in range(num_iterations):
             good_action = False
-            #is_json_ok = True
-            is_valid, response_dict, action = llm_query.get_action_from_obs_react(observation, memories)
-            if is_valid:
+            pre_exec_state_key = str(current_state)
+            forbidden = tried_in_state.get(pre_exec_state_key, set()) | tried_globally
+            result = llm_query.get_action_from_obs_react(observation, memories, forbidden_actions=forbidden)
+
+            # Handle 3, 4, or 5-value returns for backward compatibility
+            if len(result) == 5:
+                is_valid, response_dict, action, tokens_used, retried = result
+            elif len(result) == 4:
+                is_valid, response_dict, action, retried = result
+                tokens_used = 0
+            else:
+                is_valid, response_dict, action = result
+                tokens_used = 0
+                retried = False
+
+            # Update and enforce token limit if configured
+            try:
+                total_tokens_used += int(tokens_used or 0)
+            except Exception:
+                pass
+            if args.max_tokens_limit > 0 and total_tokens_used > args.max_tokens_limit:
+                termination_message = (
+                    f"CRITICAL: Total token limit of {args.max_tokens_limit} reached "
+                    f"(cumulative total: {total_tokens_used}). Terminating run."
+                )
+                print(f"  {C.RED}{C.BOLD}{termination_message}{C.RESET}")
+                logger.critical(termination_message)
+                try:
+                    with open("episode_data.json", "w") as json_file:
+                        json.dump(prompt_table, json_file, indent=4)
+                except Exception:
+                    pass
+                if not args.disable_mlflow:
+                    try:
+                        mlflow.set_tag("termination_reason", "max_tokens_limit_exceeded")
+                        mlflow.log_param("termination_episode", episode)
+                        mlflow.log_metric("total_tokens_at_termination", total_tokens_used)
+                        mlflow.end_run("FAILED")
+                    except Exception:
+                        pass
+                sys.exit(1)
+
+            # Hard-block: reject if LLM returned a forbidden action despite the prompt
+            if is_valid and action is not None and (
+                action in tried_in_state.get(pre_exec_state_key, set()) or action in tried_globally
+            ):
+                hard_blocked_actions += 1
+                is_valid = False
+                action = None
+                memories.append(
+                    (
+                        (response_dict["action"], response_dict["parameters"]),
+                        "already tried in this exact state — choose a DIFFERENT action."
+                    )
+                )
+                logger.info(f"Hard-blocked: LLM ignored forbidden prompt for action in state {pre_exec_state_key}")
+                print(f"  {C.MAGENTA}⊘ hard-blocked: {response_dict.get('action','?')} already tried{C.RESET}")
+
+            if is_valid and action is not None:
                 observation = agent.make_step(action)
                 logger.info(f"Observation received: {observation}")
                 taken_action = action
@@ -225,75 +404,76 @@ if __name__ == "__main__":
                 else:
                     evaluations.append(3)
             else:
-                print("Invalid action: ")
                 evaluations.append(0)
+
+            _print_iter(episode, i, num_iterations, response_dict, is_valid, good_action, retried=retried)
 
             try:
                 if not is_valid:
                     memories.append(
                         (
                             (response_dict["action"],
-                            response_dict["parameters"]),
+                             response_dict["parameters"]),
                             "not valid based on your status."
                         )
                     )
-                    print("not valid based on your status.")
-
                 else:
                     # This is based on the assumption that more valid actions in the state are better/more helpful.
-                    # But we could a manual evaluation based on the prior knowledge and weight the different components.
-                    # For example: finding new data is better than discovering hosts (?)
                     if good_action:
                         memories.append(
                             (
                                 (response_dict["action"],
-                                response_dict["parameters"]),
+                                 response_dict["parameters"]),
                                 "helpful."
                             )
                         )
-                        print("Helpful")
                     else:
                         memories.append(
                             (
                                 (response_dict["action"],
-                                response_dict["parameters"]),
+                                 response_dict["parameters"]),
                                 "not helpful."
                             )
                         )
-                        print("Not Helpful")
                     # If the action was repeated count it
                     if action in actions_took_in_episode:
                         repeated_actions += 1
 
                     # Store action in memory of all actions so far
                     actions_took_in_episode.append(action)
-            except:
+
+                    # Update blacklists
+                    if action is not None:
+                        if pre_exec_state_key not in tried_in_state:
+                            tried_in_state[pre_exec_state_key] = set()
+                        tried_in_state[pre_exec_state_key].add(action)
+                        # Globally forbidden once tried: these actions are idempotent
+                        if action.action_type in (ActionType.ExfiltrateData, ActionType.ScanNetwork):
+                            tried_globally.add(action)
+            except Exception:
                 # if the LLM sends a response that is not properly formatted.
                 memories.append(
-                                (response_dict["action"],
-                                response_dict["parameters"]),
-                                "badly formated."
+                    (
+                        (response_dict["action"],
+                         response_dict["parameters"]),
+                        "badly formatted."
+                    )
                 )
-                print("badly formated")
+                print(f"  {C.RED}badly formatted response{C.RESET}")
+
             if len(memories) > args.memory_buffer:
                 # If the memory is full, remove the oldest memory
                 memories.pop(0)
-            # logger.info(f"Iteration: {i} JSON: {is_json_ok} Valid: {is_valid} Good: {good_action}")
+
             logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
-            
-            if observation.end or i == (
-                num_iterations - 1
-            ):  # if it is the last iteration gather statistics
+
+            if observation.end or i == (num_iterations - 1):
                 if i < (num_iterations - 1):
-                    # TODO: Fix this
                     reason = observation.info
                 else:
-                    reason = {"end_reason": AgentStatus.TimeoutReached }
+                    reason = {"end_reason": AgentStatus.TimeoutReached}
 
                 win = 0
-                # is_detected if boolean
-                # is_detected = observation.info.detected
-                # TODO: Fix this
                 steps = i
                 epi_last_reward = observation.reward
                 num_actions_repeated += [repeated_actions]
@@ -307,11 +487,9 @@ if __name__ == "__main__":
                     num_detected_steps += [steps]
                     type_of_end = "detection"
                 elif AgentStatus.TimeoutReached == reason["end_reason"]:
-                    # TODO: Fix this
                     reach_max_steps += 1
                     type_of_end = "max_iterations"
                     total_reward = -100
-                    #steps = observation.info["max_steps"] #this fails
                     steps = num_iterations
                 else:
                     reach_max_steps += 1
@@ -326,21 +504,22 @@ if __name__ == "__main__":
                     mlflow.log_metric("return", total_reward, step=episode)
 
                     # Running metrics
-                    mlflow.log_metric("wins", wins, step=episode)
                     mlflow.log_metric("reached_max_steps", reach_max_steps, step=episode)
                     mlflow.log_metric("detected", detected, step=episode)
+                    mlflow.log_metric("total_tokens_used", total_tokens_used, step=episode)
+                    mlflow.log_metric("hard_blocked_actions", hard_blocked_actions, step=episode)
 
                     # Running averages
-                    mlflow.log_metric("win_rate", (wins / (episode)) * 100, step=episode)
+                    mlflow.log_metric("win_rate", (wins / episode) * 100, step=episode)
                     mlflow.log_metric("avg_returns", np.mean(returns), step=episode)
                     mlflow.log_metric("avg_steps", np.mean(num_steps), step=episode)
 
                 logger.info(
                     f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
                 )
-                print(
-                    f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
-                )
+                logger.info(f"\tEpisode {episode}: hard_blocked_actions={hard_blocked_actions}")
+                end_color = C.GREEN if type_of_end == "win" else C.RED if type_of_end == "detection" else C.YELLOW
+                print(f"  {C.BOLD}── Episode {episode} ended{C.RESET} | {end_color}{type_of_end}{C.RESET} | steps={steps} | reward={epi_last_reward:.2f} | hard-blocked={hard_blocked_actions}")
                 break
 
         episode_prompt_table = {
@@ -349,21 +528,19 @@ if __name__ == "__main__":
             "prompt": llm_query.get_prompts(),
             "response": llm_query.get_responses(),
             "evaluation": evaluations,
+            "hard_blocked_actions": hard_blocked_actions,
             "end_reason": str(reason["end_reason"])
         }
         prompt_table.append(episode_prompt_table)
-        #episode_prompt_table = pd.DataFrame(episode_prompt_table)
-        #prompt_table = pd.concat([prompt_table,episode_prompt_table],axis=0,ignore_index=True)
-        
-    #prompt_table.to_csv("states_prompts_responses_new.csv", index=False)
+
     # Save the JSON file
     with open("episode_data.json", "w") as json_file:
         json.dump(prompt_table, json_file, indent=4)
 
     # After all episodes are done. Compute statistics
-    test_win_rate = (wins / (args.test_episodes)) * 100
-    test_detection_rate = (detected / (args.test_episodes)) * 100
-    test_max_steps_rate = (reach_max_steps / (args.test_episodes)) * 100
+    test_win_rate = (wins / args.test_episodes) * 100
+    test_detection_rate = (detected / args.test_episodes) * 100
+    test_max_steps_rate = (reach_max_steps / args.test_episodes) * 100
     test_average_returns = np.mean(returns)
     test_std_returns = np.std(returns)
     test_average_episode_steps = np.mean(num_steps)
@@ -374,7 +551,7 @@ if __name__ == "__main__":
     test_std_detected_steps = np.std(num_detected_steps)
     test_average_repeated_steps = np.mean(num_actions_repeated)
     test_std_repeated_steps = np.std(num_actions_repeated)
-    # Store in tensorboard
+
     tensorboard_dict = {
         "test_avg_win_rate": test_win_rate,
         "test_avg_detection_rate": test_detection_rate,
@@ -389,6 +566,7 @@ if __name__ == "__main__":
         "test_std_detected_steps": test_std_detected_steps,
         "test_avg_repeated_steps": test_average_repeated_steps,
         "test_std_repeated_steps": test_std_repeated_steps,
+        "final_total_tokens_used": total_tokens_used,
     }
 
     if not args.disable_mlflow:
@@ -406,5 +584,21 @@ if __name__ == "__main__":
         average_detected_steps={test_average_detected_steps:.3f} +- {test_std_detected_steps:.3f}
         average_repeated_steps={test_average_repeated_steps:.3f} += {test_std_repeated_steps:.3f}"""
 
-    print(text)
+    print(f"\n{C.BOLD}{C.BLUE}{'─'*60}{C.RESET}")
+    print(f"{C.BOLD}{text}{C.RESET}")
+    print(f"{C.BOLD}{C.BLUE}{'─'*60}{C.RESET}")
     logger.info(text)
+
+    # Ensure resources are closed so the process can exit cleanly
+    try:
+        agent.terminate_connection()
+    except Exception:
+        pass
+
+    if not args.disable_mlflow:
+        try:
+            mlflow.end_run("FINISHED")
+        except Exception as e:
+            logger.warning(f"Failed to end MLflow run cleanly: {e}")
+
+    sys.exit(0)
