@@ -6,7 +6,7 @@
 This script defines classes and methods to facilitate interaction with language models (LLMs),
 manage configuration files, and parse responses from LLM queries. The core functionality includes
 planning actions based on observations and memory, parsing LLM responses, and dynamically loading
-configuration files using YAML. Most of the code is adapted from the original implementation in 
+configuration files using YAML. Most of the code is adapted from the original implementation in
 the `assistan.py` from the `interactive_tui` agent.
 
 @author Maria Rigaki - maria.rigaki@aic.fel.cvut.cz
@@ -22,7 +22,7 @@ import logging
 import json
 from dotenv import dotenv_values
 from openai import OpenAI
-from tenacity import retry, stop_after_attempt
+from tenacity import retry, stop_after_attempt, wait_exponential
 import jinja2
 
 import re
@@ -35,7 +35,7 @@ from NetSecGameAgents.agents.llm_utils import create_action_from_response, creat
 
 class ConfigLoader:
     """Class to handle loading YAML configurations."""
-    
+
     @staticmethod
     def load_config(file_name: str = 'prompts.yaml') -> dict:
         possible_paths = [
@@ -58,6 +58,8 @@ ACTION_MAPPER = {
     "ExploitService": ActionType.ExploitService,
 }
 
+ACTION_TYPE_TO_STR = {v: k for k, v in ACTION_MAPPER.items()}
+
 
 class LLMActionPlanner:
     def __init__(self, model_name: str, goal: str, memory_len: int = 10, api_url=None, config: dict = None, use_reasoning: bool = False, use_reflection: bool = False, use_self_consistency: bool = False):
@@ -67,11 +69,22 @@ class LLMActionPlanner:
         self.use_reflection = use_reflection
         self.use_self_consistency = use_self_consistency
 
-        if "gpt" in self.model:
-            env_config = dotenv_values(".env")
-            self.client = OpenAI(api_key=env_config["OPENAI_API_KEY"])
+        # Load API key from .env if present (try several common names)
+        env_config = dotenv_values(".env")
+        api_key = env_config.get("OPENAI_API_KEY") or env_config.get("OPENAI_KEY") or env_config.get("API_KEY")
+
+        if "gpt" in self.model and api_url is None:
+            # Only use OpenAI default endpoint if no custom api_url provided
+            if api_key:
+                self.client = OpenAI(api_key=api_key)
+            else:
+                self.client = OpenAI()
         else:
-            self.client = OpenAI(base_url=api_url, api_key="ollama")
+            # Use custom endpoint (even for GPT models) or non-OpenAI models
+            if api_key:
+                self.client = OpenAI(base_url=api_url, api_key=api_key)
+            else:
+                self.client = OpenAI(base_url=api_url)
 
         self.memory_len = memory_len
         self.logger = logging.getLogger("REACT-agent")
@@ -90,13 +103,13 @@ class LLMActionPlanner:
         Returns the list of responses received from the LLM. Only Stage 2 responses are included.
         """
         return self.responses
-    
+
     def get_states(self) -> list:
         """
         Returns the list of states received from the LLM. In JSON format.
         """
         return self.states
-    
+
     def update_instructions(self, new_goal: str) -> None:
         template = jinja2.Environment().from_string(self.config['prompts']['INSTRUCTIONS_TEMPLATE'])
         self.instructions = template.render(goal=new_goal)
@@ -107,16 +120,126 @@ class LLMActionPlanner:
             prompt += f"You have taken action {memory} in the past. This action was {goodness}.\n"
         return prompt
 
-    @retry(stop=stop_after_attempt(3))
-    def openai_query(self, msg_list: list, max_tokens: int = 60, model: str = None, fmt=None, temperature: float = 0.0):
+    def filter_messages(self, messages: list) -> list:
+        """Filter out messages with None content and fix roles for API compatibility."""
+        filtered = []
+        for msg in messages:
+            if msg.get("content") is not None and msg.get("content").strip():
+                role = "system" if any(keyword in str(msg.get("content", "")).lower()
+                                      for keyword in ["instruction", "goal", "you are", "your task"]) else "user"
+                filtered.append({"role": role, "content": msg["content"]})
+        return filtered
+
+    def extract_json_from_response(self, response: str) -> str:
+        """Extract JSON from response that may contain prefixes like 'Action: {...}'"""
+        if not response:
+            return response
+
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        matches = re.findall(json_pattern, response)
+        if matches:
+            return matches[0].strip()
+
+        prefixes = ["Action:", "Response:", "Output:", "Result:"]
+        for prefix in prefixes:
+            if prefix in response:
+                json_part = response.split(prefix, 1)[1].strip()
+                if json_part.startswith('{') and json_part.endswith('}'):
+                    return json_part
+
+        return response.strip()
+
+    def fix_incomplete_json(self, response: str) -> str:
+        """Try to fix JSON responses that are missing the 'action' field."""
+        if not response or not response.strip():
+            return response
+
+        try:
+            parsed = json.loads(response)
+            if isinstance(parsed, dict) and "action" in parsed:
+                return response
+            if isinstance(parsed, dict) and "action" not in parsed:
+                inferred_action = self.infer_action_from_parameters(parsed)
+                if inferred_action:
+                    fixed_response = {
+                        "action": inferred_action,
+                        "parameters": parsed
+                    }
+                    return json.dumps(fixed_response)
+        except json.JSONDecodeError:
+            pass
+
+        return response
+
+    def extract_action_hint(self, response: str) -> str | None:
+        """Try to extract the intended action name from a malformed/plain-text response."""
+        if not response:
+            return None
+        try:
+            match = re.search(r'"action"\s*:\s*"(\w+)"', response)
+            if match:
+                action = match.group(1)
+                if action in ACTION_MAPPER:
+                    return action
+        except Exception:
+            pass
+        for action_name in ACTION_MAPPER:
+            if action_name.lower() in response.lower():
+                return action_name
+        return None
+
+    def infer_action_from_parameters(self, params: dict) -> str:
+        """Infer the action type based on parameter keys."""
+        if not isinstance(params, dict):
+            return None
+
+        param_keys = set(params.keys())
+
+        if {"target_host", "data", "source_host"}.issubset(param_keys):
+            return "ExfiltrateData"
+        elif {"target_network", "source_host"}.issubset(param_keys):
+            return "ScanNetwork"
+        elif {"target_host", "source_host"}.issubset(param_keys) and "service" in param_keys:
+            return "ExploitService"
+        elif {"target_host", "source_host"}.issubset(param_keys):
+            return "ScanServices"
+
+        return None
+
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=2, max=30),
+        reraise=True,
+    )
+    def openai_query(self, msg_list: list, max_tokens: int = 80, model: str = None, fmt=None, temperature: float = 0.0):
+        filtered_messages = self.filter_messages(msg_list)
+
         llm_response = self.client.chat.completions.create(
             model=model or self.model,
-            messages=msg_list,
+            messages=filtered_messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            response_format=fmt or {"type": "text"},
+            extra_body={
+                "reasoning": False,
+                "use_reasoning": False,
+                "disable_reasoning": True,
+            },
         )
-        return llm_response.choices[0].message.content
+
+        content = llm_response.choices[0].message.content
+        if content is None:
+            reasoning_content = getattr(llm_response.choices[0].message, 'reasoning_content', None)
+            if reasoning_content:
+                content = reasoning_content
+
+        if content and content.startswith('```json'):
+            content = content.replace('```json\n', '').replace('\n```', '').strip()
+
+        if content:
+            content = self.extract_json_from_response(content)
+            content = self.fix_incomplete_json(content)
+
+        return content
 
     def parse_response_deprecated(self, llm_response: str, state: Observation.state):
         try:
@@ -129,9 +252,8 @@ class LLMActionPlanner:
             action_str = response["action"]
             action_params = response["parameters"]
             valid, action = create_action_from_response(response, state)
-            #return valid,f"You can take action {action_str} with parameters {action_params}", action
             return valid, {action_str:action_str,action_params:action_params}, action
-       
+
         except KeyError:
             return False, llm_response, None
 
@@ -144,7 +266,7 @@ class LLMActionPlanner:
             response = json.loads(llm_response)
             action_str = response.get("action", None)
             action_params = response.get("parameters", None)
-            
+
             if action_str and action_params:
                 valid, action = create_action_from_response(response, state)
                 response_dict["action"] = action_str
@@ -157,7 +279,7 @@ class LLMActionPlanner:
             response_dict["parameters"] = llm_response  # Return raw response for debugging
         except KeyError:
             self.logger.error("Missing keys in LLM response.")
-        
+
         return valid, response_dict, action
 
     def remove_reasoning(self, text):
@@ -188,7 +310,7 @@ class LLMActionPlanner:
             return most_common[0][0]  # return most common answer
         return candidates[0]  # fallback
 
-    def get_action_from_obs_react(self, observation: Observation, memory_buf: list) -> tuple:
+    def get_action_from_obs_react(self, observation: Observation, memory_buf: list, forbidden_actions=None) -> tuple:
         self.states.append(observation.state.as_json())
         status_prompt = create_status_from_state(observation.state)
         q1 = self.config['questions'][0]['text']
@@ -196,11 +318,24 @@ class LLMActionPlanner:
         cot_prompt = self.config['prompts']['COT_PROMPT']
         memory_prompt = self.create_mem_prompt(memory_buf)
 
+        forbidden_prompt = ""
+        if forbidden_actions:
+            def _action_to_json(a):
+                action_name = ACTION_TYPE_TO_STR.get(a.action_type, str(a.action_type))
+                params = {k: str(v) for k, v in a.parameters.items()}
+                return json.dumps({"action": action_name, "parameters": params})
+            lines = "\n".join(f"- {_action_to_json(a)}" for a in forbidden_actions)
+            forbidden_prompt = (
+                f"[SYSTEM] The following actions are FORBIDDEN in the current state "
+                f"because they were already tried. Do NOT generate them:\n{lines}"
+            )
+
         repetitions = self.check_repetition(memory_buf)
         messages = [
             {"role": "user", "content": self.instructions},
             {"role": "user", "content": status_prompt},
             {"role": "user", "content": memory_prompt},
+            {"role": "user", "content": forbidden_prompt},
             {"role": "user", "content": q1},
         ]
         self.logger.info(f"Text sent to the LLM: {messages}")
@@ -231,14 +366,10 @@ class LLMActionPlanner:
                 }
             ]
             response = self.openai_query(reflection_prompt, max_tokens=1024)
-        #print("response after reflection: ",response)
 
-        # Optional: parse response if reasoning is expected and outputs <think> ... </think>
         if self.use_reasoning:
             response = self.remove_reasoning(response)
         self.logger.info(f"(Stage 1) Response from LLM: {response}")
-
-        #memory_prompt = self.create_mem_prompt(memory_buf)
 
         messages = [
             {"role": "user", "content": self.instructions},
@@ -246,31 +377,49 @@ class LLMActionPlanner:
             {"role": "user", "content": cot_prompt},
             {"role": "user", "content": response},
             {"role": "user", "content": memory_prompt},
+            {"role": "user", "content": forbidden_prompt},
             {"role": "user", "content": q4},
         ]
         self.prompts.append(messages)
-        response = self.openai_query(messages, max_tokens=80, fmt={"type": "json_object"})
-        
+        response = self.openai_query(messages, max_tokens=1024)
+
+        retried = False
         validated, error_msg = validate_responses.validate_agent_response(response)
         if validated is None:
             self.logger.info(f"Invalid response format: {response} - Error: {error_msg}")
-            try:
-                parsed_response = json.loads(response)
-            except json.JSONDecodeError:
-                parsed_response = response
+            action_hint = self.extract_action_hint(response)
+            if action_hint:
+                retried = True
+                self.logger.info(f"Retrying with format correction for action hint: {action_hint}")
+                print(f"  \033[35m↩ retry: {action_hint}\033[0m")
+                correction_messages = [
+                    {"role": "user", "content": self.instructions},
+                    {"role": "user", "content": status_prompt},
+                    {"role": "user", "content": cot_prompt},
+                    {"role": "user", "content": f'You chose action "{action_hint}". Using the examples above as reference, output ONLY a valid JSON object for that action with real parameter values from the current status. Action: '},
+                ]
+                response = self.openai_query(correction_messages, max_tokens=512)
+                validated, error_msg = validate_responses.validate_agent_response(response)
+                self.logger.info(f"(Stage 2 retry) Response from LLM: {response}")
 
-            response = json.dumps({
-                "action": "InvalidResponse",
-                "parameters": {
-                    "error": error_msg,
-                    "original": parsed_response
-                }
-            }, indent=2)
+            if validated is None:
+                try:
+                    parsed_response = json.loads(response)
+                except json.JSONDecodeError:
+                    parsed_response = response
+
+                response = json.dumps({
+                    "action": "InvalidResponse",
+                    "parameters": {
+                        "error": error_msg,
+                        "original": parsed_response
+                    }
+                }, indent=2)
 
         if self.use_reasoning:
             response = self.remove_reasoning(response)
 
         self.responses.append(response)
         self.logger.info(f"(Stage 2) Response from LLM: {response}")
-        print(f"(Stage 2) Response from LLM: {response}")
-        return self.parse_response(response, observation.state)
+        is_valid, response_dict, action = self.parse_response(response, observation.state)
+        return is_valid, response_dict, action, retried
