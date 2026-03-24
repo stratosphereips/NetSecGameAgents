@@ -81,6 +81,8 @@ Then visit [http://localhost:5000](http://localhost:5000) in your browser.
 5. Feedback is stored and used to inform future steps via a rolling memory window.
 6. Prompts for the agents are located in `prompts.yaml`
 
+For a detailed architecture overview, see [`docs/react_agent_architecture.md`](docs/react_agent_architecture.md).
+
 
 ## License
 
