@@ -7,13 +7,12 @@ import logging
 import argparse
 import numpy as np
 import pandas as pd
-import mlflow
+import wandb
+import weave
 import os
 import sys
 import json
 import signal
-import urllib.request
-import urllib.error
 from llm_action_planner import LLMActionPlanner
 from os import path
 from dotenv import load_dotenv, find_dotenv
@@ -40,7 +39,7 @@ class C:
 def _fmt_action(response_dict):
     """Return a compact colored action string from a response dict."""
     action = response_dict.get("action", "?") if response_dict else "?"
-    params = response_dict.get("parameters", {}) if response_dict else {}
+    params = response_dict.get("parameters") or {} if response_dict else {}
     src  = params.get("source_host", "")
     tgt  = params.get("target_host", params.get("target_network", ""))
     detail = f"{src} → {tgt}" if src and tgt else (src or tgt or "")
@@ -139,30 +138,37 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--mlflow_tracking_uri",
-        type=str,
-        default=os.getenv("MLFLOW_TRACKING_URI", "http://147.32.83.60"),
-        help="MLflow tracking server URI (default reads MLFLOW_TRACKING_URI env var)",
-    )
-
-    parser.add_argument(
-        "--mlflow_experiment",
-        type=str,
-        default=os.getenv("MLFLOW_EXPERIMENT", "LLM_QA_netsecgame_dec2024"),
-        help="MLflow experiment name (default reads MLFLOW_EXPERIMENT env var)",
-    )
-
-    parser.add_argument(
-        "--mlflow_description",
-        type=str,
-        default=os.getenv("MLFLOW_DESCRIPTION", None),
-        help="Optional description for MLflow run (default reads MLFLOW_DESCRIPTION env var)",
-    )
-
-    parser.add_argument(
-        "--disable_mlflow",
+        "--disable_wandb",
         action="store_true",
-        help="Disable mlflow logging",
+        help="Disable W&B logging (enabled by default)",
+    )
+
+    parser.add_argument(
+        "--wandb_project",
+        type=str,
+        default="netsec-llm-react",
+        help="W&B project name",
+    )
+
+    parser.add_argument(
+        "--wandb_entity",
+        type=str,
+        default=None,
+        help="W&B team/user name",
+    )
+
+    parser.add_argument(
+        "--wandb_mode",
+        type=str,
+        default="online",
+        help="W&B logging mode (online/offline)",
+    )
+
+    parser.add_argument(
+        "--wandb_group",
+        type=str,
+        default=None,
+        help="W&B group name for organizing runs",
     )
 
     args = parser.parse_args()
@@ -179,65 +185,17 @@ if __name__ == "__main__":
     logger.info("Start")
     agent = BaseAgent(args.host, args.port, "Attacker")
 
-    def _ensure_databricks_workspace_dir(dir_path: str) -> bool:
-        """Ensures a Databricks workspace directory exists using the Workspace API."""
-        host = os.getenv("DATABRICKS_HOST")
-        token = os.getenv("DATABRICKS_TOKEN")
-        if not host or not token or not dir_path:
-            return False
-        try:
-            url = f"{host.rstrip('/')}/api/2.0/workspace/mkdirs"
-            payload = json.dumps({"path": dir_path}).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=payload,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                return 200 <= resp.status < 300
-        except urllib.error.HTTPError as he:
-            logger.warning(f"Databricks mkdirs for '{dir_path}' returned HTTP {he.code}: {he.reason}")
-            return False
-        except Exception as e:
-            logger.warning(f"Failed ensuring Databricks dir '{dir_path}': {e}")
-            return False
+    args.use_wandb = not args.disable_wandb
 
-    if not args.disable_mlflow:
-        mlflow.set_tracking_uri(args.mlflow_tracking_uri)
-
-        experiment_path = args.mlflow_experiment
-
-        # If using Databricks with a workspace path, ensure parent directory exists
-        if (args.mlflow_tracking_uri == "databricks") and experiment_path.startswith("/"):
-            parent_dir = os.path.dirname(experiment_path.rstrip("/"))
-            if parent_dir and parent_dir != "/":
-                _ensure_databricks_workspace_dir(parent_dir)
-
-        try:
-            mlflow.set_experiment(experiment_path)
-        except Exception as e:
-            msg = str(e)
-            logger.warning(f"mlflow.set_experiment failed for '{experiment_path}': {msg}")
-            if experiment_path.startswith("/Shared/") and "Parent directory" in msg:
-                flattened = experiment_path[len("/Shared/"):].replace("/", "_")
-                fallback_path = f"/Shared/{flattened}"
-                logger.warning(f"Falling back to Databricks experiment path '{fallback_path}'")
-                mlflow.set_experiment(fallback_path)
-                experiment_path = fallback_path
-            else:
-                raise
-
-        experiment_description = args.mlflow_description or (
-            f"{experiment_path} | Model: {args.llm}"
+    if args.use_wandb:
+        wandb.init(
+            entity=args.wandb_entity,
+            project=args.wandb_project,
+            group=args.wandb_group,
+            name=f"llm-react-{args.llm}",
+            mode=args.wandb_mode,
         )
-
-        mlflow.start_run(description=experiment_description)
-
-        params = {
+        wandb.config.update({
             "model": args.llm,
             "memory_len": args.memory_buffer,
             "episodes": args.test_episodes,
@@ -245,9 +203,9 @@ if __name__ == "__main__":
             "port": args.port,
             "api_url": args.api_url,
             "max_tokens_limit": args.max_tokens_limit,
-        }
-        mlflow.log_params(params)
-        mlflow.set_tag("agent_role", "Attacker")
+            "agent_role": "Attacker",
+        })
+        weave.init(f"{args.wandb_entity}/{args.wandb_project}")
 
     # Run multiple episodes to compute statistics
     wins = 0
@@ -276,10 +234,9 @@ if __name__ == "__main__":
                 print(f"\nInterrupted (Ctrl-C). Failed to save data: {e}")
             finally:
                 try:
-                    if not args.disable_mlflow:
-                        mlflow.set_tag("termination_reason", "keyboard_interrupt")
-                        mlflow.log_metric("total_tokens_at_termination", total_tokens_used)
-                        mlflow.end_run("KILLED")
+                    if args.use_wandb:
+                        wandb.log({"total_tokens_at_termination": total_tokens_used})
+                        wandb.finish(exit_code=1)
                 except Exception:
                     pass
                 os._exit(130)
@@ -365,12 +322,13 @@ if __name__ == "__main__":
                         json.dump(prompt_table, json_file, indent=4)
                 except Exception:
                     pass
-                if not args.disable_mlflow:
+                if args.use_wandb:
                     try:
-                        mlflow.set_tag("termination_reason", "max_tokens_limit_exceeded")
-                        mlflow.log_param("termination_episode", episode)
-                        mlflow.log_metric("total_tokens_at_termination", total_tokens_used)
-                        mlflow.end_run("FAILED")
+                        wandb.log({
+                            "termination_episode": episode,
+                            "total_tokens_at_termination": total_tokens_used,
+                        })
+                        wandb.finish(exit_code=1)
                     except Exception:
                         pass
                 sys.exit(1)
@@ -497,22 +455,22 @@ if __name__ == "__main__":
                 returns += [total_reward]
                 num_steps += [steps]
 
-                if not args.disable_mlflow:
-                    # Episodic value
-                    mlflow.log_metric("wins", wins, step=episode)
-                    mlflow.log_metric("num_steps", steps, step=episode)
-                    mlflow.log_metric("return", total_reward, step=episode)
-
-                    # Running metrics
-                    mlflow.log_metric("reached_max_steps", reach_max_steps, step=episode)
-                    mlflow.log_metric("detected", detected, step=episode)
-                    mlflow.log_metric("total_tokens_used", total_tokens_used, step=episode)
-                    mlflow.log_metric("hard_blocked_actions", hard_blocked_actions, step=episode)
-
-                    # Running averages
-                    mlflow.log_metric("win_rate", (wins / episode) * 100, step=episode)
-                    mlflow.log_metric("avg_returns", np.mean(returns), step=episode)
-                    mlflow.log_metric("avg_steps", np.mean(num_steps), step=episode)
+                if args.use_wandb:
+                    wandb.log({
+                        # Episodic values
+                        "wins": wins,
+                        "num_steps": steps,
+                        "return": total_reward,
+                        # Running metrics
+                        "reached_max_steps": reach_max_steps,
+                        "detected": detected,
+                        "total_tokens_used": total_tokens_used,
+                        "hard_blocked_actions": hard_blocked_actions,
+                        # Running averages
+                        "win_rate": (wins / episode) * 100,
+                        "avg_returns": np.mean(returns),
+                        "avg_steps": np.mean(num_steps),
+                    }, step=episode)
 
                 logger.info(
                     f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
@@ -569,8 +527,8 @@ if __name__ == "__main__":
         "final_total_tokens_used": total_tokens_used,
     }
 
-    if not args.disable_mlflow:
-        mlflow.log_metrics(tensorboard_dict)
+    if args.use_wandb:
+        wandb.log(tensorboard_dict)
 
     text = f"""Final test after {args.test_episodes} episodes
         Wins={wins},
@@ -595,10 +553,10 @@ if __name__ == "__main__":
     except Exception:
         pass
 
-    if not args.disable_mlflow:
+    if args.use_wandb:
         try:
-            mlflow.end_run("FINISHED")
+            wandb.finish()
         except Exception as e:
-            logger.warning(f"Failed to end MLflow run cleanly: {e}")
+            logger.warning(f"Failed to finish W&B run cleanly: {e}")
 
     sys.exit(0)
