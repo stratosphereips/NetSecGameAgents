@@ -13,6 +13,7 @@ import os
 import sys
 import json
 import signal
+from collections import Counter
 from llm_action_planner import LLMActionPlanner
 from os import path
 from dotenv import load_dotenv, find_dotenv
@@ -211,6 +212,7 @@ if __name__ == "__main__":
     wins = 0
     detected = 0
     reach_max_steps = 0
+    total_hard_blocked_counts = Counter()  # cross-episode breakdown
     returns = []
     num_steps = []
     num_win_steps = []
@@ -275,6 +277,7 @@ if __name__ == "__main__":
         tried_in_state = {}       # dict[str, set[Action]] — per-state blacklist
         tried_globally = set()    # set[Action] — cross-state blacklist for idempotent actions
         hard_blocked_actions = 0  # LLM proposed a forbidden action despite the prompt
+        hard_blocked_counts = Counter()  # action_type -> hard-block count
 
         if args.llm is not None:
             llm_query = LLMActionPlanner(
@@ -338,6 +341,7 @@ if __name__ == "__main__":
                 action in tried_in_state.get(pre_exec_state_key, set()) or action in tried_globally
             ):
                 hard_blocked_actions += 1
+                hard_blocked_counts[response_dict.get("action", "unknown")] += 1
                 is_valid = False
                 action = None
                 memories.append(
@@ -423,7 +427,7 @@ if __name__ == "__main__":
                 # If the memory is full, remove the oldest memory
                 memories.pop(0)
 
-            logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action}")
+            logger.info(f"Iteration: {i} Valid: {is_valid} Good: {good_action} Tokens: {tokens_used}")
 
             if observation.end or i == (num_iterations - 1):
                 if i < (num_iterations - 1):
@@ -475,10 +479,12 @@ if __name__ == "__main__":
                 logger.info(
                     f"\tEpisode {episode} of game ended after {steps} steps. Reason: {reason}. Last reward: {epi_last_reward}"
                 )
-                logger.info(f"\tEpisode {episode}: hard_blocked_actions={hard_blocked_actions}")
+                logger.info(f"\tEpisode {episode}: hard_blocked_actions={hard_blocked_actions}, hard_blocked_by_type={dict(hard_blocked_counts)}")
                 end_color = C.GREEN if type_of_end == "win" else C.RED if type_of_end == "detection" else C.YELLOW
                 print(f"  {C.BOLD}── Episode {episode} ended{C.RESET} | {end_color}{type_of_end}{C.RESET} | steps={steps} | reward={epi_last_reward:.2f} | hard-blocked={hard_blocked_actions}")
                 break
+
+        total_hard_blocked_counts.update(hard_blocked_counts)
 
         episode_prompt_table = {
             "episode": episode,
@@ -527,6 +533,10 @@ if __name__ == "__main__":
         "final_total_tokens_used": total_tokens_used,
     }
 
+    tensorboard_dict.update({
+        f"hard_blocked/{k}": v for k, v in total_hard_blocked_counts.items()
+    })
+
     if args.use_wandb:
         wandb.log(tensorboard_dict)
 
@@ -540,7 +550,8 @@ if __name__ == "__main__":
         average_episode_steps={test_average_episode_steps:.3f} +- {test_std_episode_steps:.3f},
         average_win_steps={test_average_win_steps:.3f} +- {test_std_win_steps:.3f},
         average_detected_steps={test_average_detected_steps:.3f} +- {test_std_detected_steps:.3f}
-        average_repeated_steps={test_average_repeated_steps:.3f} += {test_std_repeated_steps:.3f}"""
+        average_repeated_steps={test_average_repeated_steps:.3f} += {test_std_repeated_steps:.3f}
+        hard_blocked_by_type={dict(total_hard_blocked_counts)}"""
 
     print(f"\n{C.BOLD}{C.BLUE}{'─'*60}{C.RESET}")
     print(f"{C.BOLD}{text}{C.RESET}")
