@@ -39,7 +39,7 @@ class C:
 
 def _fmt_action(response_dict):
     """Return a compact colored action string from a response dict."""
-    action = response_dict.get("action", "?") if response_dict else "?"
+    action = (response_dict.get("action") or "?") if response_dict else "?"
     params = response_dict.get("parameters") or {} if response_dict else {}
     src  = params.get("source_host", "")
     tgt  = params.get("target_host", params.get("target_network", ""))

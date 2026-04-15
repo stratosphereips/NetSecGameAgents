@@ -193,6 +193,11 @@ def validate_agent_response(raw_response: str, context: Optional[Dict[str, Any]]
         if not action:
             return None, "Error: Missing 'action' field."
 
+        # Normalize "ActionType.Foo" -> "Foo" (LLM copies prefix from forbidden-list examples)
+        if isinstance(action, str) and action.startswith("ActionType."):
+            action = action[len("ActionType."):]
+            response["action"] = action
+
         schema_def = ACTION_SCHEMA.get(action)
         if not schema_def:
             return None, f"Error: Unknown action '{action}'."

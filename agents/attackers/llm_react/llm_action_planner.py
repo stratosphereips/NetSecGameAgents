@@ -219,11 +219,6 @@ class LLMActionPlanner:
             messages=filtered_messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            extra_body={
-                "reasoning": False,
-                "use_reasoning": False,
-                "disable_reasoning": True,
-            },
         )
 
         content = llm_response.choices[0].message.content
@@ -264,13 +259,14 @@ class LLMActionPlanner:
         except KeyError:
             return False, llm_response, None
 
-    def parse_response(self, llm_response: str, state: Observation.state):
+    def parse_response(self, llm_response: str, state: Observation.state, validated_dict: dict = None):
         response_dict = {"action": None, "parameters": None}
         valid = False
         action = None
 
         try:
-            response = json.loads(llm_response)
+            # Use pre-validated/normalized dict when available to avoid re-parsing raw string
+            response = validated_dict if validated_dict is not None else json.loads(llm_response)
             action_str = response.get("action", None)
             action_params = response.get("parameters", None)
 
@@ -286,6 +282,10 @@ class LLMActionPlanner:
             response_dict["parameters"] = llm_response  # Return raw response for debugging
         except KeyError:
             self.logger.error("Missing keys in LLM response.")
+        except ValueError as e:
+            self.logger.error("Invalid action parameters from LLM (e.g. non-IP in host field): %s", e)
+            response_dict["action"] = None
+            response_dict["parameters"] = {}
 
         return valid, response_dict, action
 
@@ -331,7 +331,12 @@ class LLMActionPlanner:
         if forbidden_actions:
             def _action_to_json(a):
                 action_name = ACTION_TYPE_TO_STR.get(a.action_type, str(a.action_type))
-                params = {k: str(v) for k, v in a.parameters.items()}
+                params = {}
+                for k, v in a.parameters.items():
+                    if hasattr(v, "owner") and hasattr(v, "id"):
+                        params[k] = {"owner": v.owner, "id": v.id}
+                    else:
+                        params[k] = str(v)
                 return json.dumps({"action": action_name, "parameters": params})
             lines = "\n".join(f"- {_action_to_json(a)}" for a in forbidden_actions)
             forbidden_prompt = (
@@ -435,6 +440,6 @@ class LLMActionPlanner:
 
         self.responses.append(response)
         self.logger.info(f"(Stage 2) Response from LLM: {response}")
-        is_valid, response_dict, action = self.parse_response(response, observation.state)
+        is_valid, response_dict, action = self.parse_response(response, observation.state, validated_dict=validated)
         self.logger.info(f"Iteration token usage: {iteration_tokens}")
         return is_valid, response_dict, action, iteration_tokens, retried
