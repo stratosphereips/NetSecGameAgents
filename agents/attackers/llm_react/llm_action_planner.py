@@ -239,7 +239,14 @@ class LLMActionPlanner:
             content = self.extract_json_from_response(content)
             content = self.fix_incomplete_json(content)
 
-        return content
+        try:
+            tokens = int(llm_response.usage.total_tokens or 0)
+        except Exception:
+            # Fallback: provider doesn't implement usage — estimate from char counts
+            input_chars = sum(len(m.get("content", "") or "") for m in msg_list)
+            output_chars = len(content or "")
+            tokens = (input_chars + output_chars) // 4
+        return content, tokens
 
     def parse_response_deprecated(self, llm_response: str, state: Observation.state):
         try:
@@ -299,16 +306,18 @@ class LLMActionPlanner:
 
     def get_self_consistent_response(self, messages, temp=0.4, max_tokens=1024, n=3):
         candidates = []
+        sc_tokens = 0
         for _ in range(n):
-            response = self.openai_query(messages, temperature=temp, max_tokens=max_tokens)
+            response, tok = self.openai_query(messages, temperature=temp, max_tokens=max_tokens)
+            sc_tokens += tok
             candidates.append(response.strip())
 
         counts = Counter(candidates)
         most_common = counts.most_common(1)
         if most_common:
             self.logger.info(f"Self-consistency candidates: {counts}")
-            return most_common[0][0]  # return most common answer
-        return candidates[0]  # fallback
+            return most_common[0][0], sc_tokens
+        return candidates[0], sc_tokens
 
     def get_action_from_obs_react(self, observation: Observation, memory_buf: list, forbidden_actions=None) -> tuple:
         self.states.append(observation.state.as_json())
@@ -331,6 +340,7 @@ class LLMActionPlanner:
             )
 
         repetitions = self.check_repetition(memory_buf)
+        iteration_tokens = 0
         messages = [
             {"role": "user", "content": self.instructions},
             {"role": "user", "content": status_prompt},
@@ -341,9 +351,10 @@ class LLMActionPlanner:
         self.logger.info(f"Text sent to the LLM: {messages}")
 
         if self.use_self_consistency:
-            response = self.get_self_consistent_response(messages, temp=repetitions/9, max_tokens=1024)
+            response, tok = self.get_self_consistent_response(messages, temp=repetitions/9, max_tokens=1024)
         else:
-            response = self.openai_query(messages, max_tokens=1024)
+            response, tok = self.openai_query(messages, max_tokens=1024)
+        iteration_tokens += tok
 
         if self.use_reflection:
             reflection_prompt = [
@@ -365,7 +376,8 @@ class LLMActionPlanner:
                     """
                 }
             ]
-            response = self.openai_query(reflection_prompt, max_tokens=1024)
+            response, tok = self.openai_query(reflection_prompt, max_tokens=1024)
+            iteration_tokens += tok
 
         if self.use_reasoning:
             response = self.remove_reasoning(response)
@@ -381,7 +393,8 @@ class LLMActionPlanner:
             {"role": "user", "content": q4},
         ]
         self.prompts.append(messages)
-        response = self.openai_query(messages, max_tokens=1024)
+        response, tok = self.openai_query(messages, max_tokens=1024)
+        iteration_tokens += tok
 
         retried = False
         validated, error_msg = validate_responses.validate_agent_response(response)
@@ -398,7 +411,8 @@ class LLMActionPlanner:
                     {"role": "user", "content": cot_prompt},
                     {"role": "user", "content": f'You chose action "{action_hint}". Using the examples above as reference, output ONLY a valid JSON object for that action with real parameter values from the current status. Action: '},
                 ]
-                response = self.openai_query(correction_messages, max_tokens=512)
+                response, tok = self.openai_query(correction_messages, max_tokens=512)
+                iteration_tokens += tok
                 validated, error_msg = validate_responses.validate_agent_response(response)
                 self.logger.info(f"(Stage 2 retry) Response from LLM: {response}")
 
@@ -422,4 +436,5 @@ class LLMActionPlanner:
         self.responses.append(response)
         self.logger.info(f"(Stage 2) Response from LLM: {response}")
         is_valid, response_dict, action = self.parse_response(response, observation.state)
-        return is_valid, response_dict, action, retried
+        self.logger.info(f"Iteration token usage: {iteration_tokens}")
+        return is_valid, response_dict, action, iteration_tokens, retried
