@@ -62,10 +62,10 @@ ACTION_TYPE_TO_STR = {v: k for k, v in ACTION_MAPPER.items()}
 
 
 class LLMActionPlanner:
-    def __init__(self, model_name: str, goal: str, memory_len: int = 10, api_url=None, config: dict = None, use_reasoning: bool = False, use_reflection: bool = False, use_self_consistency: bool = False):
+    def __init__(self, model_name: str, goal: str, memory_len: int = 10, api_url=None, config: dict = None, reasoning_effort: str = None, use_reflection: bool = False, use_self_consistency: bool = False):
         self.model = model_name
         self.config = config or ConfigLoader.load_config()
-        self.use_reasoning = use_reasoning
+        self.reasoning_effort = reasoning_effort
         self.use_reflection = use_reflection
         self.use_self_consistency = use_self_consistency
 
@@ -214,11 +214,16 @@ class LLMActionPlanner:
     def openai_query(self, msg_list: list, max_tokens: int = 80, model: str = None, fmt=None, temperature: float = 0.0):
         filtered_messages = self.filter_messages(msg_list)
 
+        extra = {}
+        if self.reasoning_effort is not None:
+            extra["reasoning_effort"] = self.reasoning_effort
+
         llm_response = self.client.chat.completions.create(
             model=model or self.model,
             messages=filtered_messages,
             max_tokens=max_tokens,
             temperature=temperature,
+            extra_body=extra or None,
         )
 
         content = llm_response.choices[0].message.content
@@ -288,12 +293,6 @@ class LLMActionPlanner:
             response_dict["parameters"] = {}
 
         return valid, response_dict, action
-
-    def remove_reasoning(self, text):
-        match = re.search(r'</think>(.*)', text, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return text
 
     def check_repetition(self, memory_list):
         repetitions = 0
@@ -384,8 +383,6 @@ class LLMActionPlanner:
             response, tok = self.openai_query(reflection_prompt, max_tokens=1024)
             iteration_tokens += tok
 
-        if self.use_reasoning:
-            response = self.remove_reasoning(response)
         self.logger.info(f"(Stage 1) Response from LLM: {response}")
 
         messages = [
@@ -434,9 +431,6 @@ class LLMActionPlanner:
                         "original": parsed_response
                     }
                 }, indent=2)
-
-        if self.use_reasoning:
-            response = self.remove_reasoning(response)
 
         self.responses.append(response)
         self.logger.info(f"(Stage 2) Response from LLM: {response}")

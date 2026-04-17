@@ -60,6 +60,12 @@ def _print_iter(episode, i, num_iterations, response_dict, is_valid, good_action
 
 
 if __name__ == "__main__":
+    # Write PID file so external tools can reliably kill this process
+    _pid = os.getpid()
+    _pid_file = f"/tmp/nsg_agent_llm_react_{_pid}.pid"
+    with open(_pid_file, "w") as _f:
+        _f.write(str(_pid))
+
     # Load environment defaults (supports both local .env and inherited env)
     try:
         _THIS_DIR = path.dirname(path.abspath(__file__))
@@ -114,9 +120,11 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--use_reasoning",
-        action="store_true",
-        help="Required for models that output reasoning using <think>...</think>."
+        "--reasoning_effort",
+        type=str,
+        default=None,
+        choices=["none", "low", "medium", "high"],
+        help="Set reasoning_effort for thinking models (e.g. 'none' to disable thinking on Ollama). Omit for non-thinking models."
     )
 
     parser.add_argument(
@@ -207,6 +215,7 @@ if __name__ == "__main__":
             "agent_role": "Attacker",
         })
         weave.init(f"{args.wandb_entity}/{args.wandb_project}")
+        logging.getLogger("weave").setLevel(logging.WARNING)
 
     # Run multiple episodes to compute statistics
     wins = 0
@@ -285,7 +294,7 @@ if __name__ == "__main__":
                 goal=observation.info["goal_description"],
                 memory_len=args.memory_buffer,
                 api_url=args.api_url,
-                use_reasoning=args.use_reasoning,
+                reasoning_effort=args.reasoning_effort,
                 use_reflection=args.use_reflection,
                 use_self_consistency=args.use_self_consistency
             )
