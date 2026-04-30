@@ -21,7 +21,7 @@ Notes:
 ## Evaluation
 
 ```bash
-python blackbox_pure_gnn_agent.py --episodes 100 --curiosity_weight 0.0 --port 9011 --eval --eval_temperature 0.0 --weights <model weights>
+python blackbox_pure_gnn_agent.py --episodes 100 --curiosity_weight 0.0 --port 9000 --eval --eval_temperature 0.0 --weights best_blackbox_gnn.pth
 ```
 
 `--verbose` can be used to log the actions that are taken by the agent
