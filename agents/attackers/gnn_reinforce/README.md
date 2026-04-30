@@ -32,3 +32,10 @@ python blackbox_pure_gnn_agent.py --episodes 100 --curiosity_weight 0.0 --port 9
 python -m pytest tests/ -v
 ```
 
+## Requirements
+
+`pip install netsecgame`
+- torch
+- wandb
+- pydantic
+- pytest
