@@ -174,6 +174,12 @@ NETSECGAME_TOOLS = [
 ]
 
 
+_REQUIRED_PARAMS = {
+    t["function"]["name"]: t["function"]["parameters"]["required"]
+    for t in NETSECGAME_TOOLS
+}
+
+
 SYSTEM_PROMPT = """You are a cyber security red team agent operating in the NetSecGame simulation.
 
 Your overall mission: {mission}
@@ -265,6 +271,7 @@ class ReActAgent(BaseAgent):
         max_output_tokens_per_call: int = 500,
         temperature: float = 0.2,
         action_memory_size: int = 0,
+        max_consecutive_failures: int = 3,
     ):
         super().__init__(host, port, role)
         if OpenAI is None:
@@ -280,6 +287,7 @@ class ReActAgent(BaseAgent):
         self.max_output_tokens_per_call = max_output_tokens_per_call
         self.temperature = temperature
         self.action_memory_size = max(0, int(action_memory_size))
+        self.max_consecutive_failures = max(1, int(max_consecutive_failures))
 
         # Per-episode mutable state
         self._messages: list = []
@@ -480,8 +488,17 @@ class ReActAgent(BaseAgent):
                 )
         except (KeyError, TypeError) as e:
             self.logger.warning(f"Tool call parse failure for {name}: {e}")
-            return None, f"malformed arguments for {name}: {e}"
-        return None, f"unknown tool name {name!r}"
+            required = _REQUIRED_PARAMS.get(name, [])
+            provided = sorted(args.keys()) if isinstance(args, dict) else []
+            missing = [k for k in required if k not in provided]
+            return None, (
+                f"malformed arguments for {name}: {e}. "
+                f"required: {required}; provided: {provided}; missing: {missing}"
+            )
+        return None, (
+            f"unknown tool name {name!r}. "
+            f"valid tools: {sorted(_REQUIRED_PARAMS.keys())}"
+        )
 
     # ------------------------------------------------------------------
     # Episode loop
@@ -555,24 +572,27 @@ class ReActAgent(BaseAgent):
             self._output_tokens += response.usage.completion_tokens or 0
 
         msg = response.choices[0].message
-        # Append the assistant message so the next call has context
-        self._messages.append(
-            {
-                "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
-                    for tc in (msg.tool_calls or [])
-                ],
-            }
-        )
+        # Append the assistant message so the next call has context. Only set
+        # tool_calls when non-empty: some OpenAI-compatible backends (e.g.
+        # vLLM via litellm) reject assistant messages that carry an empty
+        # tool_calls array on subsequent turns.
+        assistant_msg: dict = {
+            "role": "assistant",
+            "content": msg.content or "",
+        }
+        if msg.tool_calls:
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
+        self._messages.append(assistant_msg)
         if not msg.tool_calls:
             return None, None, msg.content or ""
         tc = msg.tool_calls[0]
@@ -602,6 +622,7 @@ class ReActAgent(BaseAgent):
         end_reason = "unknown"
         step = 0
         total_reward = 0.0
+        consecutive_failures = 0
         if observation:
             self._prev_state_sig = self._state_signature(observation.state)
 
@@ -627,6 +648,7 @@ class ReActAgent(BaseAgent):
             if not tool_name:
                 # Smaller models occasionally reply with plain text instead of
                 # calling a tool. Nudge them back to tool use rather than aborting.
+                consecutive_failures += 1
                 last_result = (
                     "No tool call detected. You MUST respond by calling one of "
                     "the available tools (scan_network, find_services, "
@@ -641,6 +663,9 @@ class ReActAgent(BaseAgent):
                     print(
                         f"[Step {step}] no tool call (reasoning: {reasoning[:120]!r})"
                     )
+                if consecutive_failures >= self.max_consecutive_failures:
+                    end_reason = "too_many_invalid"
+                    break
                 continue
 
             action, parse_error = self.parse_tool_call(
@@ -649,6 +674,7 @@ class ReActAgent(BaseAgent):
             tool_call_id = self._messages[-1]["tool_calls"][0]["id"]
 
             if action is None:
+                consecutive_failures += 1
                 last_result = (
                     f"INVALID tool call {tool_name}({tool_args}): {parse_error}"
                 )
@@ -667,7 +693,12 @@ class ReActAgent(BaseAgent):
                 )
                 if verbose:
                     print(f"[Step {step}] INVALID tool call: {tool_name}({tool_args})")
+                if consecutive_failures >= self.max_consecutive_failures:
+                    end_reason = "too_many_invalid"
+                    break
                 continue
+
+            consecutive_failures = 0
 
             if verbose:
                 print(f"[Step {step}] {action.type.name}({action.parameters})")
@@ -769,6 +800,16 @@ def main():
             "smaller models that hallucinate or repeat dead-end actions. Default 0 (off)."
         ),
     )
+    parser.add_argument(
+        "--max_consecutive_failures",
+        type=int,
+        default=3,
+        help=(
+            "Abort the episode after this many consecutive no-tool-call or invalid-args "
+            "responses, instead of letting a stuck model burn the whole step budget. "
+            "Default 3."
+        ),
+    )
     # ── W&B Weave (optional LLM tracing) ─────────────────────────────────────
     parser.add_argument(
         "--weave",
@@ -815,6 +856,7 @@ def main():
         max_output_tokens_per_call=args.max_output_tokens_per_call,
         temperature=args.temperature,
         action_memory_size=args.action_memory,
+        max_consecutive_failures=args.max_consecutive_failures,
     )
 
     try:
