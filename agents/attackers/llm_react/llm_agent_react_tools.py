@@ -31,8 +31,7 @@ from netsecgame.game_components import (
     AgentStatus,
     GameState,
 )
-from utils import filter_log_files_from_state
-from reference.action_list_base_agent import RunStats
+from utils import RunStats, filter_log_files_from_state
 
 try:
     from openai import OpenAI
@@ -256,6 +255,7 @@ class EpisodeOutcome:
     input_tokens: int
     output_tokens: int
     end_reason: str
+    total_reward: float = 0.0
     transcript: list = field(default_factory=list)
 
 
@@ -623,6 +623,7 @@ class ReActAgent(BaseAgent):
         last_result: Optional[str] = None
         end_reason = "unknown"
         step = 0
+        total_reward = 0.0
         if observation:
             self._prev_state_sig = self._state_signature(observation.state)
 
@@ -693,6 +694,8 @@ class ReActAgent(BaseAgent):
 
             observation = self.make_step(action)
             observation = filter_log_files_from_state(observation)
+            if observation and observation.reward is not None:
+                total_reward += float(observation.reward)
             last_result = (
                 f"{action.type.name} executed. reward={observation.reward}. "
                 "See updated state below."
@@ -748,6 +751,7 @@ class ReActAgent(BaseAgent):
             input_tokens=self._input_tokens,
             output_tokens=self._output_tokens,
             end_reason=end_reason,
+            total_reward=total_reward,
             transcript=transcript,
         )
 
@@ -849,6 +853,7 @@ def main():
             )
             print(
                 f"  steps: {outcome.steps}, "
+                f"reward: {outcome.total_reward:.2f}, "
                 f"tokens: {total_tok:,} "
                 f"(in={outcome.input_tokens:,} out={outcome.output_tokens:,})"
             )
