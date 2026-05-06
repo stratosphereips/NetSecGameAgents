@@ -2,6 +2,8 @@
 
 This repository provides an implementation of an attacker agent for NetSecGame controlled using a Large Language Model (LLM). The agent uses ReAct-style prompting and memory to plan and take actions in a simulated environment.
 
+New: A new version of the agent that supports tool use `llm_react_tools.py`
+
 ## Supported models
 
 
@@ -43,6 +45,11 @@ Run the agent with a local model
 
 ```bash
 python llm_agent_qa.py --llm llama3.1:8b --test_episodes 20 --memory_buffer 5 --api_url http://localhost:11434/v1/
+```
+
+Tool
+```bash
+python llm_react_tools.py --host 127.0.0.1 --port 9000 --base_url "<URL>" --model "<model>" --api_key "sk-...." --episodes 10  --verbose --max_input_tokens 500000 --max_steps 100 --action_memory 10
 ```
 
 ### Arguments
