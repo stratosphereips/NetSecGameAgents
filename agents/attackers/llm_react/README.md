@@ -49,7 +49,7 @@ python llm_agent_qa.py --llm llama3.1:8b --test_episodes 20 --memory_buffer 5 --
 
 Tool
 ```bash
-python llm_react_tools.py --host 127.0.0.1 --port 9000 --base_url "<URL>" --model "<model>" --api_key "sk-...." --episodes 10  --verbose --max_input_tokens 500000 --max_steps 100 --action_memory 10
+python llm_react_tools.py --host 127.0.0.1 --port 9000 --base_url "<URL>" --model "<model>" --api_key "sk-...." --episodes 10  --verbose --max_input_tokens 500000 --max_steps 100 --action_memory 10 --weave --weave --weave_project <project name> --weave_entity <entity>
 ```
 
 ### Arguments

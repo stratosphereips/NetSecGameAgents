@@ -38,6 +38,22 @@ try:
 except ImportError:
     OpenAI = None
 
+try:
+    import weave
+except ImportError:
+    weave = None
+
+
+def _weave_op(fn):
+    """Apply @weave.op() if weave is installed, else no-op.
+
+    Decorating is safe even when weave.init() has not been called — the
+    function just runs normally without logging.
+    """
+    if weave is None:
+        return fn
+    return weave.op()(fn)
+
 
 # OpenAI-format tool definitions for the 5 NetSecGame primitives.
 NETSECGAME_TOOLS = [
@@ -348,6 +364,7 @@ class ReActAgent(BaseAgent):
                 return d
         return None
 
+    @_weave_op
     def parse_tool_call(
         self, name: str, args: dict, state: GameState
     ) -> tuple[Optional[Action], Optional[str]]:
@@ -563,6 +580,7 @@ class ReActAgent(BaseAgent):
         )
         return "\n\n".join(parts)
 
+    @_weave_op
     def _llm_step(self) -> tuple[Optional[str], Optional[dict], str]:
         """Single LLM call. Returns (tool_name, tool_args, reasoning_text)."""
         response = self.client.chat.completions.create(
@@ -614,6 +632,7 @@ class ReActAgent(BaseAgent):
             }
         )
 
+    @_weave_op
     def run_episode(
         self, observation: Observation, verbose: bool = False
     ) -> EpisodeOutcome:
@@ -806,8 +825,37 @@ def main():
             "smaller models that hallucinate or repeat dead-end actions. Default 0 (off)."
         ),
     )
+    # ── W&B Weave (optional LLM tracing) ─────────────────────────────────────
+    parser.add_argument(
+        "--weave",
+        action="store_true",
+        help="Enable W&B Weave tracing of prompts/responses (requires `pip install weave`).",
+    )
+    parser.add_argument(
+        "--weave_project",
+        default="sgrl-sec-react",
+        type=str,
+        help="Weave project name.",
+    )
+    parser.add_argument(
+        "--weave_entity",
+        default=None,
+        type=str,
+        help="Weave entity/team (optional). Combined as 'entity/project'.",
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
+
+    if args.weave:
+        if weave is None:
+            print("ERROR: --weave requires `pip install weave`")
+            return
+        project = (
+            f"{args.weave_entity}/{args.weave_project}"
+            if args.weave_entity
+            else args.weave_project
+        )
+        weave.init(project)
 
     logging.basicConfig(level=logging.INFO)
     agent = ReActAgent(
