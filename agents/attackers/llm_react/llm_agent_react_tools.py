@@ -24,7 +24,6 @@ from netsecgame import (
     Observation,
     AgentRole,
     BaseAgent,
-    generate_valid_actions,
 )
 from netsecgame.game_components import (
     ActionType,
@@ -237,32 +236,6 @@ def serialize_state(state: GameState) -> str:
     return "\n".join(lines)
 
 
-def render_valid_actions(state: GameState, limit: int = 30) -> str:
-    """Render currently-valid actions as a full enumerated hint list."""
-    valid = generate_valid_actions(state, include_blocks=False)
-    if not valid:
-        return "  (no valid actions)"
-    lines = []
-    for a in valid[:limit]:
-        params = ", ".join(f"{k}={v}" for k, v in (a.parameters or {}).items())
-        lines.append(f"  - {a.type.name}({params})")
-    if len(valid) > limit:
-        lines.append(f"  ... and {len(valid) - limit} more")
-    return "\n".join(lines)
-
-
-def render_valid_actions_summary(state: GameState) -> str:
-    """Render only the count of valid actions per type — O(1) in size."""
-    from collections import Counter
-
-    valid = generate_valid_actions(state, include_blocks=False)
-    if not valid:
-        return "  (no valid actions)"
-    counts = Counter(a.type.name for a in valid)
-    parts = [f"{n} {name}" for name, n in sorted(counts.items())]
-    return f"  Total: {len(valid)} valid actions ({', '.join(parts)})"
-
-
 @dataclass
 class EpisodeOutcome:
     won: bool
@@ -291,8 +264,6 @@ class ReActAgent(BaseAgent):
         max_input_tokens: int = 200_000,
         max_output_tokens_per_call: int = 500,
         temperature: float = 0.2,
-        show_valid_actions: str = "none",
-        valid_actions_limit: int = 30,
         action_memory_size: int = 0,
     ):
         super().__init__(host, port, role)
@@ -308,12 +279,6 @@ class ReActAgent(BaseAgent):
         self.max_input_tokens = max_input_tokens
         self.max_output_tokens_per_call = max_output_tokens_per_call
         self.temperature = temperature
-        if show_valid_actions not in ("none", "summary", "full"):
-            raise ValueError(
-                f"show_valid_actions must be one of none/summary/full, got {show_valid_actions!r}"
-            )
-        self.show_valid_actions = show_valid_actions
-        self.valid_actions_limit = valid_actions_limit
         self.action_memory_size = max(0, int(action_memory_size))
 
         # Per-episode mutable state
@@ -566,12 +531,6 @@ class ReActAgent(BaseAgent):
         if last_result:
             parts.append(f"Result of previous action: {last_result}")
         parts.append(serialize_state(state))
-        if self.show_valid_actions == "full":
-            parts.append("Currently valid actions:")
-            parts.append(render_valid_actions(state, limit=self.valid_actions_limit))
-        elif self.show_valid_actions == "summary":
-            parts.append("Valid action counts:")
-            parts.append(render_valid_actions_summary(state))
         memory_block = self._format_action_memory()
         if memory_block:
             parts.append(memory_block)
@@ -587,7 +546,7 @@ class ReActAgent(BaseAgent):
             model=self.model,
             messages=self._messages,
             tools=NETSECGAME_TOOLS,
-            tool_choice="required",
+            tool_choice="auto",
             temperature=self.temperature,
             max_tokens=self.max_output_tokens_per_call,
         )
@@ -679,7 +638,9 @@ class ReActAgent(BaseAgent):
                     {"step": step, "tool": None, "args": None, "result": "no_tool_call"}
                 )
                 if verbose:
-                    print(f"[Step {step}] no tool call (reasoning: {reasoning[:120]!r})")
+                    print(
+                        f"[Step {step}] no tool call (reasoning: {reasoning[:120]!r})"
+                    )
                 continue
 
             action, parse_error = self.parse_tool_call(
@@ -793,23 +754,6 @@ def main():
     parser.add_argument("--max_output_tokens_per_call", type=int, default=500)
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument(
-        "--show_valid_actions",
-        choices=["none", "summary", "full"],
-        default="none",
-        help=(
-            "Action-list scaffolding shown to the LLM each step. "
-            "'none' = pure ReAct (default), state + tool schemas only. "
-            "'summary' = counts per ActionType, O(1) in size. "
-            "'full' = enumerate up to --valid_actions_limit valid actions."
-        ),
-    )
-    parser.add_argument(
-        "--valid_actions_limit",
-        type=int,
-        default=30,
-        help="Cap for --show_valid_actions=full.",
-    )
-    parser.add_argument(
         "--randomize_topology",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -870,8 +814,6 @@ def main():
         max_input_tokens=args.max_input_tokens,
         max_output_tokens_per_call=args.max_output_tokens_per_call,
         temperature=args.temperature,
-        show_valid_actions=args.show_valid_actions,
-        valid_actions_limit=args.valid_actions_limit,
         action_memory_size=args.action_memory,
     )
 
