@@ -272,6 +272,7 @@ class ReActAgent(BaseAgent):
         temperature: float = 0.2,
         action_memory_size: int = 0,
         max_consecutive_failures: int = 3,
+        history_window: Optional[int] = None,
     ):
         super().__init__(host, port, role)
         if OpenAI is None:
@@ -288,6 +289,10 @@ class ReActAgent(BaseAgent):
         self.temperature = temperature
         self.action_memory_size = max(0, int(action_memory_size))
         self.max_consecutive_failures = max(1, int(max_consecutive_failures))
+        # None or <=0 means unbounded; positive int caps the dialogue history.
+        self.history_window = (
+            int(history_window) if history_window and history_window > 0 else None
+        )
 
         # Per-episode mutable state
         self._messages: list = []
@@ -611,6 +616,20 @@ class ReActAgent(BaseAgent):
             }
         )
 
+    def _enforce_history_window(self):
+        """Trim _messages to keep system + last (history_window * 3) messages.
+
+        Each step always contributes exactly 3 messages — (user, assistant,
+        tool-result-or-corrective-user) — so dropping in chunks of 3 from the
+        front always lands on a step boundary and preserves tool_call_id
+        linkage. No-op when history_window is None.
+        """
+        if self.history_window is None:
+            return
+        max_history = self.history_window * 3
+        while len(self._messages) - 1 > max_history:
+            del self._messages[1:4]
+
     @_weave_op
     def run_episode(
         self, observation: Observation, verbose: bool = False
@@ -635,6 +654,7 @@ class ReActAgent(BaseAgent):
                 end_reason = "token_budget"
                 break
 
+            self._enforce_history_window()
             user_msg = self._build_user_message(observation.state, step, last_result)
             self._messages.append({"role": "user", "content": user_msg})
 
@@ -810,6 +830,18 @@ def main():
             "Default 3."
         ),
     )
+    parser.add_argument(
+        "--history_window",
+        type=int,
+        default=0,
+        help=(
+            "If > 0, truncate the assistant message history to the last N turns "
+            "(turn = user + assistant + tool/corrective triple). The system prompt "
+            "and the current turn are always kept. Use this for models with smaller "
+            "context windows; pair with --action_memory to preserve action history "
+            "outside the window. Default 0 (unbounded)."
+        ),
+    )
     # ── W&B Weave (optional LLM tracing) ─────────────────────────────────────
     parser.add_argument(
         "--weave",
@@ -827,6 +859,19 @@ def main():
         default=None,
         type=str,
         help="Weave entity/team (optional). Combined as 'entity/project'.",
+    )
+    parser.add_argument(
+        "--log_file",
+        default=None,
+        help="Path to a JSONL file. One line per episode is appended with "
+             "outcome fields plus run-level metadata (model, scenario, seed). "
+             "Use this to drive Phase 1 analysis.",
+    )
+    parser.add_argument(
+        "--scenario",
+        default="unknown",
+        help="Free-text label for the topology / configuration of the docker "
+             "server (e.g. '2-net-deterministic'). Recorded in the JSONL log.",
     )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
@@ -857,6 +902,7 @@ def main():
         temperature=args.temperature,
         action_memory_size=args.action_memory,
         max_consecutive_failures=args.max_consecutive_failures,
+        history_window=args.history_window if args.history_window > 0 else None,
     )
 
     try:
@@ -865,7 +911,7 @@ def main():
         # randomized topology (rather than the server's default starting state).
         observation = agent.request_game_reset(
             randomize_topology=args.randomize_topology,
-            seed=421,  # Fixed seed for initial reset to ensure consistent starting state.
+            seed=0,  # Fixed seed for initial reset to ensure consistent starting state.
         )
         observation = filter_log_files_from_state(observation)
     except Exception as e:
@@ -874,9 +920,11 @@ def main():
         return
 
     stats = RunStats()
+    log_fh = open(args.log_file, "a") if args.log_file else None
     try:
         for ep in range(1, args.episodes + 1):
             print(f"\n=== Episode {ep} ===")
+            episode_seed = ep - 1  # matches initial reset (seed=0) and per-ep reset (seed=ep) below
             outcome = agent.run_episode(observation, verbose=args.verbose)
             total_tok = outcome.input_tokens + outcome.output_tokens
             print(
@@ -890,17 +938,49 @@ def main():
                 f"(in={outcome.input_tokens:,} out={outcome.output_tokens:,})"
             )
             stats.record_outcome(outcome)
+
+            if log_fh is not None:
+                row = _build_log_row(args, ep, episode_seed, outcome)
+                log_fh.write(json.dumps(row) + "\n")
+                log_fh.flush()
+
             if ep < args.episodes:
                 observation = agent.request_game_reset(
                     randomize_topology=args.randomize_topology,
-                    seed=ep + 2,
+                    seed=ep,
                 )
                 observation = filter_log_files_from_state(observation)
     finally:
+        if log_fh is not None:
+            log_fh.close()
         agent.terminate_connection()
 
     print()
     stats.print_summary()
+
+
+def _build_log_row(args, episode: int, seed: int, outcome: EpisodeOutcome) -> dict:
+    """Flatten an EpisodeOutcome + run-level metadata into a JSON-serializable row."""
+    return {
+        "scenario": args.scenario,
+        "model": args.model,
+        "agent": "react_raw",
+        "mission": args.mission,
+        "max_steps": args.max_steps,
+        "max_consecutive_failures": args.max_consecutive_failures,
+        "action_memory": args.action_memory,
+        "history_window": args.history_window,
+        "temperature": args.temperature,
+        "episode": episode,
+        "seed": seed,
+        "won": bool(outcome.won),
+        "detected": bool(outcome.detected),
+        "end_reason": str(outcome.end_reason),
+        "steps": int(outcome.steps),
+        "input_tokens": int(outcome.input_tokens),
+        "output_tokens": int(outcome.output_tokens),
+        "total_reward": float(outcome.total_reward),
+    }
 
 
 if __name__ == "__main__":
