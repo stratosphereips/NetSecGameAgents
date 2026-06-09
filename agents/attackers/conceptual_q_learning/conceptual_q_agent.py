@@ -3,6 +3,7 @@
 # It uses concepts instead of IP addresses to learn the Q-table.
 
 from collections import namedtuple
+import importlib.util
 import sys
 import numpy as np
 import random
@@ -11,15 +12,75 @@ import argparse
 import logging
 import subprocess
 import time
+import types
 import wandb
 import json
 
 from os import path, makedirs
 # with the path fixed, we can import now
-from netsecgame import Action, Observation, GameState, AgentStatus, ActionType
-from NetSecGameAgents.agents.base_agent import BaseAgent
+from netsecgame import Action, Observation, GameState, AgentStatus, ActionType, AgentRole, BaseAgent
 from NetSecGameAgents.agents.agent_utils import state_as_ordered_string, convert_ips_to_concepts, convert_concepts_to_actions, generate_valid_actions_concepts
 from NetSecGameAgents.utils.concept_mapping_logger import ConceptMappingLogger
+
+
+def _load_legacy_game_components_module():
+    """Make the historical AIDojoCoordinator module path importable for old pickles."""
+    module_name = "AIDojoCoordinator.game_components"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+
+    package_name = "AIDojoCoordinator"
+    if package_name not in sys.modules:
+        legacy_package = types.ModuleType(package_name)
+        legacy_package.__path__ = []
+        sys.modules[package_name] = legacy_package
+
+    legacy_module_path = path.abspath(
+        path.join(
+            path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "..",
+            "AIDojoCoordinator",
+            "game_components.py",
+        )
+    )
+    spec = importlib.util.spec_from_file_location(module_name, legacy_module_path)
+    legacy_module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = legacy_module
+    assert spec.loader is not None
+    spec.loader.exec_module(legacy_module)
+    return legacy_module
+
+
+def _normalize_legacy_value(value):
+    """Convert objects loaded from legacy pickles to current netsecgame classes."""
+    value_module = type(value).__module__
+    value_name = type(value).__name__
+
+    if value_module == "AIDojoCoordinator.game_components":
+        if value_name == "Action":
+            return Action(
+                action_type=ActionType.from_string(str(value.action_type)),
+                parameters={k: _normalize_legacy_value(v) for k, v in value.parameters.items()},
+            )
+        if value_name == "ActionType":
+            return ActionType.from_string(str(value))
+        if value_name == "AgentRole":
+            return AgentRole.from_string(str(value))
+        if value_name == "AgentStatus":
+            return AgentStatus.from_string(str(value))
+
+    if isinstance(value, dict):
+        return {_normalize_legacy_value(k): _normalize_legacy_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_normalize_legacy_value(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_normalize_legacy_value(v) for v in value)
+    if isinstance(value, set):
+        return {_normalize_legacy_value(v) for v in value}
+    return value
 
 class QAgent(BaseAgent):
 
@@ -27,7 +88,7 @@ class QAgent(BaseAgent):
         self,
         host,
         port,
-        role: str = "Attacker",
+        role: AgentRole | str = AgentRole.Attacker,
         alpha: float = 0.1,
         gamma: float = 0.6,
         epsilon_start: float = 0.9,
@@ -36,6 +97,8 @@ class QAgent(BaseAgent):
         apm_limit: int | None = None,
         seed: int = 42,
     ) -> None:
+        if isinstance(role, str):
+            role = AgentRole.from_string(role)
         super().__init__(host, port, role)
         # Fix the agent-side random seed so that behaviour is reproducible
         # independently of the environment seed. Use a dedicated RNG instance
@@ -77,8 +140,9 @@ class QAgent(BaseAgent):
         """ Load the q table from disk """
         try:
             with open(filename, "rb") as f:
+                _load_legacy_game_components_module()
                 data = pickle.load(f)
-                self.q_values = data["q_table"]
+                self.q_values = _normalize_legacy_value(data["q_table"])
                 self._str_to_id = data["state_mapping"]
             self._logger.info(f'Successfully loading file {filename}')
         except Exception as e:
