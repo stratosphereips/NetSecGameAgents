@@ -1,13 +1,16 @@
 # Authors:  Ondrej Lukas - ondrej.lukas@aic.fel.cvut.cz
 from os import path, makedirs
+from typing import Optional, Tuple
 import numpy as np
 import random
 import pickle
 import argparse
 import logging
+from datetime import datetime
 
 from netsecgame import Action, GameState, BaseAgent, generate_valid_actions, state_as_ordered_string
 from netsecgame.game_components import AgentRole
+from netsecgame.utils.trajectory_recorder import TrajectoryRecorder
 
 class SARSAAgent(BaseAgent):
 
@@ -36,7 +39,7 @@ class SARSAAgent(BaseAgent):
             self._str_to_id[state_str] = len(self._str_to_id)
         return self._str_to_id[state_str]
       
-    def select_action(self, state:GameState, testing=False) -> Action:
+    def select_action(self, state:GameState, testing=False) -> Tuple[Action,int]:
         actions = generate_valid_actions(state)
         state_id = self.get_state_id(state)
         
@@ -55,9 +58,11 @@ class SARSAAgent(BaseAgent):
                 self.q_values[state_id, action] = 0
             return action, state_id
         
-    def play_episode(self, testing=False)->list:
+    def play_episode(self, testing=False, recorder:Optional[TrajectoryRecorder]=None, filename=None)->list:
         observation = self.request_game_reset()
         episodic_returns = []
+        if recorder is not None:
+            recorder.add_initial_state(observation.state)
         action1 ,state_id1 = self.select_action(observation.state, testing)
         done = observation.end
         while not done:
@@ -71,13 +76,18 @@ class SARSAAgent(BaseAgent):
             if not testing:
                 self.q_values[state_id1, action1] += self.alpha*(observation2.reward+ self.gamma*self.q_values[state_id2, action2]-self.q_values[state_id1, action1])
 
+            if recorder is not None:
+                recorder.add_step(action1, observation2.reward, observation2.state)
             # move1 step
             action1 = action2
             state_id1= state_id2
             done = observation2.end
+        if recorder is not None:
+            recorder.save_to_file(filename=filename)
+            recorder.reset()
         return episodic_returns
     
-    def play_game(self, num_episodes=1, testing=False):
+    def play_game(self, num_episodes=1, testing=False, recorder:TrajectoryRecorder=None):
         """
         The main function for the gameplay. Handles agent registration and the main interaction loop.
         """
@@ -90,13 +100,21 @@ class SARSAAgent(BaseAgent):
                 if episode and episode % args.eval_each == 0:
                     testing_returns = []
                     for _ in range(args.eval_for):
-                        testing_returns.append(np.sum(self.play_episode(testing=True)))
+                        if recorder:
+                            filename = filename = f"{datetime.now():%Y-%m-%d}_SARSA_Attacker_{episode:06d}"
+                            testing_returns.append(np.sum(self.play_episode(testing=True, recorder=recorder, filename=filename)))
+                        else:
+                            testing_returns.append(np.sum(self.play_episode(testing=True))) 
                     self._logger.info(f"Eval after {episode} episodes: ={np.mean(testing_returns)}±{np.std(testing_returns)}")
                 if episode % args.store_models_every == 0 and episode != 0:
-                    self.store_q_table(f'sarsa_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')           
+                    self.store_q_table(f'sarsa_agent_marl.experiment{args.experiment_id}-episodes-{episode:06d}.pickle')           
         returns = []
         for _ in range(args.eval_for):
-            returns.append(np.sum(self.play_episode(testing=True)))
+            if recorder:
+                filename = filename = f"{datetime.now():%Y-%m-%d}_SARSA_Attacker_{num_episodes:06d}"
+                returns.append(np.sum(self.play_episode(testing=True, recorder=recorder, filename=filename)))
+            else:
+                returns.append(np.sum(self.play_episode(testing=True)))
         self._logger.info(f"Final results for {self.__class__.__name__} after {num_episodes} episodes: {np.mean(returns)}±{np.std(returns)}")
         self._logger.info("Terminating interaction")
         self.terminate_connection()
@@ -116,6 +134,7 @@ if __name__ == '__main__':
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Mlflow.", default='sarsa_006_coordinatorV3', type=str)
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=2000, type=int)
     parser.add_argument("--previous_model", help="Store a model to disk every these number of episodes.", type=str)
+    parser.add_argument("--record_trajectories", type=bool, default=False)
     args = parser.parse_args()
 
     if not path.exists(args.logdir):
@@ -124,11 +143,14 @@ if __name__ == '__main__':
 
     # Create agent
     agent = SARSAAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon=args.epsilon)
-
+    if args.record_trajectories:
+        recorder= TrajectoryRecorder("SARSA", agent_role="Attacker")
+    else:
+        recorder = None
     if args.test_only:
         agent.load_q_table(args.previous_model)
-        agent.play_game(args.episodes, testing=True)       
+        agent.play_game(args.episodes, testing=True, recorder=recorder)       
     else:
-        agent.play_game(args.episodes, testing=False)
+        agent.play_game(args.episodes, testing=False, recorder=recorder)
         agent.store_q_table("./sarsa_agent_marl.pickle")
 
