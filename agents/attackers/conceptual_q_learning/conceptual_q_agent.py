@@ -14,11 +14,13 @@ import subprocess
 import time
 import types
 import wandb
-import json
+from datetime import datetime
+from typing import Optional
 
 from os import path, makedirs
 # with the path fixed, we can import now
 from netsecgame import Action, Observation, GameState, AgentStatus, ActionType, AgentRole, BaseAgent
+from netsecgame.utils.trajectory_recorder import TrajectoryRecorder
 try:
     from agents.agent_utils import (
         state_as_ordered_string,
@@ -260,7 +262,16 @@ class QAgent(BaseAgent):
         self.actions_history.add(concept_action)
         
     
-    def play_game(self, concept_observation, episode_num, testing=False):
+    def play_game(
+        self,
+        concept_observation,
+        episode_num,
+        testing=False,
+        recorder: Optional[TrajectoryRecorder] = None,
+        trajectory_filename: Optional[str] = None,
+        trajectory_location: str = "./logs/trajectories",
+        initial_state: Optional[GameState] = None,
+    ):
         """
         Only play one episode of the game.
 
@@ -270,6 +281,21 @@ class QAgent(BaseAgent):
         episode_num is used to update the epsilon value at the end of the episode.
         """
         num_steps = 0
+        if recorder is not None:
+            if initial_state is None:
+                raise ValueError("initial_state is required when recording trajectories")
+            recorder.add_initial_state(initial_state)
+
+        def save_trajectory(end_reason=None):
+            if recorder is None:
+                return
+            if end_reason is not None:
+                recorder.get_trajectory()["end_reason"] = str(end_reason)
+            recorder.save_to_file(
+                location=trajectory_location,
+                filename=trajectory_filename,
+            )
+            recorder.reset()
 
         # Run the whole episode
         while not concept_observation.observation.end:
@@ -314,6 +340,7 @@ class QAgent(BaseAgent):
                         self.current_epsilon,
                         "no_actions",
                     )
+                save_trajectory(AgentStatus.Fail)
                 return final_observation, num_steps
 
             # Get next action. If we are not training, selection is different, so pass it as argument
@@ -335,6 +362,14 @@ class QAgent(BaseAgent):
 
             # Recompute the rewards
             observation = self.recompute_reward(observation)
+            if recorder is not None:
+                end_reason = observation.info.get("end_reason") if observation.info else None
+                recorder.add_step(
+                    action,
+                    observation.reward,
+                    observation.state,
+                    end_reason=str(end_reason) if end_reason is not None else None,
+                )
 
             # Convert the observation to conceptual observation
             # From now one the observation will be in concepts
@@ -350,6 +385,7 @@ class QAgent(BaseAgent):
                 if max_action == None:
                     # There are no more actions to take. 
                     self.logger.info(f"\n[+] We run out of actions.")
+                    save_trajectory()
                     return None, num_steps
                 old_q = self.q_values[state_id, concept_action]
                 self.q_values[state_id, concept_action] += self.alpha * (concept_observation.observation.reward + max_action) - self.q_values[state_id, concept_action]
@@ -385,6 +421,7 @@ class QAgent(BaseAgent):
                 episode_num, num_steps, reward, len(self.q_values), self.current_epsilon, end_reason
             )
 
+        save_trajectory()
         # This will be the last observation played before the reset
         return observation, num_steps
 
@@ -418,6 +455,7 @@ if __name__ == '__main__':
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
     parser.add_argument("--apm", help="Maximum actions per minute", default=1000000, type=int, required=False)
+    parser.add_argument("--record_trajectories", help="Store trajectories in the TrajectoryRecorder JSONL format.", default=False, type=bool)
     parser.add_argument("--enhanced_logging", help="Enable enhanced concept mapping logging", default=False, action='store_true')
     parser.add_argument("--agent_seed", help="Random seed for the conceptual agent.", default=42, type=int)
     args = parser.parse_args()
@@ -442,6 +480,11 @@ if __name__ == '__main__':
         epsilon_max_episodes=args.epsilon_max_episodes,
         apm_limit=args.apm,
         seed=args.agent_seed,
+    )
+    recorder = (
+        TrajectoryRecorder("Conceptual-Q-Learning", agent_role="Attacker")
+        if args.record_trajectories
+        else None
     )
     
     if args.enhanced_logging:
@@ -537,6 +580,8 @@ if __name__ == '__main__':
                     "test_each": args.test_each,
                     "test_for": args.test_for,
                     "testing": args.testing,
+                    "record_trajectories": args.record_trajectories,
+                    "trajectories_dir": args.trajectoriesdir,
                     "experiment_name": experiment_name,
                     "agent_type": "conceptual_q_learning",
                     "concept_mapping": "stable_hosts",
@@ -561,16 +606,27 @@ if __name__ == '__main__':
             agent._logger.info(f'Epsilon End: {agent.epsilon_end}')
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
 
-            # Containers for trajectories
-            training_trajectories = []
-            evaluation_trajectories = []
-            testing_trajectories = []
-
             # Start training / testing loop
             for episode in range(1, args.episodes + 1):
                 if not early_stop:
                     # Play 1 episode only
-                    observation, num_steps = agent.play_game(concept_observation, testing=args.testing, episode_num=episode)       
+                    trajectory_filename = None
+                    episode_recorder = None
+                    if recorder is not None and args.testing:
+                        episode_recorder = recorder
+                        trajectory_filename = (
+                            f"{datetime.now():%Y-%m-%d}_"
+                            f"Conceptual-Q-Learning_Attacker_{args.episodes:06d}"
+                        )
+                    observation, num_steps = agent.play_game(
+                        concept_observation,
+                        testing=args.testing,
+                        episode_num=episode,
+                        recorder=episode_recorder,
+                        trajectory_filename=trajectory_filename,
+                        trajectory_location=args.trajectoriesdir,
+                        initial_state=observation.state,
+                    )
 
                     # Do we have a good observation? It can be that it run of of actions and observation is None
                     if observation:
@@ -599,14 +655,9 @@ if __name__ == '__main__':
 
                     # Reset the game here, after we analyzed the data of the last observation.
                     # After each episode we need to reset the game 
-                    observation = agent.request_game_reset(request_trajectory=True)
+                    observation = agent.request_game_reset()
                     # Log the initial state for the new episode before any action is taken
                     agent.logger.info(f"\n[+] Initial state before first action:{observation}")
-                    # Store trajectory depending on the current mode
-                    if args.testing:
-                        testing_trajectories.append(json.dumps(observation.info["last_trajectory"]) + '\n')
-                    else:
-                        training_trajectories.append(json.dumps(observation.info["last_trajectory"]) + '\n')
 
                     # Reset the history of actions
                     agent.actions_history = set()
@@ -678,13 +729,31 @@ if __name__ == '__main__':
                         test_num_detected_returns = []
                         test_num_win_returns = []
                         test_num_max_steps_returns = []
+                        test_concept_observation = concept_observation
+                        test_initial_state = observation.state
 
                         # Test (evaluation episodes during training)
                         for test_episode in range(1, args.test_for + 1):
                             # Play 1 evaluation episode
                             # See that we force the model to freeze by telling it that it is in 'testing' mode.
                             # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
-                            test_observation, test_num_steps = agent.play_game(concept_observation, testing=True, episode_num=episode)       
+                            trajectory_filename = None
+                            episode_recorder = None
+                            if recorder is not None:
+                                episode_recorder = recorder
+                                trajectory_filename = (
+                                    f"{datetime.now():%Y-%m-%d}_"
+                                    f"Conceptual-Q-Learning_Attacker_{episode:06d}"
+                                )
+                            test_observation, test_num_steps = agent.play_game(
+                                test_concept_observation,
+                                testing=True,
+                                episode_num=episode,
+                                recorder=episode_recorder,
+                                trajectory_filename=trajectory_filename,
+                                trajectory_location=args.trajectoriesdir,
+                                initial_state=test_initial_state,
+                            )
 
                             # Do we have a good observation? It can be that it run of of actions and observation is None
                             if test_observation:
@@ -709,17 +778,20 @@ if __name__ == '__main__':
                                 agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
 
                             # Reset the game
-                            test_observation = agent.request_game_reset(request_trajectory=True)
+                            test_observation = agent.request_game_reset()
                             # Log the initial state for the evaluation episode before any action is taken
                             agent.logger.info(f"\n[+] Initial state before first action:{test_observation}")
-                            # Accumulate all evaluation trajectories across all eval episodes
-                            evaluation_trajectories.append(json.dumps(test_observation.info["last_trajectory"]) + '\n')
 
                             # Reset the history of actions
                             agent.actions_history = set()
 
                             # Convert the obvervation to conceptual observation
-                            test_observation = convert_ips_to_concepts(test_observation, agent._logger, agent.concept_logger)
+                            test_initial_state = test_observation.state
+                            test_concept_observation = convert_ips_to_concepts(
+                                test_observation,
+                                agent._logger,
+                                agent.concept_logger,
+                            )
                             # From now one the observation will be in concepts
 
                             test_win_rate = (test_wins/test_episode) * 100
@@ -780,19 +852,8 @@ if __name__ == '__main__':
                             agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
                             early_stop = True
 
-                        # Note: trajectories for these evaluation episodes are accumulated
-                        # in evaluation_trajectories and stored after the loop.
-
-            # Store the trajectories collected during this run
-            if training_trajectories:
-                with open(path.join(args.trajectoriesdir, "trajectories_training.jsonl"), "w") as f:
-                    f.writelines(training_trajectories)
-            if evaluation_trajectories:
-                with open(path.join(args.trajectoriesdir, "trajectories_evaluation.jsonl"), "w") as f:
-                    f.writelines(evaluation_trajectories)
-            if testing_trajectories:
-                with open(path.join(args.trajectoriesdir, "trajectories_testing.jsonl"), "w") as f:
-                    f.writelines(testing_trajectories)
+                        observation = test_observation
+                        concept_observation = test_concept_observation
 
             
             # Log the last final episode when it ends
