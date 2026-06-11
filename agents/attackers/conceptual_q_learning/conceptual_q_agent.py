@@ -129,6 +129,7 @@ class QAgent(BaseAgent):
         epsilon_max_episodes: int = 5000,
         apm_limit: int | None = None,
         seed: int = 42,
+        action_generation_options: Optional[dict] = None,
     ) -> None:
         if isinstance(role, str):
             role = AgentRole.from_string(role)
@@ -159,6 +160,15 @@ class QAgent(BaseAgent):
         self.previous_state = None
         # Enhanced logging
         self.concept_logger = None
+        self.action_generation_options = action_generation_options or {}
+
+    def generate_valid_actions(self, state: GameState) -> list[Action]:
+        """Generate actions using the configured conceptual ablation policy."""
+        return generate_valid_actions_concepts(
+            state,
+            self.actions_history,
+            **self.action_generation_options,
+        )
 
     def store_q_table(self, strpath, filename):
         """ Store the q table on disk """
@@ -194,7 +204,7 @@ class QAgent(BaseAgent):
     def max_action_q(self, concept_observation:Observation) -> Action:
         """ Get the action that maximices the q_value for a given observation """
         state = concept_observation.observation.state
-        actions = generate_valid_actions_concepts(state, self.actions_history)
+        actions = self.generate_valid_actions(state)
         state_id = self.get_state_id(state)
         tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
         if not tmp:
@@ -205,7 +215,7 @@ class QAgent(BaseAgent):
     def select_action(self, observation:Observation, testing=False) -> tuple:
         """ Select the action according to the algorithm """
         state = observation.state
-        actions = generate_valid_actions_concepts(state, self.actions_history)
+        actions = self.generate_valid_actions(state)
         state_id = self.get_state_id(state)
         
         # E-greedy play. If the random number is less than the e, then choose random to explore.
@@ -326,8 +336,8 @@ class QAgent(BaseAgent):
             # It may happen that, given the current concept state and action
             # history, no further actions are possible. In that case we treat the
             # episode as finished with a strong negative internal reward.
-            available_actions = generate_valid_actions_concepts(
-                concept_observation.observation.state, self.actions_history
+            available_actions = self.generate_valid_actions(
+                concept_observation.observation.state
             )
             if not available_actions:
                 # Log both the conceptual state and the underlying real mapping.
@@ -495,7 +505,155 @@ if __name__ == '__main__':
     )
     parser.add_argument("--enhanced_logging", help="Enable enhanced concept mapping logging", default=False, action='store_true')
     parser.add_argument("--agent_seed", help="Random seed for the conceptual agent.", default=42, type=int)
+    ablations = parser.add_argument_group(
+        "conceptual action-generation ablations",
+        "All flags are disabled by default, preserving the standard action generator.",
+    )
+    ablations.add_argument(
+        "--no_filter_scan_network",
+        "--no-filter-scan-network",
+        help=(
+            "Generate ScanNetwork actions without conceptual source/network "
+            "filtering. ScanNetwork remains available."
+        ),
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--no_filter_find_services",
+        "--no-filter-find-services",
+        help=(
+            "Generate FindServices actions without conceptual host or "
+            "known-services filtering. FindServices remains available."
+        ),
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--no_filter_exploit_service",
+        "--no-filter-exploit-service",
+        help=(
+            "Generate ExploitService actions without conceptual target, "
+            "service, or self-target filtering. ExploitService remains available."
+        ),
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--no_filter_find_data",
+        "--no-filter-find-data",
+        help=(
+            "Generate FindData actions without conceptual host or known-data "
+            "filtering. FindData remains available."
+        ),
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--no_filter_exfiltrate_data",
+        "--no-filter-exfiltrate-data",
+        help=(
+            "Generate ExfiltrateData actions without conceptual source, "
+            "logfile, or duplicate-data filtering. ExfiltrateData remains available."
+        ),
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--allow_repeated_actions",
+        "--allow-repeated-actions",
+        help="Ignore conceptual action history for every action family.",
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--single_source",
+        "--single-source",
+        help=(
+            "Use one deterministic internal controlled source for scanning, "
+            "service discovery, exploitation, and FindData."
+        ),
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--allow_repeated_network_scans",
+        "--allow-repeated-network-scans",
+        help="Ignore conceptual action history for ScanNetwork only.",
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--allow_service_rescans",
+        "--allow-service-rescans",
+        help="Generate FindServices actions for hosts with known services.",
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--include_local_services",
+        "--include-local-services",
+        help="Generate ExploitService actions for local services.",
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--allow_exploit_controlled_hosts",
+        "--allow-exploit-controlled-hosts",
+        help="Generate exploits against already controlled hosts.",
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--allow_find_data_rescans",
+        "--allow-find-data-rescans",
+        help="Generate FindData actions for hosts with known data.",
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--prohibit_find_data_self_targeting",
+        "--prohibit-find-data-self-targeting",
+        help="Require different source and target hosts for FindData.",
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--include_logfile_exfiltration",
+        "--include-logfile-exfiltration",
+        help="Generate ExfiltrateData actions for logfile data.",
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--allow_duplicate_data_exfiltration",
+        "--allow-duplicate-data-exfiltration",
+        help="Allow exfiltration when the destination already has the data id.",
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--exfiltrate_to_external_only",
+        "--exfiltrate-to-external-only",
+        help="Restrict exfiltration destinations to controlled external/C2 concepts.",
+        action="store_true",
+    )
+    ablations.add_argument(
+        "--ignore_firewall",
+        "--ignore-firewall",
+        help="Generate conceptual actions without known-firewall pruning.",
+        action="store_true",
+    )
     args = parser.parse_args()
+
+    action_generation_options = {
+        "filter_scan_network": not args.no_filter_scan_network,
+        "filter_find_services": not args.no_filter_find_services,
+        "filter_exploit_service": not args.no_filter_exploit_service,
+        "filter_find_data": not args.no_filter_find_data,
+        "filter_exfiltrate_data": not args.no_filter_exfiltrate_data,
+        "allow_repeated_actions": args.allow_repeated_actions,
+        "single_source": args.single_source,
+        "allow_repeated_network_scans": args.allow_repeated_network_scans,
+        "allow_service_rescans": args.allow_service_rescans,
+        "include_local_services": args.include_local_services,
+        "allow_exploit_controlled_hosts": args.allow_exploit_controlled_hosts,
+        "allow_find_data_rescans": args.allow_find_data_rescans,
+        "prohibit_find_data_self_targeting": (
+            args.prohibit_find_data_self_targeting
+        ),
+        "include_logfile_exfiltration": args.include_logfile_exfiltration,
+        "allow_duplicate_data_exfiltration": (
+            args.allow_duplicate_data_exfiltration
+        ),
+        "exfiltrate_to_external_only": args.exfiltrate_to_external_only,
+        "ignore_firewall": args.ignore_firewall,
+    }
 
     # Check that the directory for the logs exist
     if not path.exists(args.logdir):
@@ -517,6 +675,7 @@ if __name__ == '__main__':
         epsilon_max_episodes=args.epsilon_max_episodes,
         apm_limit=args.apm,
         seed=args.agent_seed,
+        action_generation_options=action_generation_options,
     )
     recorder = (
         TrajectoryRecorder("Conceptual-Q-Learning", agent_role="Attacker")
@@ -526,6 +685,9 @@ if __name__ == '__main__':
     
     if args.enhanced_logging:
         agent.enable_enhanced_logging(verbose=True)
+    agent._logger.info(
+        f"Conceptual action-generation options: {action_generation_options}"
+    )
 
     # Set logging platform usage based on flags
     # wandb is enabled by default
@@ -624,6 +786,7 @@ if __name__ == '__main__':
                     "experiment_name": experiment_name,
                     "agent_type": "conceptual_q_learning",
                     "concept_mapping": "stable_hosts",
+                    "action_generation_options": action_generation_options,
                     "netsecenv_commit": netsecenv_git_result.strip(),
                     "agents_commit": agents_git_result.strip()
                 })
