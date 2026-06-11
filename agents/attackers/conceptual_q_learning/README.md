@@ -16,5 +16,12 @@ python -m pip install -e ".[conceptual_q_learning]"
 If the NetSecGame server is running in localhost, port 9000/TCP, then:
 
 ```
-python -m agents.attackers.conceptual_q_learning.q_agent --host localhost --port 9000 --episodes 1 --experiment_id test-1 --env_conf ../AIDojoCoordinator/netsecenv_conf.yaml
+python -m agents.attackers.conceptual_q_learning.conceptual_q_agent --host localhost --port 9000 --episodes 1 --experiment_id test-1 --env_conf ../AIDojoCoordinator/netsecenv_conf.yaml
+```
+
+To record testing and evaluation trajectories in the `TrajectoryRecorder` JSONL
+format, add:
+
+```bash
+--record_trajectories True --trajectoriesdir /path/to/trajectories
 ```
