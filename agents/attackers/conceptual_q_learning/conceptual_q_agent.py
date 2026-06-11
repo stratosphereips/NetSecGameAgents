@@ -19,8 +19,22 @@ import json
 from os import path, makedirs
 # with the path fixed, we can import now
 from netsecgame import Action, Observation, GameState, AgentStatus, ActionType, AgentRole, BaseAgent
-from NetSecGameAgents.agents.agent_utils import state_as_ordered_string, convert_ips_to_concepts, convert_concepts_to_actions, generate_valid_actions_concepts
-from NetSecGameAgents.utils.concept_mapping_logger import ConceptMappingLogger
+try:
+    from agents.agent_utils import (
+        state_as_ordered_string,
+        convert_ips_to_concepts,
+        convert_concepts_to_actions,
+        generate_valid_actions_concepts,
+    )
+    from utils.concept_mapping_logger import ConceptMappingLogger
+except ImportError:
+    from NetSecGameAgents.agents.agent_utils import (
+        state_as_ordered_string,
+        convert_ips_to_concepts,
+        convert_concepts_to_actions,
+        generate_valid_actions_concepts,
+    )
+    from NetSecGameAgents.utils.concept_mapping_logger import ConceptMappingLogger
 
 
 def _load_legacy_game_components_module():
