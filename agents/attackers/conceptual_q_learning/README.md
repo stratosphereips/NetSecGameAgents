@@ -19,9 +19,11 @@ If the NetSecGame server is running in localhost, port 9000/TCP, then:
 python -m agents.attackers.conceptual_q_learning.conceptual_q_agent --host localhost --port 9000 --episodes 1 --experiment_id test-1 --env_conf ../AIDojoCoordinator/netsecenv_conf.yaml
 ```
 
-To record testing and evaluation trajectories in the `TrajectoryRecorder` JSONL
-format, add:
+Testing and evaluation trajectories are recorded by default in the
+`TrajectoryRecorder` JSONL format. Select the output directory with:
 
 ```bash
---record_trajectories True --trajectoriesdir /path/to/trajectories
+--trajectoriesdir /path/to/trajectories
 ```
+
+Use `--no-record-trajectories` to disable trajectory recording.
