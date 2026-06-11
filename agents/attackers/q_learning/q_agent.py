@@ -10,6 +10,8 @@ import logging
 import wandb
 import subprocess
 import time
+from datetime import datetime
+from typing import Optional
 
 from os import path, makedirs
 # with the path fixed, we can import now
@@ -18,6 +20,7 @@ from netsecgame.game_components import (
     Observation,
     GameState, AgentStatus, BaseAgent, generate_valid_actions, state_as_ordered_string, AgentRole
 ) 
+from netsecgame.utils.trajectory_recorder import TrajectoryRecorder
 
 class QAgent(BaseAgent):
 
@@ -123,11 +126,20 @@ class QAgent(BaseAgent):
         self.logger.debug(f"Updating epsilon - new value:{new_eps}")
         return new_eps
     
-    def play_game(self, observation, episode_num, testing=False):
+    def play_game(
+        self,
+        observation,
+        episode_num,
+        testing=False,
+        recorder: Optional[TrajectoryRecorder] = None,
+        trajectory_filename: Optional[str] = None,
+    ):
         """
         The main function for the gameplay. Handles the main interaction loop.
         """
         num_steps = 0
+        if recorder is not None:
+            recorder.add_initial_state(observation.state)
         # Run the whole episode
         while not observation.end:
             # Store steps so far
@@ -145,6 +157,9 @@ class QAgent(BaseAgent):
            
             # Recompute the rewards
             observation = self.recompute_reward(observation)
+            if recorder is not None:
+                end_reason = observation.info.get("end_reason") if observation.info else None
+                recorder.add_step(action, observation.reward, observation.state, end_reason=end_reason)
             if not testing:
                 # If we are training update the Q-table
                 self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
@@ -167,6 +182,9 @@ class QAgent(BaseAgent):
         # update epsilon value
         if not testing:
             self.current_epsilon = self.update_epsilon_with_decay(episode_num)
+        if recorder is not None:
+            recorder.save_to_file(filename=trajectory_filename)
+            recorder.reset()
         # Reset the episode
         _ = self.request_game_reset()
         # This will be the last observation played before the reset
@@ -193,6 +211,7 @@ if __name__ == '__main__':
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
     parser.add_argument("--apm", help="Actions per minute", default=10000, type=int, required=False)
+    parser.add_argument("--record_trajectories", type=bool, default=False)
     args = parser.parse_args()
 
     if not path.exists(args.logdir):
@@ -201,6 +220,10 @@ if __name__ == '__main__':
 
     # Create agent
     agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes, apm_limit=args.apm)
+    if args.record_trajectories:
+        recorder = TrajectoryRecorder("Q-Learning", agent_role="Attacker")
+    else:
+        recorder = None
 
     # Log for Actions. After agent creation
     actions_logger = logging.getLogger('QAgentActions')
@@ -312,7 +335,18 @@ if __name__ == '__main__':
         for episode in range(1, args.episodes + 1):
                 if not early_stop:
                     # Play 1 episode
-                    observation, num_steps = agent.play_game(observation, testing=args.testing, episode_num=episode)       
+                    trajectory_filename = None
+                    episode_recorder = None
+                    if recorder is not None and args.testing:
+                        episode_recorder = recorder
+                        trajectory_filename = f"{datetime.now():%Y-%m-%d}_Q-Learning_Attacker_{args.episodes:06d}"
+                    observation, num_steps = agent.play_game(
+                        observation,
+                        testing=args.testing,
+                        episode_num=episode,
+                        recorder=episode_recorder,
+                        trajectory_filename=trajectory_filename,
+                    )
 
                     state = observation.state
                     reward = observation.reward
@@ -425,7 +459,18 @@ if __name__ == '__main__':
                                 # Play 1 episode
                                 # See that we force the model to freeze by telling it that it is in 'testing' mode.
                                 # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
-                                test_observation, test_num_steps = agent.play_game(observation, testing=True, episode_num=episode)       
+                                trajectory_filename = None
+                                episode_recorder = None
+                                if recorder is not None:
+                                    episode_recorder = recorder
+                                    trajectory_filename = f"{datetime.now():%Y-%m-%d}_Q-Learning_Attacker_{episode:06d}"
+                                test_observation, test_num_steps = agent.play_game(
+                                    observation,
+                                    testing=True,
+                                    episode_num=episode,
+                                    recorder=episode_recorder,
+                                    trajectory_filename=trajectory_filename,
+                                )
 
                                 test_state = test_observation.state
                                 test_reward = test_observation.reward
