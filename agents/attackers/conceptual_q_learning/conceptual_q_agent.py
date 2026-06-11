@@ -39,6 +39,23 @@ except ImportError:
     from NetSecGameAgents.utils.concept_mapping_logger import ConceptMappingLogger
 
 
+def parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    normalized = value.lower()
+    if normalized in {"true", "1", "yes", "y", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Expected a boolean value, got: {value}")
+
+
+def mean_and_std(values):
+    if not values:
+        return 0.0, 0.0
+    return float(np.mean(values)), float(np.std(values))
+
+
 def _load_legacy_game_components_module():
     """Make the historical AIDojoCoordinator module path importable for old pickles."""
     module_name = "AIDojoCoordinator.game_components"
@@ -441,7 +458,14 @@ if __name__ == '__main__':
     parser.add_argument("--trajectoriesdir", help="Folder to store trajectories", default=path.join(path.dirname(path.abspath(__file__)), "trajectories"))
     parser.add_argument("--models_dir", help="Folder to store models", default=path.join(path.dirname(path.abspath(__file__)), "models"))
     parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", type=str)
-    parser.add_argument("--testing", help="Test the agent. No train.", default=False, type=bool)
+    parser.add_argument(
+        "--testing",
+        help="Test the agent without training. Accepts true/false.",
+        nargs="?",
+        const=True,
+        default=False,
+        type=parse_bool,
+    )
     parser.add_argument("--experiment_id", help="Id of the experiment to record into Wandb.", default='', type=str)
     # Logging platform selection arguments
     parser.add_argument("--disable_wandb", help="Disable Wandb logging (enabled by default).", action='store_true')
@@ -450,12 +474,25 @@ if __name__ == '__main__':
     parser.add_argument("--wandb_entity", help="Wandb team/user name.", default=None, type=str)
     parser.add_argument("--wandb_mode", help="Wandb logging mode (online/offline).", default="online", type=str)
     parser.add_argument("--wandb_group", help="Wandb group name for organizing runs.", default=None, type=str)
-    parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=bool)
+    parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=parse_bool)
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=2000, type=int)
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
     parser.add_argument("--apm", help="Maximum actions per minute", default=1000000, type=int, required=False)
-    parser.add_argument("--record_trajectories", help="Store trajectories in the TrajectoryRecorder JSONL format.", default=False, type=bool)
+    parser.add_argument(
+        "--record_trajectories",
+        help="Store trajectories in the TrajectoryRecorder JSONL format. Enabled by default.",
+        nargs="?",
+        const=True,
+        default=True,
+        type=parse_bool,
+    )
+    parser.add_argument(
+        "--no-record-trajectories",
+        help="Disable trajectory recording.",
+        dest="record_trajectories",
+        action="store_false",
+    )
     parser.add_argument("--enhanced_logging", help="Enable enhanced concept mapping logging", default=False, action='store_true')
     parser.add_argument("--agent_seed", help="Random seed for the conceptual agent.", default=42, type=int)
     args = parser.parse_args()
@@ -548,6 +585,8 @@ if __name__ == '__main__':
                 name=f"ConceptualQ-{experiment_name}.ID{args.experiment_id}",
                 mode=args.wandb_mode
             )
+            wandb.define_metric("current_episode")
+            wandb.define_metric("*", step_metric="current_episode")
         
         try:
             # To keep statistics of each episode
@@ -668,16 +707,39 @@ if __name__ == '__main__':
 
                     eval_win_rate = (wins/episode) * 100
                     eval_detection_rate = (detected/episode) * 100
-                    eval_average_returns = np.mean(num_detected_returns + num_win_returns + num_max_steps_returns)
-                    eval_std_returns = np.std(num_detected_returns + num_win_returns + num_max_steps_returns)
-                    eval_average_episode_steps = np.mean(num_win_steps + num_detected_steps + num_max_steps_steps)
-                    eval_std_episode_steps = np.std(num_win_steps + num_detected_steps + num_max_steps_steps)
-                    eval_average_win_steps = np.mean(num_win_steps)
-                    eval_std_win_steps = np.std(num_win_steps)
-                    eval_average_detected_steps = np.mean(num_detected_steps)
-                    eval_std_detected_steps = np.std(num_detected_steps)
-                    eval_average_max_steps_steps = np.mean(num_max_steps_steps)
-                    eval_std_max_steps_steps = np.std(num_max_steps_steps)
+                    eval_average_returns, eval_std_returns = mean_and_std(
+                        num_detected_returns + num_win_returns + num_max_steps_returns
+                    )
+                    eval_average_episode_steps, eval_std_episode_steps = mean_and_std(
+                        num_win_steps + num_detected_steps + num_max_steps_steps
+                    )
+                    eval_average_win_steps, eval_std_win_steps = mean_and_std(num_win_steps)
+                    eval_average_detected_steps, eval_std_detected_steps = mean_and_std(num_detected_steps)
+                    eval_average_max_steps_steps, eval_std_max_steps_steps = mean_and_std(num_max_steps_steps)
+
+                    if args.testing and args.use_wandb:
+                        wandb.log({
+                            "test_wins": wins,
+                            "test_detections": detected,
+                            "test_timeouts": max_steps,
+                            "test_avg_win_rate": eval_win_rate,
+                            "test_avg_detection_rate": eval_detection_rate,
+                            "test_avg_timeout_rate": (max_steps / episode) * 100,
+                            "test_avg_returns": eval_average_returns,
+                            "test_std_returns": eval_std_returns,
+                            "test_avg_episode_steps": eval_average_episode_steps,
+                            "test_std_episode_steps": eval_std_episode_steps,
+                            "test_avg_win_steps": eval_average_win_steps,
+                            "test_std_win_steps": eval_std_win_steps,
+                            "test_avg_detected_steps": eval_average_detected_steps,
+                            "test_std_detected_steps": eval_std_detected_steps,
+                            "test_avg_max_steps_steps": eval_average_max_steps_steps,
+                            "test_std_max_steps_steps": eval_std_max_steps_steps,
+                            "current_epsilon": agent.current_epsilon,
+                            "current_episode": episode,
+                            "q_table_size": len(agent.q_values),
+                            "unique_states": len(agent._str_to_id)
+                        })
 
                     # Now Test, log and report. This happens every X training episodes
                     # If we are in training mode, we test for --test_for episodes
@@ -693,7 +755,7 @@ if __name__ == '__main__':
                             average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
                             average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
                             average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
-                            average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
+                            average_max_steps_steps={eval_average_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
                             epsilon={agent.current_epsilon}
                             '''
                         agent._logger.info(text)
@@ -701,8 +763,12 @@ if __name__ == '__main__':
                         # Log evaluation metrics to Wandb if enabled
                         if args.use_wandb:
                             wandb.log({
+                                "eval_wins": wins,
+                                "eval_detections": detected,
+                                "eval_timeouts": max_steps,
                                 "eval_avg_win_rate": eval_win_rate,
                                 "eval_avg_detection_rate": eval_detection_rate,
+                                "eval_avg_timeout_rate": (max_steps / episode) * 100,
                                 "eval_avg_returns": eval_average_returns,
                                 "eval_std_returns": eval_std_returns,
                                 "eval_avg_episode_steps": eval_average_episode_steps,
@@ -717,7 +783,7 @@ if __name__ == '__main__':
                                 "current_episode": episode,
                                 "q_table_size": len(agent.q_values),
                                 "unique_states": len(agent._str_to_id)
-                            }, step=episode)
+                            })
 
                         # Now we need to keep statistics during the --test_for number of episodes
                         test_wins = 0
@@ -764,16 +830,16 @@ if __name__ == '__main__':
 
                                 if test_info and test_info['end_reason'] == AgentStatus.Fail:
                                     test_detected +=1
-                                    test_num_detected_steps += [num_steps]
-                                    test_num_detected_returns += [reward]
+                                    test_num_detected_steps += [test_num_steps]
+                                    test_num_detected_returns += [test_reward]
                                 elif test_info and test_info['end_reason'] == AgentStatus.Success:
                                     test_wins += 1
-                                    test_num_win_steps += [num_steps]
-                                    test_num_win_returns += [reward]
+                                    test_num_win_steps += [test_num_steps]
+                                    test_num_win_returns += [test_reward]
                                 elif test_info and test_info['end_reason'] == AgentStatus.TimeoutReached:
                                     test_max_steps += 1
-                                    test_num_max_steps_steps += [num_steps]
-                                    test_num_max_steps_returns += [reward]
+                                    test_num_max_steps_steps += [test_num_steps]
+                                    test_num_max_steps_returns += [test_reward]
 
                                 agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
 
@@ -796,16 +862,15 @@ if __name__ == '__main__':
 
                             test_win_rate = (test_wins/test_episode) * 100
                             test_detection_rate = (test_detected/test_episode) * 100
-                            test_average_returns = np.mean(test_num_detected_returns + test_num_win_returns + test_num_max_steps_returns)
-                            test_std_returns = np.std(test_num_detected_returns + test_num_win_returns + test_num_max_steps_returns)
-                            test_average_episode_steps = np.mean(test_num_win_steps + test_num_detected_steps + test_num_max_steps_steps)
-                            test_std_episode_steps = np.std(test_num_win_steps + test_num_detected_steps + test_num_max_steps_steps)
-                            test_average_win_steps = np.mean(test_num_win_steps)
-                            test_std_win_steps = np.std(test_num_win_steps)
-                            test_average_detected_steps = np.mean(test_num_detected_steps)
-                            test_std_detected_steps = np.std(test_num_detected_steps)
-                            test_average_max_steps_steps = np.mean(test_num_max_steps_steps)
-                            test_std_max_steps_steps = np.std(test_num_max_steps_steps)
+                            test_average_returns, test_std_returns = mean_and_std(
+                                test_num_detected_returns + test_num_win_returns + test_num_max_steps_returns
+                            )
+                            test_average_episode_steps, test_std_episode_steps = mean_and_std(
+                                test_num_win_steps + test_num_detected_steps + test_num_max_steps_steps
+                            )
+                            test_average_win_steps, test_std_win_steps = mean_and_std(test_num_win_steps)
+                            test_average_detected_steps, test_std_detected_steps = mean_and_std(test_num_detected_steps)
+                            test_average_max_steps_steps, test_std_max_steps_steps = mean_and_std(test_num_max_steps_steps)
 
                             # Store the model every --eval_each episodes. 
                             # Use episode (training counter) and not test_episode (test counter)
@@ -821,7 +886,7 @@ if __name__ == '__main__':
                             average_episode_steps={test_average_episode_steps:.3f} +- {test_std_episode_steps:.3f},
                             average_win_steps={test_average_win_steps:.3f} +- {test_std_win_steps:.3f},
                             average_detected_steps={test_average_detected_steps:.3f} +- {test_std_detected_steps:.3f}
-                            average_max_steps_steps={test_std_max_steps_steps:.3f} +- {test_std_max_steps_steps:.3f},
+                            average_max_steps_steps={test_average_max_steps_steps:.3f} +- {test_std_max_steps_steps:.3f},
                             epsilon={agent.current_epsilon}
                             '''
                         agent._logger.info(text)
@@ -830,8 +895,12 @@ if __name__ == '__main__':
                         # Log test metrics to Wandb if enabled
                         if args.use_wandb:
                             wandb.log({
+                                "test_wins": test_wins,
+                                "test_detections": test_detected,
+                                "test_timeouts": test_max_steps,
                                 "test_avg_win_rate": test_win_rate,
                                 "test_avg_detection_rate": test_detection_rate,
+                                "test_avg_timeout_rate": (test_max_steps / test_episode) * 100,
                                 "test_avg_returns": test_average_returns,
                                 "test_std_returns": test_std_returns,
                                 "test_avg_episode_steps": test_average_episode_steps,
@@ -846,7 +915,7 @@ if __name__ == '__main__':
                                 "current_episode": episode,
                                 "q_table_size": len(agent.q_values),
                                 "unique_states": len(agent._str_to_id)
-                            }, step=episode)
+                            })
 
                         if test_win_rate >= args.early_stop_threshold:
                             agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
@@ -866,7 +935,7 @@ if __name__ == '__main__':
                 average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
                 average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
                 average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
-                average_max_steps_steps={eval_std_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
+                average_max_steps_steps={eval_average_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
                 epsilon={agent.current_epsilon}
                 '''
 
