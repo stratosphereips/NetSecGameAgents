@@ -14,223 +14,305 @@ from netsecgame.game_components import AgentStatus
 from netsecgame import generate_valid_actions as _generate_valid_actions_core
 from netsecgame import state_as_ordered_string as _state_as_ordered_string_core
 
-def generate_valid_actions_concepts(state: GameState, action_history: set, include_blocks=False)->list:
-    """
-    Function that generates a list of all valid actions in a given state for the conceptual agents.
-    It receives the concepts_acted_on set that contains the concepts that have been already acted on. To avoid 
-    acting on the same concept twice.
+def generate_valid_actions_concepts(
+    state: GameState,
+    action_history: set,
+    include_blocks=False,
+    *,
+    filter_scan_network=True,
+    filter_find_services=True,
+    filter_exploit_service=True,
+    filter_find_data=True,
+    filter_exfiltrate_data=True,
+    allow_repeated_actions=False,
+    single_source=False,
+    allow_repeated_network_scans=False,
+    allow_service_rescans=False,
+    include_local_services=False,
+    allow_exploit_controlled_hosts=False,
+    allow_find_data_rescans=False,
+    prohibit_find_data_self_targeting=False,
+    include_logfile_exfiltration=False,
+    allow_duplicate_data_exfiltration=False,
+    exfiltrate_to_external_only=False,
+    ignore_firewall=False,
+)->list:
+    """Generate valid conceptual actions for the attacker.
+
+    Every ablation parameter is opt-in. Calling this function with only
+    ``state`` and ``action_history`` preserves the original behavior.
+
+    Args:
+        state: Current conceptual game state.
+        action_history: Conceptual actions already selected in this episode.
+        include_blocks: Generate BlockIP actions.
+        filter_scan_network: Apply the conceptual internal-network and
+            internal-source restrictions to ScanNetwork. When false, generate
+            every controlled-source and known-network combination.
+        filter_find_services: Apply the conceptual internal-host and
+            already-known-services restrictions to FindServices.
+        filter_exploit_service: Apply the conceptual internal-host,
+            non-local-service, uncontrolled-target, and non-self restrictions
+            to ExploitService.
+        filter_find_data: Apply the conceptual internal-host and unknown-data
+            restrictions to FindData.
+        filter_exfiltrate_data: Apply the conceptual internal-source, logfile,
+            and duplicate-at-destination restrictions to ExfiltrateData.
+        allow_repeated_actions: Ignore history for all action families.
+        single_source: Use one deterministic internal controlled source for
+            ScanNetwork, FindServices, ExploitService, and FindData.
+            ExfiltrateData sources remain hosts containing the selected data.
+        allow_repeated_network_scans: Ignore history for ScanNetwork only.
+        allow_service_rescans: Scan hosts whose services are already known.
+        include_local_services: Generate exploits for local services.
+        allow_exploit_controlled_hosts: Exploit already controlled hosts.
+        allow_find_data_rescans: Search hosts whose data is already known.
+        prohibit_find_data_self_targeting: Require a different source and
+            target for FindData.
+        include_logfile_exfiltration: Generate exfiltration for logfile data.
+        allow_duplicate_data_exfiltration: Exfiltrate data to a destination
+            that already contains the same data id.
+        exfiltrate_to_external_only: Restrict destinations to controlled
+            conceptual hosts containing ``external``.
+        ignore_firewall: Do not prune actions using known firewall blocks.
     """
 
-    def is_fw_blocked(state, source_host, target_host)->bool:
-        blocked = False
+    def is_fw_blocked(source_host, target_host) -> bool:
+        if ignore_firewall:
+            return False
         try:
-            blocked = target_host in state.known_blocks[source_host]
+            return target_host in state.known_blocks[source_host]
         except KeyError:
-            pass #this src ip has no known blocks
-        return blocked 
+            return False
+
+    def is_internal_concept(host) -> bool:
+        return type(host) is str and 'external' not in host
+
+    def action_is_allowed(action) -> bool:
+        if allow_repeated_actions:
+            return True
+        if (
+            action.action_type == ActionType.ScanNetwork
+            and allow_repeated_network_scans
+        ):
+            return True
+        return action not in action_history
 
     valid_actions = set()
 
-    # Use deterministic ordering over sets/dicts so that, given the same
-    # state, the generated actions are produced in a stable order across runs.
+    # Deterministic ordering keeps seeded ablation runs reproducible.
     controlled_hosts = sorted(state.controlled_hosts, key=str)
     known_hosts = sorted(state.known_hosts, key=str)
     known_networks = sorted(state.known_networks, key=str)
+    source_hosts = controlled_hosts
+    if single_source:
+        internal_sources = [
+            source_host
+            for source_host in controlled_hosts
+            if is_internal_concept(source_host)
+        ]
+        source_hosts = internal_sources[:1] or controlled_hosts[:1]
 
-    for source_host in controlled_hosts:
-        # Network Scans
+    for source_host in source_hosts:
         for network in known_networks:
-            # TODO ADD neighbouring networks
-            # Only scan local from local hosts
-            # If the network or source_host are str and not 'external', they are concepts and also private.
-            if ( 
-                type(network.ip) is str  
-                and 'external' not in network.ip
-                and type(source_host) is str 
-                and 'external' not in source_host
-            ): 
-                action = Action(ActionType.ScanNetwork, parameters={"target_network": network, "source_host": source_host,})
-                # Check if the action is in the history of actions
-                if action not in action_history:
-                    valid_actions.add(action)
-
-        # Service Scans
-        for target_host in known_hosts:
-            # Do not scan a service from an external host
-            # Do not scan a service in an external host
-            # If the network or source_host are str, they are concepts and also private.
-            # Do not scan the target host if it is blocked in that source host
-            # Do not scan the source host if it is blocked in that target host
-            # Do not service scan the same host you are in
             if (
-                (
-                    type(target_host) is str 
-                    and 'external' not in target_host 
-                    and type(source_host) is str
-                    and 'external' not in source_host
-                ) and (
-                    not is_fw_blocked(state, source_host, target_host)
-                    and not is_fw_blocked(state, target_host, source_host)
-                    # And target_host has no services, so we dont search for services if we have them
-                    and target_host not in state.known_services
-                )
-            ): 
-                action = Action(ActionType.FindServices, parameters={"target_host": target_host, "source_host": source_host,})
-                # Check if the action is in the history of actions
-                if action not in action_history:
-                    valid_actions.add(action)
-
-        # Service Exploits
-        for target_host, service_list in sorted(state.known_services.items(), key=lambda kv: str(kv[0])):
-            # Do not exploit a service from an external host
-            # Do not exploit a service in an external host
-            # If the network or source_host are str, they are concepts and also private.
-            # Only exploits target_hosts we do not control
-            # Do not exploit the target host if it is blocked in that source host
-            # Do not exploit the source host if it is blocked in that target host
-            # Do not exploit the same host you are in
-            if (
-                (
-                    type(target_host) is str 
-                    and 'external' not in target_host 
-                    and type(source_host) is str 
-                    and 'external' not in source_host
-                ) and (
-                    target_host not in state.controlled_hosts
-                    and not is_fw_blocked(state, source_host, target_host)
-                    and not is_fw_blocked(state, target_host, source_host)
-                    and target_host != source_host
-                    # and target_host is not controlled host so we dont re exploit an exploited host from any source
-                    and target_host not in state.controlled_hosts
+                not filter_scan_network
+                or (
+                    type(network.ip) is str
+                    and 'external' not in network.ip
+                    and is_internal_concept(source_host)
                 )
             ):
-                for service in sorted(service_list, key=lambda s: getattr(s, "name", "")):
-                    # Do not consider local services, which are internal to the target_host
-                    if not service.is_local:
-                        action = Action(ActionType.ExploitService, parameters={"target_host": target_host,"target_service": service,"source_host": source_host,})
-                        # Check if the action is in the history of actions
-                        if action not in action_history:
-                            valid_actions.add(action)
-
-        # Find Data Scans
-        for target_host in controlled_hosts:
-            # Do not find data from external hosts
-            # Do not find data in external hosts
-            # Only find data in hosts we control (implicit from the source of data)
-            # Do not find data in the target host if it is blocked in that source host
-            # Do not find data in the source host if it is blocked in that target host
-            # Do not find data in the same host you are in
-            if (
-                (
-                    type(target_host) is str 
-                    and 'external' not in target_host 
-                    and type(source_host) is str 
-                    and 'external' not in source_host
-                ) and (
-                    target_host in state.controlled_hosts
-                    and not is_fw_blocked(state, source_host, target_host)
-                    and not is_fw_blocked(state, target_host, source_host)
-                    # And target_host does not has currently data
-                    and target_host not in state.known_data
+                action = Action(
+                    ActionType.ScanNetwork,
+                    parameters={
+                        "target_network": network,
+                        "source_host": source_host,
+                    },
                 )
-            ): 
-                action = Action(ActionType.FindData, parameters={"target_host": target_host, "source_host": source_host})
-                # Check if the action is in the history of actions
-                if action not in action_history:
+                if action_is_allowed(action):
                     valid_actions.add(action)
 
-        # Data Exfiltration
-        for source_host, data_list in sorted(state.known_data.items(), key=lambda kv: str(kv[0])):
-            for target_host in controlled_hosts:
-                # Do not exfiltrate data from external hosts
-                # Do not exfiltrate data to internal hosts
-                # Only exfiltrate data from hosts we control (implicit from the source of data)
-                # Only exfiltrate data to hosts we control
-                # Only exfiltrate data from hosts with data
-                # Only exfiltrate data to hosts we control
-                # Do not exfiltrate to and from the same host
-                # Do not exfiltarte to the target host if it is blocked in that source host
-                # Do not exfiltarte to the source host if it is blocked in that target host
-                # Do not exfiltrate to the same host you are in
-                # Do not exfiltrate if the target_host already has the data
-                if (
-                    (
-                        type(source_host) is str 
-                        and 'external' not in source_host
-                    ) and (
-                        target_host in state.controlled_hosts
-                        and not is_fw_blocked(state, source_host, target_host)
-                        and target_host != source_host
-                    ) and (
-                        data_list is not None
-                        and target_host != source_host
-                    )
-                ): 
-                    for data in sorted(data_list, key=lambda d: (getattr(d, "owner", ""), getattr(d, "id", ""))):
-                        # This check not to exfiltrate the data several times is more organic here
-                        # checking if the data is already in the target controlled host
-                        data_was_not_exfiltrated_before = True
-                        ignore_this_data = False
-
-                        # Should some type of data be ignored?
-                        # Ignore logfiles
-                        if data.id == 'logfile':
-                            ignore_this_data = True
-                            continue
-
-                        try:
-                            # Is the target_host in the list of known_hosts?
-                            _ = state.known_data[target_host]
-                            for exfiltrated_data in state.known_data[target_host]: 
-                                # Does the target_host already have the data?
-                                if exfiltrated_data.id == data.id:
-                                    data_was_not_exfiltrated_before = False
-                        except KeyError:
-                            # We dont have data in this target host so is ok
-                            pass
-
-                        action = Action(ActionType.ExfiltrateData, parameters={"target_host": target_host, "source_host": source_host, "data": data})
-                        # Check if the action is in the history of actions
-                        if not ignore_this_data and data_was_not_exfiltrated_before and action not in action_history:
-                            valid_actions.add(action)
-
-
-        # BlockIP
-        if include_blocks:
-            # Explanation of action
-            # The target host is the host where the blocking will be applied (the FW)
-            # The source host is the host that the agent uses to connect to the target host. A host that must be controlled by the agent
-            # The blocked host is the host that will be included in the FW list to be blocked.
-
-            # Do not block external hosts
-            # Do not block internal hosts from external hosts
-            # Do not block if the source host is not controlled
-            # Do not block if the target host is not controlled
-            # Do not block if the combination of source, and target host, and blocked host is already blocked
-            # Do not block the same host you are in
+    for source_host in source_hosts:
+        for target_host in known_hosts:
             if (
-                (
-                    type(target_host) is str 
-                    and 'external' not in target_host 
-                    and type(source_host) is str 
-                    and 'external' not in source_host
-                ) and (
-                    (
-                    target_host in state.controlled_hosts
-                    and source_host in state.controlled_hosts # these are verified also below in the for
-                    and blocked_host != source_host
+                not is_fw_blocked(source_host, target_host)
+                and not is_fw_blocked(target_host, source_host)
+                and (
+                    not filter_find_services
+                    or (
+                        is_internal_concept(target_host)
+                        and is_internal_concept(source_host)
+                        and (
+                            allow_service_rescans
+                            or target_host not in state.known_services
+                        )
                     )
                 )
-            ): 
-                for source_host in controlled_hosts:
-                    for target_host in controlled_hosts:
-                        if not is_fw_blocked(state, source_host, target_host):
-                            for blocked_host in known_hosts:
-                                # Check if the action is in the history of actions
-                                action = Action(ActionType.BlockIP, {"target_host":target_host, "source_host":source_host, "blocked_host":blocked_host})
-                                if action not in action_history:
-                                    valid_actions.add(action)
-    # Return actions in a deterministic order
+            ):
+                action = Action(
+                    ActionType.FindServices,
+                    parameters={
+                        "target_host": target_host,
+                        "source_host": source_host,
+                    },
+                )
+                if action_is_allowed(action):
+                    valid_actions.add(action)
+
+    for source_host in source_hosts:
+        for target_host, service_list in sorted(
+            state.known_services.items(),
+            key=lambda item: str(item[0]),
+        ):
+            if (
+                not is_fw_blocked(source_host, target_host)
+                and not is_fw_blocked(target_host, source_host)
+                and (
+                    not filter_exploit_service
+                    or (
+                        is_internal_concept(target_host)
+                        and is_internal_concept(source_host)
+                        and (
+                            allow_exploit_controlled_hosts
+                            or target_host not in state.controlled_hosts
+                        )
+                        and target_host != source_host
+                    )
+                )
+            ):
+                for service in sorted(
+                    service_list,
+                    key=lambda item: getattr(item, "name", ""),
+                ):
+                    if (
+                        not filter_exploit_service
+                        or include_local_services
+                        or not service.is_local
+                    ):
+                        action = Action(
+                            ActionType.ExploitService,
+                            parameters={
+                                "target_host": target_host,
+                                "target_service": service,
+                                "source_host": source_host,
+                            },
+                        )
+                        if action_is_allowed(action):
+                            valid_actions.add(action)
+
+    for source_host in source_hosts:
+        for target_host in controlled_hosts:
+            if (
+                not is_fw_blocked(source_host, target_host)
+                and not is_fw_blocked(target_host, source_host)
+                and (
+                    not filter_find_data
+                    or (
+                        is_internal_concept(target_host)
+                        and is_internal_concept(source_host)
+                        and (
+                            allow_find_data_rescans
+                            or target_host not in state.known_data
+                        )
+                    )
+                )
+                and (
+                    not prohibit_find_data_self_targeting
+                    or target_host != source_host
+                )
+            ):
+                action = Action(
+                    ActionType.FindData,
+                    parameters={
+                        "target_host": target_host,
+                        "source_host": source_host,
+                    },
+                )
+                if action_is_allowed(action):
+                    valid_actions.add(action)
+
+    for source_host, data_list in sorted(
+        state.known_data.items(),
+        key=lambda item: str(item[0]),
+    ):
+        for target_host in controlled_hosts:
+            if (
+                target_host in state.controlled_hosts
+                and not is_fw_blocked(source_host, target_host)
+                and target_host != source_host
+                and data_list is not None
+                and (
+                    not filter_exfiltrate_data
+                    or is_internal_concept(source_host)
+                )
+                and (
+                    not exfiltrate_to_external_only
+                    or (
+                        type(target_host) is str
+                        and 'external' in target_host
+                    )
+                )
+            ):
+                for data in sorted(
+                    data_list,
+                    key=lambda item: (
+                        getattr(item, "owner", ""),
+                        getattr(item, "id", ""),
+                    ),
+                ):
+                    if (
+                        filter_exfiltrate_data
+                        and data.id == 'logfile'
+                        and not include_logfile_exfiltration
+                    ):
+                        continue
+
+                    data_at_target = state.known_data.get(target_host, set())
+                    data_was_not_exfiltrated_before = not any(
+                        exfiltrated_data.id == data.id
+                        for exfiltrated_data in data_at_target
+                    )
+                    action = Action(
+                        ActionType.ExfiltrateData,
+                        parameters={
+                            "target_host": target_host,
+                            "source_host": source_host,
+                            "data": data,
+                        },
+                    )
+                    if (
+                        (
+                            not filter_exfiltrate_data
+                            or allow_duplicate_data_exfiltration
+                            or data_was_not_exfiltrated_before
+                        )
+                        and action_is_allowed(action)
+                    ):
+                        valid_actions.add(action)
+
+    if include_blocks:
+        for source_host in controlled_hosts:
+            for target_host in controlled_hosts:
+                if (
+                    is_internal_concept(source_host)
+                    and is_internal_concept(target_host)
+                    and not is_fw_blocked(source_host, target_host)
+                ):
+                    for blocked_host in known_hosts:
+                        if blocked_host == source_host:
+                            continue
+                        action = Action(
+                            ActionType.BlockIP,
+                            {
+                                "target_host": target_host,
+                                "source_host": source_host,
+                                "blocked_host": blocked_host,
+                            },
+                        )
+                        if action_is_allowed(action):
+                            valid_actions.add(action)
+
     return sorted(valid_actions, key=str)
 
 def generate_valid_actions(state: GameState, include_blocks=False) -> list:
