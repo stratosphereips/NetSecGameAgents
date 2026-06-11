@@ -5,8 +5,10 @@ The conceptual attacker agent is a modification to the Q-learning attacker to av
 # Install
 Install the dependencies of this agent with 
 
-```python -m venv venv
+```bash
+python -m venv venv
 source venv/bin/activate
+python -m pip install -e ..
 python -m pip install -e ".[conceptual_q_learning]"
 ```
 
