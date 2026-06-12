@@ -2,26 +2,56 @@
 #           Arti
 #           Sebastian Garcia. sebastian.garcia@agents.fel.cvut.cz
 import sys
-import numpy as np
 import random
 import pickle
 import argparse
 import logging
-import wandb
 import subprocess
 import time
+from datetime import datetime
+from typing import Optional
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+try:
+    import wandb
+except ImportError:
+    wandb = None
 
 from os import path, makedirs
 # with the path fixed, we can import now
-from netsecgame.game_components import (
-    Action,
-    Observation,
-    GameState, AgentStatus, BaseAgent, generate_valid_actions, state_as_ordered_string, AgentRole
-) 
+from netsecgame.agents.base_agent import BaseAgent
+from netsecgame.game_components import Action, Observation, GameState, AgentStatus, AgentRole
+from netsecgame.utils.trajectory_recorder import TrajectoryRecorder
+from netsecgame.utils.utils import generate_valid_actions, state_as_ordered_string
+
+
+def _require_dependency(module_name: str, module_ref) -> None:
+    if module_ref is None:
+        raise ImportError(
+            f"Missing optional dependency '{module_name}'. "
+            f"Install the q_learning extras or add '{module_name}' to your environment."
+        )
 
 class QAgent(BaseAgent):
 
-    def __init__(self, host, port, role=AgentRole.Attacker, alpha=0.1, gamma=0.6, epsilon_start=0.9, epsilon_end=0.1, epsilon_max_episodes=5000, apm_limit:int=None) -> None:
+    def __init__(
+        self,
+        host,
+        port,
+        role=AgentRole.Attacker,
+        alpha=0.1,
+        gamma=0.6,
+        epsilon_start=0.9,
+        epsilon_end=0.1,
+        epsilon_max_episodes=5000,
+        apm_limit: int = None,
+        random_initialization: bool = False,
+        random_init_scale: float = 0.01,
+    ) -> None:
         super().__init__(host, port, role)
         self.alpha = alpha
         self.gamma = gamma
@@ -32,10 +62,22 @@ class QAgent(BaseAgent):
         self.epsilon_max_episodes = epsilon_max_episodes
         self.current_epsilon = epsilon_start
         self._apm_limit = apm_limit
+        self.random_initialization = random_initialization
+        self.random_init_scale = random_init_scale
         if self._apm_limit:
             self.inter_action_interval = 60/apm_limit
         else:
             self.inter_action_interval = 0
+
+    def _default_q_value(self) -> float:
+        if self.random_initialization:
+            return random.uniform(-self.random_init_scale, self.random_init_scale)
+        return 0.0
+
+    def _initialize_missing_q_values(self, state_id: int, actions) -> None:
+        for action in actions:
+            if (state_id, action) not in self.q_values:
+                self.q_values[state_id, action] = self._default_q_value()
 
     def store_q_table(self, filename):
         with open(filename, "wb") as f:
@@ -64,13 +106,15 @@ class QAgent(BaseAgent):
         state = observation.state
         actions = generate_valid_actions(state)
         state_id = self.get_state_id(state)
-        tmp = dict(((state_id, a), self.q_values.get((state_id, a), 0)) for a in actions)
+        self._initialize_missing_q_values(state_id, actions)
+        tmp = dict(((state_id, a), self.q_values[(state_id, a)]) for a in actions)
         return tmp[max(tmp,key=tmp.get)] #return maximum Q_value for a given state (out of available actions)
    
     def select_action(self, observation:Observation, testing=False) -> tuple:
         state = observation.state
         actions = generate_valid_actions(state)
         state_id = self.get_state_id(state)
+        self._initialize_missing_q_values(state_id, actions)
         
         # E-greedy play. If the random number is less than the e, then choose random to explore.
         # But do not do it if we are testing a model. 
@@ -78,21 +122,13 @@ class QAgent(BaseAgent):
             # We are training
             # Random choose an ation from the list of actions?
             action = random.choice(list(actions))
-            if (state_id, action) not in self.q_values:
-                self.q_values[state_id, action] = 0
             return action, state_id
         else: 
             # Here we can be during training outside the e-greede, or during testing
             # Select the action with highest q_value, or random pick to break the ties
-            # The default initial q-value for a (state, action) pair is 0.
-            initial_q_value = 0
-            tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
+            # Missing state-action pairs are initialized before tie-breaking.
+            tmp = dict(((state_id, action), self.q_values[(state_id, action)]) for action in actions)
             ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], random.random()))
-            #if max_q_key not in self.q_values:
-            try:
-                self.q_values[state_id, action]
-            except KeyError:
-                self.q_values[state_id, action] = 0
             return action, state_id
 
     def recompute_reward(self, observation: Observation) -> Observation:
@@ -123,11 +159,20 @@ class QAgent(BaseAgent):
         self.logger.debug(f"Updating epsilon - new value:{new_eps}")
         return new_eps
     
-    def play_game(self, observation, episode_num, testing=False):
+    def play_game(
+        self,
+        observation,
+        episode_num,
+        testing=False,
+        recorder: Optional[TrajectoryRecorder] = None,
+        trajectory_filename: Optional[str] = None,
+    ):
         """
         The main function for the gameplay. Handles the main interaction loop.
         """
         num_steps = 0
+        if recorder is not None:
+            recorder.add_initial_state(observation.state)
         # Run the whole episode
         while not observation.end:
             # Store steps so far
@@ -145,9 +190,16 @@ class QAgent(BaseAgent):
            
             # Recompute the rewards
             observation = self.recompute_reward(observation)
+            if recorder is not None:
+                end_reason = observation.info.get("end_reason") if observation.info else None
+                recorder.add_step(action, observation.reward, observation.state, end_reason=end_reason)
             if not testing:
                 # If we are training update the Q-table
-                self.q_values[state_id, action] += self.alpha * (observation.reward + self.gamma * self.max_action_q(observation)) - self.q_values[state_id, action]
+                self.q_values[state_id, action] += self.alpha * (
+                    observation.reward
+                    + self.gamma * self.max_action_q(observation)
+                    - self.q_values[state_id, action]
+                )
 
             # Check the apm (actions per minute)
             if self._apm_limit:
@@ -167,6 +219,9 @@ class QAgent(BaseAgent):
         # update epsilon value
         if not testing:
             self.current_epsilon = self.update_epsilon_with_decay(episode_num)
+        if recorder is not None:
+            recorder.save_to_file(filename=trajectory_filename)
+            recorder.reset()
         # Reset the episode
         _ = self.request_game_reset()
         # This will be the last observation played before the reset
@@ -193,14 +248,24 @@ if __name__ == '__main__':
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
     parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
     parser.add_argument("--apm", help="Actions per minute", default=10000, type=int, required=False)
+    parser.add_argument("--record_trajectories", type=bool, default=False)
+    parser.add_argument("--random_initialization", action='store_true', help="Initialize unseen Q-values with small random values instead of zero.")
+    parser.add_argument("--random_init_scale", default=0.01, type=float, help="Absolute bound for random unseen Q-value initialization.")
     args = parser.parse_args()
+
+    _require_dependency("numpy", np)
+    _require_dependency("wandb", wandb)
 
     if not path.exists(args.logdir):
         makedirs(args.logdir)
     logging.basicConfig(filename=path.join(args.logdir, "q_agent.log"), filemode='w', format='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S',level=logging.INFO)
 
     # Create agent
-    agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes, apm_limit=args.apm)
+    agent = QAgent(args.host, args.port, alpha=args.alpha, gamma=args.gamma, epsilon_start=args.epsilon_start, epsilon_end=args.epsilon_end, epsilon_max_episodes=args.epsilon_max_episodes, apm_limit=args.apm, random_initialization=args.random_initialization, random_init_scale=args.random_init_scale)
+    if args.record_trajectories:
+        recorder = TrajectoryRecorder("Q-Learning", agent_role="Attacker")
+    else:
+        recorder = None
 
     # Log for Actions. After agent creation
     actions_logger = logging.getLogger('QAgentActions')
@@ -274,6 +339,8 @@ if __name__ == '__main__':
             "epsilon_end": args.epsilon_end,
             "epsilon_max_episodes": args.epsilon_max_episodes,
             "gamma": args.gamma,
+            "random_initialization": args.random_initialization,
+            "random_init_scale": args.random_init_scale,
             "episodes": args.episodes,
             "test_each": args.test_each,
             "test_for": args.test_for,
@@ -312,7 +379,18 @@ if __name__ == '__main__':
         for episode in range(1, args.episodes + 1):
                 if not early_stop:
                     # Play 1 episode
-                    observation, num_steps = agent.play_game(observation, testing=args.testing, episode_num=episode)       
+                    trajectory_filename = None
+                    episode_recorder = None
+                    if recorder is not None and args.testing:
+                        episode_recorder = recorder
+                        trajectory_filename = f"{datetime.now():%Y-%m-%d}_Q-Learning_Attacker_{args.episodes:06d}"
+                    observation, num_steps = agent.play_game(
+                        observation,
+                        testing=args.testing,
+                        episode_num=episode,
+                        recorder=episode_recorder,
+                        trajectory_filename=trajectory_filename,
+                    )
 
                     state = observation.state
                     reward = observation.reward
@@ -425,7 +503,18 @@ if __name__ == '__main__':
                                 # Play 1 episode
                                 # See that we force the model to freeze by telling it that it is in 'testing' mode.
                                 # Also the episode_num is not updated since this controls the decay of the epsilon during training and we dont want to change that
-                                test_observation, test_num_steps = agent.play_game(observation, testing=True, episode_num=episode)       
+                                trajectory_filename = None
+                                episode_recorder = None
+                                if recorder is not None:
+                                    episode_recorder = recorder
+                                    trajectory_filename = f"{datetime.now():%Y-%m-%d}_Q-Learning_Attacker_{episode:06d}"
+                                test_observation, test_num_steps = agent.play_game(
+                                    observation,
+                                    testing=True,
+                                    episode_num=episode,
+                                    recorder=episode_recorder,
+                                    trajectory_filename=trajectory_filename,
+                                )
 
                                 test_state = test_observation.state
                                 test_reward = test_observation.reward
