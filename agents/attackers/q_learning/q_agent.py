@@ -523,16 +523,16 @@ if __name__ == '__main__':
 
                                 if test_info and test_info['end_reason'] == AgentStatus.Fail:
                                     test_detected +=1
-                                    test_num_detected_steps += [num_steps]
-                                    test_num_detected_returns += [reward]
+                                    test_num_detected_steps += [test_num_steps]
+                                    test_num_detected_returns += [test_reward]
                                 elif test_info and test_info['end_reason'] == AgentStatus.Success:
                                     test_wins += 1
-                                    test_num_win_steps += [num_steps]
-                                    test_num_win_returns += [reward]
+                                    test_num_win_steps += [test_num_steps]
+                                    test_num_win_returns += [test_reward]
                                 elif test_info and test_info['end_reason'] == AgentStatus.TimeoutReached:
                                     test_max_steps += 1
-                                    test_num_max_steps_steps += [num_steps]
-                                    test_num_max_steps_returns += [reward]
+                                    test_num_max_steps_steps += [test_num_steps]
+                                    test_num_max_steps_returns += [test_reward]
 
                                 agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
 
