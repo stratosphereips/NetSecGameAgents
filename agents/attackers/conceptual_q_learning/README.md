@@ -2,6 +2,20 @@
 
 The conceptual attacker agent is a modification to the Q-learning attacker to avoid depending on IP addresses to play the game, and instead convert each IP address into a concept, just as humans do when they attack a network.
 
+## Learning rule
+
+The agent learns over conceptualized states and actions using the standard
+off-policy Q-learning Bellman update:
+
+```text
+Q(s, a) <- Q(s, a) + alpha * (reward + gamma * max_a' Q(s', a') - Q(s, a))
+```
+
+For terminal transitions, including conceptual dead-ends where the abstraction
+produces no valid next action, the bootstrap term is `0`. In those dead-end
+cases the conceptual agent ends the episode with an internal failure reward so
+the preceding action is still updated from the final transition.
+
 # Install
 Install the dependencies of this agent with 
 
