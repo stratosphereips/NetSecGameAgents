@@ -201,8 +201,8 @@ class QAgent(BaseAgent):
             self._str_to_id[state_str] = len(self._str_to_id) 
         return self._str_to_id[state_str]
     
-    def max_action_q(self, concept_observation:Observation) -> Action:
-        """ Get the action that maximices the q_value for a given observation """
+    def max_action_q(self, concept_observation:Observation) -> float | None:
+        """Return the maximum Q-value available in the next conceptual state."""
         state = concept_observation.observation.state
         actions = self.generate_valid_actions(state)
         state_id = self.get_state_id(state)
@@ -272,6 +272,32 @@ class QAgent(BaseAgent):
 
         new_observation = Observation(state, reward, end, info)
         return new_observation
+
+    def reset_episode_tracking(self) -> None:
+        """Clear per-episode state that should not leak across resets."""
+        self.actions_history = set()
+        self.previous_state = None
+
+    def _update_q_value(
+        self,
+        state_id: int,
+        concept_action: Action,
+        reward: float,
+        next_q_value: float = 0.0,
+        terminal: bool = False,
+    ) -> tuple[float, float]:
+        """Apply the Bellman Q-learning update for one transition."""
+        old_q = self.q_values.get((state_id, concept_action), 0.0)
+        target = reward if terminal else reward + self.gamma * next_q_value
+        new_q = old_q + self.alpha * (target - old_q)
+        self.q_values[state_id, concept_action] = new_q
+        return old_q, new_q
+
+    def _build_no_actions_observation(self, state: GameState, info: dict | None) -> Observation:
+        """Treat conceptual dead-ends as terminal failures for the internal learner."""
+        final_info = dict(info or {})
+        final_info["end_reason"] = AgentStatus.Fail
+        return Observation(state, -100, True, final_info)
 
     def update_epsilon_with_decay(self, episode_number)->float:
         """ 
@@ -347,15 +373,9 @@ class QAgent(BaseAgent):
                     f"[!] Concept mapping (concept → real): {concept_observation.concept_mapping}"
                 )
                 # Mark episode as lost with internal reward -100 and end=True.
-                base_info = concept_observation.observation.info or {}
-                # Copy to avoid mutating original info dict
-                info = dict(base_info)
-                info["end_reason"] = AgentStatus.Fail
-                final_observation = Observation(
+                final_observation = self._build_no_actions_observation(
                     concept_observation.observation.state,
-                    -100,
-                    True,
-                    info,
+                    concept_observation.observation.info,
                 )
                 # Log episode summary if enhanced logging is enabled.
                 if self.concept_logger:
@@ -408,20 +428,47 @@ class QAgent(BaseAgent):
             # Update the Q-table
             if not testing:
                 # If we are training update the Q-table. If in testing do not update, so no learning in testing.
-                max_action = self.max_action_q(concept_observation)
-                if max_action == None:
-                    # There are no more actions to take. 
-                    self.logger.info(f"\n[+] We run out of actions.")
-                    save_trajectory()
-                    return None, num_steps
-                old_q = self.q_values[state_id, concept_action]
-                self.q_values[state_id, concept_action] += self.alpha * (concept_observation.observation.reward + max_action) - self.q_values[state_id, concept_action]
-                new_q = self.q_values[state_id, concept_action]
+                terminal = observation.end
+                conceptual_dead_end = False
+                next_q_value = 0.0
+                if not terminal:
+                    max_action = self.max_action_q(concept_observation)
+                    if max_action is None:
+                        self.logger.info("\n[+] We run out of actions.")
+                        observation = self._build_no_actions_observation(
+                            concept_observation.observation.state,
+                            concept_observation.observation.info,
+                        )
+                        concept_observation = concept_observation._replace(
+                            observation=observation
+                        )
+                        terminal = True
+                        conceptual_dead_end = True
+                    else:
+                        next_q_value = max_action
+
+                old_q, new_q = self._update_q_value(
+                    state_id,
+                    concept_action,
+                    concept_observation.observation.reward,
+                    next_q_value=next_q_value,
+                    terminal=terminal,
+                )
                 if self.concept_logger:
                     self.concept_logger.log_q_value_update(
-                        state_id, concept_action, old_q, new_q,
-                        concept_observation.observation.reward, max_action, self.alpha, self.gamma
+                        state_id,
+                        concept_action,
+                        old_q,
+                        new_q,
+                        concept_observation.observation.reward,
+                        next_q_value,
+                        self.alpha,
+                        self.gamma,
                     )
+
+                if conceptual_dead_end:
+                    save_trajectory(AgentStatus.Fail)
+                    return observation, num_steps
 
             # Check the apm (actions per minute)
             if self._apm_limit:
@@ -861,8 +908,8 @@ if __name__ == '__main__':
                     # Log the initial state for the new episode before any action is taken
                     agent.logger.info(f"\n[+] Initial state before first action:{observation}")
 
-                    # Reset the history of actions
-                    agent.actions_history = set()
+                    # Reset per-episode state tracked by the conceptual agent.
+                    agent.reset_episode_tracking()
 
                     # Convert the obvervation to conceptual observation
                     concept_observation = convert_ips_to_concepts(observation, agent._logger, agent.concept_logger)
@@ -1011,8 +1058,8 @@ if __name__ == '__main__':
                             # Log the initial state for the evaluation episode before any action is taken
                             agent.logger.info(f"\n[+] Initial state before first action:{test_observation}")
 
-                            # Reset the history of actions
-                            agent.actions_history = set()
+                            # Reset per-episode state tracked by the conceptual agent.
+                            agent.reset_episode_tracking()
 
                             # Convert the obvervation to conceptual observation
                             test_initial_state = test_observation.state
