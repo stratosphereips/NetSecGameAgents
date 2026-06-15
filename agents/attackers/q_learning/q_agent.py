@@ -195,9 +195,12 @@ class QAgent(BaseAgent):
                 recorder.add_step(action, observation.reward, observation.state, end_reason=end_reason)
             if not testing:
                 # If we are training update the Q-table
+                end_reason = observation.info.get("end_reason") if observation.info else None
+                is_terminal = end_reason in {AgentStatus.Success, AgentStatus.Fail}
+                next_q = 0.0 if is_terminal else self.max_action_q(observation)
                 self.q_values[state_id, action] += self.alpha * (
                     observation.reward
-                    + self.gamma * self.max_action_q(observation)
+                    + self.gamma * next_q
                     - self.q_values[state_id, action]
                 )
 
@@ -278,6 +281,7 @@ if __name__ == '__main__':
 
     # Early stop flag
     early_stop = False
+    best_test_win_rate = -1.0
 
     # If there is a previous model passed. Always use it for both training and testing.
     if args.previous_model:
@@ -552,10 +556,6 @@ if __name__ == '__main__':
                                 test_average_max_steps_steps = np.mean(test_num_max_steps_steps)
                                 test_std_max_steps_steps = np.std(test_num_max_steps_steps)
 
-                                # store model. Use episode (training counter) and not test_episode (test counter)
-                                if episode % args.store_models_every == 0 and episode != 0:
-                                    agent.store_q_table(f'/data/AIDojo/Models/q_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle')
-
                             text = f'''Tested for {test_episode} episodes after {episode} training episode.
                                 Wins={test_wins},
                                 Detections={test_detected},
@@ -587,6 +587,22 @@ if __name__ == '__main__':
                                 "test_current_epsilon": agent.current_epsilon,
                                 "test_current_episode": episode
                             }, step=episode)
+
+                            if episode % args.store_models_every == 0:
+                                agent.store_q_table(
+                                    f'/data/AIDojo/Models/q_agent_marl.experiment{args.experiment_id}-episodes-{episode}.pickle'
+                                )
+
+                            if test_win_rate > best_test_win_rate:
+                                best_test_win_rate = test_win_rate
+                                best_model_path = (
+                                    f'/data/AIDojo/Models/q_agent_marl.experiment{args.experiment_id}-best.pickle'
+                                )
+                                agent.store_q_table(best_model_path)
+                                agent.logger.info(
+                                    f'New best model saved to {best_model_path} with test win rate '
+                                    f'{best_test_win_rate:.3f}% after {episode} training episodes.'
+                                )
 
                             if test_win_rate >= args.early_stop_threshold:
                                 agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
