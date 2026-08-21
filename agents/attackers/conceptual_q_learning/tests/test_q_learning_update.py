@@ -2,6 +2,8 @@ import logging
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from netsecgame import Action, ActionType, AgentRole, AgentStatus, Observation
 
@@ -196,6 +198,46 @@ class TestConceptualQUpdate(unittest.TestCase):
         self.assertEqual(num_steps, 1)
         self.assertEqual(episode_return, -100)
         self.assertAlmostEqual(agent.current_epsilon, 0.74)
+        self.assertEqual(agent.completed_episodes, 1000)
+
+
+    def test_checkpoint_restores_training_state(self):
+        agent = self.make_agent()
+        agent.completed_episodes = 1234
+        agent.current_epsilon = 0.42
+        agent.epsilon_start = 0.75
+        agent.epsilon_end = 0.05
+        agent.epsilon_max_episodes = 9000
+        agent.best_eval_win_rate = 87.5
+        agent.best_eval_episode = 1200
+        agent._rng.random()
+        agent._eval_rng.random()
+        agent._np_rng.random()
+
+        with TemporaryDirectory() as model_dir:
+            agent.store_q_table(model_dir, "checkpoint.pickle")
+            expected_training_random = agent._rng.random()
+            expected_eval_random = agent._eval_rng.random()
+            expected_np_random = agent._np_rng.random()
+
+            restored_agent = self.make_agent()
+            with patch(
+                "agents.attackers.conceptual_q_learning.conceptual_q_agent._load_legacy_game_components_module"
+            ):
+                restored_agent.load_q_table(
+                    str(Path(model_dir, "checkpoint.pickle"))
+                )
+
+        self.assertEqual(restored_agent.completed_episodes, 1234)
+        self.assertEqual(restored_agent.current_epsilon, 0.42)
+        self.assertEqual(restored_agent.epsilon_start, 0.75)
+        self.assertEqual(restored_agent.epsilon_end, 0.05)
+        self.assertEqual(restored_agent.epsilon_max_episodes, 9000)
+        self.assertEqual(restored_agent.best_eval_win_rate, 87.5)
+        self.assertEqual(restored_agent.best_eval_episode, 1200)
+        self.assertEqual(restored_agent._rng.random(), expected_training_random)
+        self.assertEqual(restored_agent._eval_rng.random(), expected_eval_random)
+        self.assertEqual(restored_agent._np_rng.random(), expected_np_random)
 
 
 if __name__ == "__main__":
