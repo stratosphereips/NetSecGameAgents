@@ -110,5 +110,28 @@ class TestConceptualQUpdate(unittest.TestCase):
         self.assertEqual(agent.q_values, {})
 
 
+    def test_testing_action_selection_does_not_advance_training_rng(self):
+        agent = self.make_agent()
+        action = Action(
+            ActionType.FindServices,
+            parameters={"source_host": "host1", "target_host": "host2"},
+        )
+        observation = Observation(state=object(), reward=0, end=False, info={})
+        training_rng_state = agent._rng.getstate()
+        eval_rng_state = agent._eval_rng.getstate()
+
+        with (
+            patch.object(agent, "generate_valid_actions", return_value=[action]),
+            patch(
+                "agents.attackers.conceptual_q_learning.conceptual_q_agent.state_as_ordered_string",
+                return_value="unseen-state",
+            ),
+        ):
+            agent.select_action(observation, testing=True)
+
+        self.assertEqual(agent._rng.getstate(), training_rng_state)
+        self.assertNotEqual(agent._eval_rng.getstate(), eval_rng_state)
+
+
 if __name__ == "__main__":
     unittest.main()
