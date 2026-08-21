@@ -952,6 +952,13 @@ if __name__ == '__main__':
                             "unique_states": len(agent._str_to_id)
                         })
 
+                    if not args.testing and episode % args.store_models_every == 0:
+                        checkpoint_filename = (
+                            f"conceptual_q_agent.experiment{args.experiment_id}"
+                            f"-episodes-{episode}.pickle"
+                        )
+                        agent.store_q_table(args.models_dir, checkpoint_filename)
+
                     # Now Test, log and report. This happens every X training episodes
                     # If we are in training mode, we test for --test_for episodes
                     # If we are testing mode, this stop is not necessary since the model does not change as in training.
@@ -1082,11 +1089,6 @@ if __name__ == '__main__':
                             test_average_win_steps, test_std_win_steps = mean_and_std(test_num_win_steps)
                             test_average_detected_steps, test_std_detected_steps = mean_and_std(test_num_detected_steps)
                             test_average_max_steps_steps, test_std_max_steps_steps = mean_and_std(test_num_max_steps_steps)
-
-                            # Store the model every --eval_each episodes. 
-                            # Use episode (training counter) and not test_episode (test counter)
-                            if episode % args.store_models_every == 0 and episode != 0:
-                                agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
 
                         text = f'''Evaluated for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
