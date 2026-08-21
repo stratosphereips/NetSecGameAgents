@@ -1,8 +1,9 @@
 import logging
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
-from netsecgame import Action, ActionType, AgentRole, Observation
+from netsecgame import Action, ActionType, AgentRole, AgentStatus, Observation
 
 from agents.attackers.conceptual_q_learning.conceptual_q_agent import QAgent
 
@@ -131,6 +132,50 @@ class TestConceptualQUpdate(unittest.TestCase):
 
         self.assertEqual(agent._rng.getstate(), training_rng_state)
         self.assertNotEqual(agent._eval_rng.getstate(), eval_rng_state)
+
+
+    def test_play_game_returns_sum_of_shaped_step_rewards(self):
+        agent = self.make_agent()
+        action = Action(
+            ActionType.FindServices,
+            parameters={"source_host": "host1", "target_host": "host2"},
+        )
+        initial_observation = Observation(
+            state="initial", reward=0, end=False, info={}
+        )
+        step_observations = [
+            Observation(state="state-1", reward=0, end=False, info={}),
+            Observation(
+                state="state-2",
+                reward=0,
+                end=True,
+                info={"end_reason": AgentStatus.Success},
+            ),
+        ]
+
+        def as_conceptual(observation):
+            return SimpleNamespace(observation=observation, concept_mapping={})
+
+        with (
+            patch.object(agent, "generate_valid_actions", return_value=[action]),
+            patch.object(agent, "select_action", return_value=(action, None)),
+            patch.object(agent, "make_step", side_effect=step_observations),
+            patch(
+                "agents.attackers.conceptual_q_learning.conceptual_q_agent.convert_concepts_to_actions",
+                return_value=action,
+            ),
+            patch(
+                "agents.attackers.conceptual_q_learning.conceptual_q_agent.convert_ips_to_concepts",
+                side_effect=as_conceptual,
+            ),
+        ):
+            final_observation, num_steps, episode_return = agent.play_game(
+                as_conceptual(initial_observation), episode_num=1, testing=True
+            )
+
+        self.assertEqual(final_observation.info["end_reason"], AgentStatus.Success)
+        self.assertEqual(num_steps, 2)
+        self.assertEqual(episode_return, 999)
 
 
 if __name__ == "__main__":
