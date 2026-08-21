@@ -352,6 +352,10 @@ class QAgent(BaseAgent):
             )
             recorder.reset()
 
+        def decay_epsilon_after_episode():
+            if not testing:
+                self.current_epsilon = self.update_epsilon_with_decay(episode_num)
+
         # Run the whole episode
         while not concept_observation.observation.end:
             # Store steps so far
@@ -379,6 +383,7 @@ class QAgent(BaseAgent):
                     concept_observation.observation.state,
                     concept_observation.observation.info,
                 )
+                decay_epsilon_after_episode()
                 # Log episode summary if enhanced logging is enabled.
                 if self.concept_logger:
                     self.concept_logger.log_episode_summary(
@@ -474,6 +479,7 @@ class QAgent(BaseAgent):
                     )
 
                 if conceptual_dead_end:
+                    decay_epsilon_after_episode()
                     save_trajectory(AgentStatus.Fail)
                     return observation, num_steps, episode_return
 
@@ -488,9 +494,7 @@ class QAgent(BaseAgent):
                     time.sleep(remaining_time)
                 start_time = time.time()
 
-        # update epsilon value
-        if not testing:
-            self.current_epsilon = self.update_epsilon_with_decay(episode_num)
+        decay_epsilon_after_episode()
 
         # Log episode summary
         if self.concept_logger:
