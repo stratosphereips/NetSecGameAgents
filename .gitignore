@@ -157,3 +157,4 @@ wandb
 agents/*/*/*log*.txt
 agents/*/*/checkpoints/
 mlruns-old
+netsecenv_conf*.yaml
