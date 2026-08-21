@@ -150,6 +150,9 @@ class QAgent(BaseAgent):
         self.epsilon_end = epsilon_end
         self.epsilon_max_episodes = epsilon_max_episodes
         self.current_epsilon = epsilon_start
+        self.completed_episodes = 0
+        self.best_eval_win_rate = float("-inf")
+        self.best_eval_episode = None
         self._apm_limit = apm_limit
         if self._apm_limit:
             self.inter_action_interval = 60/apm_limit
@@ -177,7 +180,22 @@ class QAgent(BaseAgent):
         if not path.exists(strpath):
             makedirs(strpath)
         with open(strpath + '/' + filename, "wb") as f:
-            data = {"q_table":self.q_values, "state_mapping": self._str_to_id}
+            data = {
+                "q_table": self.q_values,
+                "state_mapping": self._str_to_id,
+                "training_state": {
+                    "completed_episodes": self.completed_episodes,
+                    "current_epsilon": self.current_epsilon,
+                    "epsilon_start": self.epsilon_start,
+                    "epsilon_end": self.epsilon_end,
+                    "epsilon_max_episodes": self.epsilon_max_episodes,
+                    "best_eval_win_rate": self.best_eval_win_rate,
+                    "best_eval_episode": self.best_eval_episode,
+                    "rng_state": self._rng.getstate(),
+                    "eval_rng_state": self._eval_rng.getstate(),
+                    "np_rng_state": self._np_rng.bit_generator.state,
+                },
+            }
             pickle.dump(data, f)
 
     def load_q_table(self,filename):
@@ -188,7 +206,46 @@ class QAgent(BaseAgent):
                 data = pickle.load(f)
                 self.q_values = _normalize_legacy_value(data["q_table"])
                 self._str_to_id = data["state_mapping"]
-            self._logger.info(f'Successfully loading file {filename}')
+                training_state = data.get("training_state")
+                if training_state:
+                    self.completed_episodes = training_state.get(
+                        "completed_episodes", 0
+                    )
+                    self.current_epsilon = training_state.get(
+                        "current_epsilon", self.current_epsilon
+                    )
+                    self.epsilon_start = training_state.get(
+                        "epsilon_start", self.epsilon_start
+                    )
+                    self.epsilon_end = training_state.get(
+                        "epsilon_end", self.epsilon_end
+                    )
+                    self.epsilon_max_episodes = training_state.get(
+                        "epsilon_max_episodes", self.epsilon_max_episodes
+                    )
+                    self.best_eval_win_rate = training_state.get(
+                        "best_eval_win_rate", self.best_eval_win_rate
+                    )
+                    self.best_eval_episode = training_state.get(
+                        "best_eval_episode", self.best_eval_episode
+                    )
+                    if "rng_state" in training_state:
+                        self._rng.setstate(training_state["rng_state"])
+                    if "eval_rng_state" in training_state:
+                        self._eval_rng.setstate(training_state["eval_rng_state"])
+                    if "np_rng_state" in training_state:
+                        self._np_rng.bit_generator.state = training_state[
+                            "np_rng_state"
+                        ]
+                else:
+                    self._logger.warning(
+                        "Checkpoint has no training state; episode, epsilon, and "
+                        "RNG state will restart from the configured defaults."
+                    )
+            self._logger.info(
+                f"Successfully loaded {filename}; completed training "
+                f"episodes={self.completed_episodes}"
+            )
         except Exception as e:
             self._logger.info(f'Error loading file {filename}. {e}')
             sys.exit(-1)
@@ -355,6 +412,7 @@ class QAgent(BaseAgent):
         def decay_epsilon_after_episode():
             if not testing:
                 self.current_epsilon = self.update_epsilon_with_decay(episode_num)
+                self.completed_episodes = episode_num
 
         # Run the whole episode
         while not concept_observation.observation.end:
@@ -514,7 +572,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
     parser.add_argument("--host", help="Host where the game server is", default="127.0.0.1", action='store', required=False)
     parser.add_argument("--port", help="Port where the game server is", default=9000, type=int, action='store', required=False)
-    parser.add_argument("--episodes", help="Sets number of episodes to run.", default=15000, type=int)
+    parser.add_argument("--episodes", help="Number of episodes to run in this invocation; resumed training treats them as additional episodes.", default=15000, type=int)
     parser.add_argument("--test_each", help="Evaluate the performance every this number of episodes. During training and testing.", default=1000, type=int)
     parser.add_argument("--test_for", help="Evaluate the performance for this number of episodes each time. Only during training.", default=250, type=int)
     parser.add_argument("--epsilon_start", help="Sets the start epsilon for exploration during training.", default=0.9, type=float)
@@ -819,8 +877,8 @@ if __name__ == '__main__':
             num_detected_returns = []
             num_win_returns = []
             num_max_steps_returns = []
-            best_eval_win_rate = float("-inf")
-            best_eval_episode = None
+            best_eval_win_rate = agent.best_eval_win_rate
+            best_eval_episode = agent.best_eval_episode
 
             # Get git commit information
             netsecenv_command = "cd ..; git rev-parse HEAD"
@@ -834,10 +892,11 @@ if __name__ == '__main__':
                 wandb.config.update({
                     "alpha": args.alpha,
                     "gamma": args.gamma,
-                    "epsilon_start": args.epsilon_start,
-                    "epsilon_end": args.epsilon_end,
-                    "epsilon_max_episodes": args.epsilon_max_episodes,
+                    "epsilon_start": agent.epsilon_start,
+                    "epsilon_end": agent.epsilon_end,
+                    "epsilon_max_episodes": agent.epsilon_max_episodes,
                     "episodes": args.episodes,
+                    "resumed_from_episode": agent.completed_episodes,
                     "test_each": args.test_each,
                     "test_for": args.test_for,
                     "testing": args.testing,
@@ -869,7 +928,11 @@ if __name__ == '__main__':
             agent._logger.info(f'Epsilon Max Episodes: {agent.epsilon_max_episodes}')
 
             # Start training / testing loop
+            resume_episode_offset = (
+                agent.completed_episodes if not args.testing else 0
+            )
             for episode in range(1, args.episodes + 1):
+                absolute_episode = resume_episode_offset + episode
                 if not early_stop:
                     # Play 1 episode only
                     trajectory_filename = None
@@ -883,7 +946,7 @@ if __name__ == '__main__':
                     observation, num_steps, episode_return = agent.play_game(
                         concept_observation,
                         testing=args.testing,
-                        episode_num=episode,
+                        episode_num=absolute_episode,
                         recorder=episode_recorder,
                         trajectory_filename=trajectory_filename,
                         trajectory_location=args.trajectoriesdir,
@@ -911,9 +974,9 @@ if __name__ == '__main__':
                             num_max_steps_returns += [episode_return]
 
                         if args.testing:
-                            agent._logger.error(f"Testing episode {episode}: Steps={num_steps}. Reward {reward}. Return={episode_return}. States in Q_table = {len(agent.q_values)}")
+                            agent._logger.error(f"Testing episode {absolute_episode}: Steps={num_steps}. Reward {reward}. Return={episode_return}. States in Q_table = {len(agent.q_values)}")
                         elif not args.testing:
-                            agent._logger.error(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. Return={episode_return}. States in Q_table = {len(agent.q_values)}")
+                            agent._logger.error(f"Training episode {absolute_episode}: Steps={num_steps}. Reward {reward}. Return={episode_return}. States in Q_table = {len(agent.q_values)}")
 
                     # Reset the game here, after we analyzed the data of the last observation.
                     # After each episode we need to reset the game 
@@ -959,24 +1022,24 @@ if __name__ == '__main__':
                             "test_avg_max_steps_steps": run_average_max_steps_steps,
                             "test_std_max_steps_steps": run_std_max_steps_steps,
                             "current_epsilon": agent.current_epsilon,
-                            "current_episode": episode,
+                            "current_episode": absolute_episode,
                             "q_table_size": len(agent.q_values),
                             "unique_states": len(agent._str_to_id)
                         })
 
-                    if not args.testing and episode % args.store_models_every == 0:
+                    if not args.testing and absolute_episode % args.store_models_every == 0:
                         checkpoint_filename = (
                             f"conceptual_q_agent.experiment{args.experiment_id}"
-                            f"-episodes-{episode}.pickle"
+                            f"-episodes-{absolute_episode}.pickle"
                         )
                         agent.store_q_table(args.models_dir, checkpoint_filename)
 
                     # Now Test, log and report. This happens every X training episodes
                     # If we are in training mode, we test for --test_for episodes
                     # If we are testing mode, this stop is not necessary since the model does not change as in training.
-                    if episode % args.test_each == 0 and episode != 0 and not args.testing:
+                    if absolute_episode % args.test_each == 0 and not args.testing:
                         # First report performance of trained model up to here
-                        text = f'''Performance after {episode} training episodes.
+                        text = f'''Performance after {absolute_episode} training episodes.
                             Wins={wins},
                             Detections={detected},
                             winrate={run_win_rate:.3f}%,
@@ -1010,7 +1073,7 @@ if __name__ == '__main__':
                                 "train_cumulative_avg_max_steps_steps": run_average_max_steps_steps,
                                 "train_cumulative_std_max_steps_steps": run_std_max_steps_steps,
                                 "current_epsilon": agent.current_epsilon,
-                                "current_episode": episode,
+                                "current_episode": absolute_episode,
                                 "q_table_size": len(agent.q_values),
                                 "unique_states": len(agent._str_to_id)
                             })
@@ -1039,12 +1102,12 @@ if __name__ == '__main__':
                                 episode_recorder = recorder
                                 trajectory_filename = (
                                     f"{datetime.now():%Y-%m-%d}_"
-                                    f"Conceptual-Q-Learning_Attacker_{episode:06d}"
+                                    f"Conceptual-Q-Learning_Attacker_{absolute_episode:06d}"
                                 )
                             test_observation, test_num_steps, test_episode_return = agent.play_game(
                                 test_concept_observation,
                                 testing=True,
-                                episode_num=episode,
+                                episode_num=absolute_episode,
                                 recorder=episode_recorder,
                                 trajectory_filename=trajectory_filename,
                                 trajectory_location=args.trajectoriesdir,
@@ -1102,7 +1165,7 @@ if __name__ == '__main__':
                             test_average_detected_steps, test_std_detected_steps = mean_and_std(test_num_detected_steps)
                             test_average_max_steps_steps, test_std_max_steps_steps = mean_and_std(test_num_max_steps_steps)
 
-                        text = f'''Evaluated for {test_episode} episodes after {episode} training episode.
+                        text = f'''Evaluated for {test_episode} episodes after {absolute_episode} training episode.
                             Wins={test_wins},
                             Detections={test_detected},
                             winrate={eval_win_rate:.3f}%,
@@ -1119,7 +1182,9 @@ if __name__ == '__main__':
 
                         if eval_win_rate > best_eval_win_rate:
                             best_eval_win_rate = eval_win_rate
-                            best_eval_episode = episode
+                            best_eval_episode = absolute_episode
+                            agent.best_eval_win_rate = best_eval_win_rate
+                            agent.best_eval_episode = best_eval_episode
                             best_checkpoint_filename = (
                                 f"conceptual_q_agent.experiment{args.experiment_id}"
                                 "-best.pickle"
@@ -1128,7 +1193,7 @@ if __name__ == '__main__':
                                 args.models_dir, best_checkpoint_filename
                             )
                             agent.logger.info(
-                                f"Stored new best model at episode {episode}: "
+                                f"Stored new best model at episode {absolute_episode}: "
                                 f"evaluation win rate={eval_win_rate:.3f}%"
                             )
 
@@ -1154,7 +1219,7 @@ if __name__ == '__main__':
                                 "best_eval_win_rate": best_eval_win_rate,
                                 "best_eval_episode": best_eval_episode,
                                 "current_epsilon": agent.current_epsilon,
-                                "current_episode": episode,
+                                "current_episode": absolute_episode,
                                 "q_table_size": len(agent.q_values),
                                 "unique_states": len(agent._str_to_id)
                             })
@@ -1171,7 +1236,7 @@ if __name__ == '__main__':
 
             # Log the final summary using the active run mode.
             run_mode = "testing" if args.testing else "training"
-            text = f'''Final {run_mode} performance after {episode} episodes.
+            text = f'''Final {run_mode} performance after {absolute_episode} episodes.
                 Wins={wins},
                 Detections={detected},
                 winrate={run_win_rate:.3f}%,
