@@ -192,13 +192,14 @@ class QAgent(BaseAgent):
             self._logger.info(f'Error loading file {filename}. {e}')
             sys.exit(-1)
 
-    def get_state_id(self, state:GameState) -> int:
-        """ For each state, get a unique id number """
-        # Here the state has to be ordered, so different orders are not taken as two different states.
-        # We execute this code and add to _str_to_id even in testing mode, but I see no problem with
+    def get_state_id(self, state: GameState, create: bool = True) -> int | None:
+        """Return the state's ID, optionally without modifying the mapping."""
+        # Order the state so equivalent states do not receive different IDs.
         state_str = state_as_ordered_string(state)
         if state_str not in self._str_to_id:
-            self._str_to_id[state_str] = len(self._str_to_id) 
+            if not create:
+                return None
+            self._str_to_id[state_str] = len(self._str_to_id)
         return self._str_to_id[state_str]
     
     def max_action_q(self, concept_observation:Observation) -> float | None:
@@ -216,7 +217,7 @@ class QAgent(BaseAgent):
         """ Select the action according to the algorithm """
         state = observation.state
         actions = self.generate_valid_actions(state)
-        state_id = self.get_state_id(state)
+        state_id = self.get_state_id(state, create=not testing)
         
         # E-greedy play. If the random number is less than the e, then choose random to explore.
         # But do not do it if we are testing a model. In testing is always exploit so it is deterministic. 
@@ -235,9 +236,7 @@ class QAgent(BaseAgent):
             initial_q_value = 0
             tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
             ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], self._rng.random()))
-            try:
-                self.q_values[state_id, action]
-            except KeyError:
+            if not testing and (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
             return action, state_id
 
