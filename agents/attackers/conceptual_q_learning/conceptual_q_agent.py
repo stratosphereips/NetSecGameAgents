@@ -335,6 +335,7 @@ class QAgent(BaseAgent):
         episode_num is used to update the epsilon value at the end of the episode.
         """
         num_steps = 0
+        episode_return = 0.0
         if recorder is not None:
             if initial_state is None:
                 raise ValueError("initial_state is required when recording trajectories")
@@ -389,7 +390,8 @@ class QAgent(BaseAgent):
                         "no_actions",
                     )
                 save_trajectory(AgentStatus.Fail)
-                return final_observation, num_steps
+                episode_return += final_observation.reward
+                return final_observation, num_steps, episode_return
 
             # Get next action. If we are not training, selection is different, so pass it as argument
             concept_action, state_id = self.select_action(concept_observation.observation, testing)
@@ -410,6 +412,7 @@ class QAgent(BaseAgent):
 
             # Recompute the rewards
             observation = self.recompute_reward(observation)
+            episode_return += observation.reward
             if recorder is not None:
                 end_reason = observation.info.get("end_reason") if observation.info else None
                 recorder.add_step(
@@ -440,6 +443,9 @@ class QAgent(BaseAgent):
                             concept_observation.observation.state,
                             concept_observation.observation.info,
                         )
+                        episode_return += (
+                            observation.reward - concept_observation.observation.reward
+                        )
                         concept_observation = concept_observation._replace(
                             observation=observation
                         )
@@ -469,7 +475,7 @@ class QAgent(BaseAgent):
 
                 if conceptual_dead_end:
                     save_trajectory(AgentStatus.Fail)
-                    return observation, num_steps
+                    return observation, num_steps, episode_return
 
             # Check the apm (actions per minute)
             if self._apm_limit:
@@ -498,7 +504,7 @@ class QAgent(BaseAgent):
 
         save_trajectory()
         # This will be the last observation played before the reset
-        return observation, num_steps
+        return observation, num_steps, episode_return
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('You can train the agent, or test it. \n Test is also to use the agent. \n During training and testing the performance is logged.')
@@ -870,7 +876,7 @@ if __name__ == '__main__':
                             f"{datetime.now():%Y-%m-%d}_"
                             f"Conceptual-Q-Learning_Attacker_{args.episodes:06d}"
                         )
-                    observation, num_steps = agent.play_game(
+                    observation, num_steps, episode_return = agent.play_game(
                         concept_observation,
                         testing=args.testing,
                         episode_num=episode,
@@ -890,20 +896,20 @@ if __name__ == '__main__':
                         if observation.info and observation.info['end_reason'] == AgentStatus.Fail:
                             detected +=1
                             num_detected_steps += [num_steps]
-                            num_detected_returns += [reward]
+                            num_detected_returns += [episode_return]
                         elif observation.info and observation.info['end_reason'] == AgentStatus.Success:
                             wins += 1
                             num_win_steps += [num_steps]
-                            num_win_returns += [reward]
+                            num_win_returns += [episode_return]
                         elif observation.info and observation.info['end_reason'] == AgentStatus.TimeoutReached:
                             max_steps += 1
                             num_max_steps_steps += [num_steps]
-                            num_max_steps_returns += [reward]
+                            num_max_steps_returns += [episode_return]
 
                         if args.testing:
-                            agent._logger.error(f"Testing episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                            agent._logger.error(f"Testing episode {episode}: Steps={num_steps}. Reward {reward}. Return={episode_return}. States in Q_table = {len(agent.q_values)}")
                         elif not args.testing:
-                            agent._logger.error(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. States in Q_table = {len(agent.q_values)}")
+                            agent._logger.error(f"Training episode {episode}: Steps={num_steps}. Reward {reward}. Return={episode_return}. States in Q_table = {len(agent.q_values)}")
 
                     # Reset the game here, after we analyzed the data of the last observation.
                     # After each episode we need to reset the game 
@@ -1031,7 +1037,7 @@ if __name__ == '__main__':
                                     f"{datetime.now():%Y-%m-%d}_"
                                     f"Conceptual-Q-Learning_Attacker_{episode:06d}"
                                 )
-                            test_observation, test_num_steps = agent.play_game(
+                            test_observation, test_num_steps, test_episode_return = agent.play_game(
                                 test_concept_observation,
                                 testing=True,
                                 episode_num=episode,
@@ -1051,17 +1057,17 @@ if __name__ == '__main__':
                                 if test_info and test_info['end_reason'] == AgentStatus.Fail:
                                     test_detected +=1
                                     test_num_detected_steps += [test_num_steps]
-                                    test_num_detected_returns += [test_reward]
+                                    test_num_detected_returns += [test_episode_return]
                                 elif test_info and test_info['end_reason'] == AgentStatus.Success:
                                     test_wins += 1
                                     test_num_win_steps += [test_num_steps]
-                                    test_num_win_returns += [test_reward]
+                                    test_num_win_returns += [test_episode_return]
                                 elif test_info and test_info['end_reason'] == AgentStatus.TimeoutReached:
                                     test_max_steps += 1
                                     test_num_max_steps_steps += [test_num_steps]
-                                    test_num_max_steps_returns += [test_reward]
+                                    test_num_max_steps_returns += [test_episode_return]
 
-                                agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. States in Q_table = {len(agent.q_values)}")
+                                agent._logger.error(f"\tTesting episode {test_episode}: Steps={test_num_steps}. Reward {test_reward}. Return={test_episode_return}. States in Q_table = {len(agent.q_values)}")
 
                             # Reset the game
                             test_observation = agent.request_game_reset()
