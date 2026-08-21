@@ -178,5 +178,25 @@ class TestConceptualQUpdate(unittest.TestCase):
         self.assertEqual(episode_return, 999)
 
 
+    def test_no_actions_training_episode_still_decays_epsilon(self):
+        agent = self.make_agent()
+        initial_observation = Observation(
+            state="initial", reward=0, end=False, info={}
+        )
+        concept_observation = SimpleNamespace(
+            observation=initial_observation, concept_mapping={}
+        )
+
+        with patch.object(agent, "generate_valid_actions", return_value=[]):
+            final_observation, num_steps, episode_return = agent.play_game(
+                concept_observation, episode_num=1000, testing=False
+            )
+
+        self.assertEqual(final_observation.info["end_reason"], AgentStatus.Fail)
+        self.assertEqual(num_steps, 1)
+        self.assertEqual(episode_return, -100)
+        self.assertAlmostEqual(agent.current_epsilon, 0.74)
+
+
 if __name__ == "__main__":
     unittest.main()
