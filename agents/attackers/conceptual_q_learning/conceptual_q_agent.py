@@ -915,36 +915,36 @@ if __name__ == '__main__':
                     concept_observation = convert_ips_to_concepts(observation, agent._logger, agent.concept_logger)
                     # From now one the observation will be in concepts
 
-                    eval_win_rate = (wins/episode) * 100
-                    eval_detection_rate = (detected/episode) * 100
-                    eval_average_returns, eval_std_returns = mean_and_std(
+                    run_win_rate = (wins/episode) * 100
+                    run_detection_rate = (detected/episode) * 100
+                    run_average_returns, run_std_returns = mean_and_std(
                         num_detected_returns + num_win_returns + num_max_steps_returns
                     )
-                    eval_average_episode_steps, eval_std_episode_steps = mean_and_std(
+                    run_average_episode_steps, run_std_episode_steps = mean_and_std(
                         num_win_steps + num_detected_steps + num_max_steps_steps
                     )
-                    eval_average_win_steps, eval_std_win_steps = mean_and_std(num_win_steps)
-                    eval_average_detected_steps, eval_std_detected_steps = mean_and_std(num_detected_steps)
-                    eval_average_max_steps_steps, eval_std_max_steps_steps = mean_and_std(num_max_steps_steps)
+                    run_average_win_steps, run_std_win_steps = mean_and_std(num_win_steps)
+                    run_average_detected_steps, run_std_detected_steps = mean_and_std(num_detected_steps)
+                    run_average_max_steps_steps, run_std_max_steps_steps = mean_and_std(num_max_steps_steps)
 
                     if args.testing and args.use_wandb:
                         wandb.log({
                             "test_wins": wins,
                             "test_detections": detected,
                             "test_timeouts": max_steps,
-                            "test_avg_win_rate": eval_win_rate,
-                            "test_avg_detection_rate": eval_detection_rate,
+                            "test_avg_win_rate": run_win_rate,
+                            "test_avg_detection_rate": run_detection_rate,
                             "test_avg_timeout_rate": (max_steps / episode) * 100,
-                            "test_avg_returns": eval_average_returns,
-                            "test_std_returns": eval_std_returns,
-                            "test_avg_episode_steps": eval_average_episode_steps,
-                            "test_std_episode_steps": eval_std_episode_steps,
-                            "test_avg_win_steps": eval_average_win_steps,
-                            "test_std_win_steps": eval_std_win_steps,
-                            "test_avg_detected_steps": eval_average_detected_steps,
-                            "test_std_detected_steps": eval_std_detected_steps,
-                            "test_avg_max_steps_steps": eval_average_max_steps_steps,
-                            "test_std_max_steps_steps": eval_std_max_steps_steps,
+                            "test_avg_returns": run_average_returns,
+                            "test_std_returns": run_std_returns,
+                            "test_avg_episode_steps": run_average_episode_steps,
+                            "test_std_episode_steps": run_std_episode_steps,
+                            "test_avg_win_steps": run_average_win_steps,
+                            "test_std_win_steps": run_std_win_steps,
+                            "test_avg_detected_steps": run_average_detected_steps,
+                            "test_std_detected_steps": run_std_detected_steps,
+                            "test_avg_max_steps_steps": run_average_max_steps_steps,
+                            "test_std_max_steps_steps": run_std_max_steps_steps,
                             "current_epsilon": agent.current_epsilon,
                             "current_episode": episode,
                             "q_table_size": len(agent.q_values),
@@ -959,36 +959,36 @@ if __name__ == '__main__':
                         text = f'''Performance after {episode} training episodes.
                             Wins={wins},
                             Detections={detected},
-                            winrate={eval_win_rate:.3f}%,
-                            detection_rate={eval_detection_rate:.3f}%,
-                            average_returns={eval_average_returns:.3f} +- {eval_std_returns:.3f},
-                            average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
-                            average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
-                            average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
-                            average_max_steps_steps={eval_average_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
+                            winrate={run_win_rate:.3f}%,
+                            detection_rate={run_detection_rate:.3f}%,
+                            average_returns={run_average_returns:.3f} +- {run_std_returns:.3f},
+                            average_episode_steps={run_average_episode_steps:.3f} +- {run_std_episode_steps:.3f},
+                            average_win_steps={run_average_win_steps:.3f} +- {run_std_win_steps:.3f},
+                            average_detected_steps={run_average_detected_steps:.3f} +- {run_std_detected_steps:.3f}
+                            average_max_steps_steps={run_average_max_steps_steps:.3f} +- {run_std_max_steps_steps:.3f},
                             epsilon={agent.current_epsilon}
                             '''
                         agent._logger.info(text)
                         
-                        # Log evaluation metrics to Wandb if enabled
+                        # Log cumulative training metrics to Wandb if enabled
                         if args.use_wandb:
                             wandb.log({
-                                "eval_wins": wins,
-                                "eval_detections": detected,
-                                "eval_timeouts": max_steps,
-                                "eval_avg_win_rate": eval_win_rate,
-                                "eval_avg_detection_rate": eval_detection_rate,
-                                "eval_avg_timeout_rate": (max_steps / episode) * 100,
-                                "eval_avg_returns": eval_average_returns,
-                                "eval_std_returns": eval_std_returns,
-                                "eval_avg_episode_steps": eval_average_episode_steps,
-                                "eval_std_episode_steps": eval_std_episode_steps,
-                                "eval_avg_win_steps": eval_average_win_steps,
-                                "eval_std_win_steps": eval_std_win_steps,
-                                "eval_avg_detected_steps": eval_average_detected_steps,
-                                "eval_std_detected_steps": eval_std_detected_steps,
-                                "eval_avg_max_steps_steps": eval_average_max_steps_steps,
-                                "eval_std_max_steps_steps": eval_std_max_steps_steps,
+                                "train_cumulative_wins": wins,
+                                "train_cumulative_detections": detected,
+                                "train_cumulative_timeouts": max_steps,
+                                "train_cumulative_win_rate": run_win_rate,
+                                "train_cumulative_detection_rate": run_detection_rate,
+                                "train_cumulative_timeout_rate": (max_steps / episode) * 100,
+                                "train_cumulative_avg_returns": run_average_returns,
+                                "train_cumulative_std_returns": run_std_returns,
+                                "train_cumulative_avg_episode_steps": run_average_episode_steps,
+                                "train_cumulative_std_episode_steps": run_std_episode_steps,
+                                "train_cumulative_avg_win_steps": run_average_win_steps,
+                                "train_cumulative_std_win_steps": run_std_win_steps,
+                                "train_cumulative_avg_detected_steps": run_average_detected_steps,
+                                "train_cumulative_std_detected_steps": run_std_detected_steps,
+                                "train_cumulative_avg_max_steps_steps": run_average_max_steps_steps,
+                                "train_cumulative_std_max_steps_steps": run_std_max_steps_steps,
                                 "current_epsilon": agent.current_epsilon,
                                 "current_episode": episode,
                                 "q_table_size": len(agent.q_values),
@@ -1070,8 +1070,8 @@ if __name__ == '__main__':
                             )
                             # From now one the observation will be in concepts
 
-                            test_win_rate = (test_wins/test_episode) * 100
-                            test_detection_rate = (test_detected/test_episode) * 100
+                            eval_win_rate = (test_wins/test_episode) * 100
+                            eval_detection_rate = (test_detected/test_episode) * 100
                             test_average_returns, test_std_returns = mean_and_std(
                                 test_num_detected_returns + test_num_win_returns + test_num_max_steps_returns
                             )
@@ -1087,11 +1087,11 @@ if __name__ == '__main__':
                             if episode % args.store_models_every == 0 and episode != 0:
                                 agent.store_q_table(args.models_dir, f'conceptual_q_agent.experiment{args.experiment_id}-episodes-{episode}.pickle')
 
-                        text = f'''Tested for {test_episode} episodes after {episode} training episode.
+                        text = f'''Evaluated for {test_episode} episodes after {episode} training episode.
                             Wins={test_wins},
                             Detections={test_detected},
-                            winrate={test_win_rate:.3f}%,
-                            detection_rate={test_detection_rate:.3f}%,
+                            winrate={eval_win_rate:.3f}%,
+                            detection_rate={eval_detection_rate:.3f}%,
                             average_returns={test_average_returns:.3f} +- {test_std_returns:.3f},
                             average_episode_steps={test_average_episode_steps:.3f} +- {test_std_episode_steps:.3f},
                             average_win_steps={test_average_win_steps:.3f} +- {test_std_win_steps:.3f},
@@ -1102,50 +1102,51 @@ if __name__ == '__main__':
                         agent._logger.info(text)
                         print(text)
 
-                        # Log test metrics to Wandb if enabled
+                        # Log evaluation metrics to Wandb if enabled
                         if args.use_wandb:
                             wandb.log({
-                                "test_wins": test_wins,
-                                "test_detections": test_detected,
-                                "test_timeouts": test_max_steps,
-                                "test_avg_win_rate": test_win_rate,
-                                "test_avg_detection_rate": test_detection_rate,
-                                "test_avg_timeout_rate": (test_max_steps / test_episode) * 100,
-                                "test_avg_returns": test_average_returns,
-                                "test_std_returns": test_std_returns,
-                                "test_avg_episode_steps": test_average_episode_steps,
-                                "test_std_episode_steps": test_std_episode_steps,
-                                "test_avg_win_steps": test_average_win_steps,
-                                "test_std_win_steps": test_std_win_steps,
-                                "test_avg_detected_steps": test_average_detected_steps,
-                                "test_std_detected_steps": test_std_detected_steps,
-                                "test_avg_max_steps_steps": test_average_max_steps_steps,
-                                "test_std_max_steps_steps": test_std_max_steps_steps,
+                                "eval_wins": test_wins,
+                                "eval_detections": test_detected,
+                                "eval_timeouts": test_max_steps,
+                                "eval_avg_win_rate": eval_win_rate,
+                                "eval_avg_detection_rate": eval_detection_rate,
+                                "eval_avg_timeout_rate": (test_max_steps / test_episode) * 100,
+                                "eval_avg_returns": test_average_returns,
+                                "eval_std_returns": test_std_returns,
+                                "eval_avg_episode_steps": test_average_episode_steps,
+                                "eval_std_episode_steps": test_std_episode_steps,
+                                "eval_avg_win_steps": test_average_win_steps,
+                                "eval_std_win_steps": test_std_win_steps,
+                                "eval_avg_detected_steps": test_average_detected_steps,
+                                "eval_std_detected_steps": test_std_detected_steps,
+                                "eval_avg_max_steps_steps": test_average_max_steps_steps,
+                                "eval_std_max_steps_steps": test_std_max_steps_steps,
                                 "current_epsilon": agent.current_epsilon,
                                 "current_episode": episode,
                                 "q_table_size": len(agent.q_values),
                                 "unique_states": len(agent._str_to_id)
                             })
 
-                        if test_win_rate >= args.early_stop_threshold:
-                            agent.logger.info(f'Early stopping. Test win rate: {test_win_rate}. Threshold: {args.early_stop_threshold}')
+                        if eval_win_rate >= args.early_stop_threshold:
+                            agent.logger.info(f'Early stopping. Evaluation win rate: {eval_win_rate}. Threshold: {args.early_stop_threshold}')
                             early_stop = True
 
                         observation = test_observation
                         concept_observation = test_concept_observation
 
             
-            # Log the last final episode when it ends
-            text = f'''Final model performance after {episode} episodes.
+            # Log the final summary using the active run mode.
+            run_mode = "testing" if args.testing else "training"
+            text = f'''Final {run_mode} performance after {episode} episodes.
                 Wins={wins},
                 Detections={detected},
-                winrate={eval_win_rate:.3f}%,
-                detection_rate={eval_detection_rate:.3f}%,
-                average_returns={eval_average_returns:.3f} +- {eval_std_returns:.3f},
-                average_episode_steps={eval_average_episode_steps:.3f} +- {eval_std_episode_steps:.3f},
-                average_win_steps={eval_average_win_steps:.3f} +- {eval_std_win_steps:.3f},
-                average_detected_steps={eval_average_detected_steps:.3f} +- {eval_std_detected_steps:.3f}
-                average_max_steps_steps={eval_average_max_steps_steps:.3f} +- {eval_std_max_steps_steps:.3f},
+                winrate={run_win_rate:.3f}%,
+                detection_rate={run_detection_rate:.3f}%,
+                average_returns={run_average_returns:.3f} +- {run_std_returns:.3f},
+                average_episode_steps={run_average_episode_steps:.3f} +- {run_std_episode_steps:.3f},
+                average_win_steps={run_average_win_steps:.3f} +- {run_std_win_steps:.3f},
+                average_detected_steps={run_average_detected_steps:.3f} +- {run_std_detected_steps:.3f}
+                average_max_steps_steps={run_average_max_steps_steps:.3f} +- {run_std_max_steps_steps:.3f},
                 epsilon={agent.current_epsilon}
                 '''
 
