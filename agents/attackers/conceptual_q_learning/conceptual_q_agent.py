@@ -1135,7 +1135,9 @@ if __name__ == '__main__':
                         observation = test_observation
                         concept_observation = test_concept_observation
 
-            
+                if early_stop:
+                    break
+
             # Log the final summary using the active run mode.
             run_mode = "testing" if args.testing else "training"
             text = f'''Final {run_mode} performance after {episode} episodes.
