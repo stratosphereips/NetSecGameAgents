@@ -140,6 +140,7 @@ class QAgent(BaseAgent):
         # affect the agent's behaviour.
         self._seed = seed
         self._rng = random.Random(self._seed)
+        self._eval_rng = random.Random(self._seed)
         self._np_rng = np.random.default_rng(self._seed)
         self.alpha = alpha
         self.gamma = gamma
@@ -218,14 +219,15 @@ class QAgent(BaseAgent):
         state = observation.state
         actions = self.generate_valid_actions(state)
         state_id = self.get_state_id(state, create=not testing)
+        rng = self._eval_rng if testing else self._rng
         
         # E-greedy play. If the random number is less than the e, then choose random to explore.
-        # But do not do it if we are testing a model. In testing is always exploit so it is deterministic. 
+        # Evaluation always exploits, using a separate RNG only to break ties.
         # Epsilon 0 means only exploit, which is very good if the env does not change.
-        if self._rng.uniform(0, 1) <= self.current_epsilon and not testing:
+        if not testing and rng.uniform(0, 1) <= self.current_epsilon:
             # We are training
             # Random choose an ation from the list of actions?
-            action = self._rng.choice(list(actions))
+            action = rng.choice(list(actions))
             if (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
             return action, state_id
@@ -235,7 +237,7 @@ class QAgent(BaseAgent):
             # The default initial q-value for a (state, action) pair is 0.
             initial_q_value = 0
             tmp = dict(((state_id, action), self.q_values.get((state_id, action), initial_q_value)) for action in actions)
-            ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], self._rng.random()))
+            ((state_id, action), value) = max(tmp.items(), key=lambda x: (x[1], rng.random()))
             if not testing and (state_id, action) not in self.q_values:
                 self.q_values[state_id, action] = 0
             return action, state_id
@@ -394,7 +396,7 @@ class QAgent(BaseAgent):
             self.logger.info(f"\n\n ==================================== \n\n[+] Concept Action selected:{concept_action}")
 
             # Convert the action with concepts to the action with IPs
-            action = convert_concepts_to_actions(concept_action, concept_observation, self.concept_logger, rng=self._rng)
+            action = convert_concepts_to_actions(concept_action, concept_observation, self.concept_logger, rng=self._eval_rng if testing else self._rng)
             self.logger.info(f"\n[+] Real Action selected:{action}")
 
             if self.concept_logger:
