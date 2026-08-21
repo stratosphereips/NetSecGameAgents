@@ -809,6 +809,8 @@ if __name__ == '__main__':
             num_detected_returns = []
             num_win_returns = []
             num_max_steps_returns = []
+            best_eval_win_rate = float("-inf")
+            best_eval_episode = None
 
             # Get git commit information
             netsecenv_command = "cd ..; git rev-parse HEAD"
@@ -1105,6 +1107,21 @@ if __name__ == '__main__':
                         agent._logger.info(text)
                         print(text)
 
+                        if eval_win_rate > best_eval_win_rate:
+                            best_eval_win_rate = eval_win_rate
+                            best_eval_episode = episode
+                            best_checkpoint_filename = (
+                                f"conceptual_q_agent.experiment{args.experiment_id}"
+                                "-best.pickle"
+                            )
+                            agent.store_q_table(
+                                args.models_dir, best_checkpoint_filename
+                            )
+                            agent.logger.info(
+                                f"Stored new best model at episode {episode}: "
+                                f"evaluation win rate={eval_win_rate:.3f}%"
+                            )
+
                         # Log evaluation metrics to Wandb if enabled
                         if args.use_wandb:
                             wandb.log({
@@ -1124,6 +1141,8 @@ if __name__ == '__main__':
                                 "eval_std_detected_steps": test_std_detected_steps,
                                 "eval_avg_max_steps_steps": test_average_max_steps_steps,
                                 "eval_std_max_steps_steps": test_std_max_steps_steps,
+                                "best_eval_win_rate": best_eval_win_rate,
+                                "best_eval_episode": best_eval_episode,
                                 "current_epsilon": agent.current_epsilon,
                                 "current_episode": episode,
                                 "q_table_size": len(agent.q_values),
