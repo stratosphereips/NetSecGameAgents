@@ -2,7 +2,7 @@ import logging
 import unittest
 from unittest.mock import patch
 
-from netsecgame import Action, ActionType, AgentRole
+from netsecgame import Action, ActionType, AgentRole, Observation
 
 from agents.attackers.conceptual_q_learning.conceptual_q_agent import QAgent
 
@@ -85,6 +85,29 @@ class TestConceptualQUpdate(unittest.TestCase):
 
         self.assertEqual(agent.actions_history, set())
         self.assertIsNone(agent.previous_state)
+
+
+    def test_testing_action_selection_does_not_mutate_model(self):
+        agent = self.make_agent()
+        action = Action(
+            ActionType.FindServices,
+            parameters={"source_host": "host1", "target_host": "host2"},
+        )
+        observation = Observation(state=object(), reward=0, end=False, info={})
+
+        with (
+            patch.object(agent, "generate_valid_actions", return_value=[action]),
+            patch(
+                "agents.attackers.conceptual_q_learning.conceptual_q_agent.state_as_ordered_string",
+                return_value="unseen-state",
+            ),
+        ):
+            selected_action, state_id = agent.select_action(observation, testing=True)
+
+        self.assertEqual(selected_action, action)
+        self.assertIsNone(state_id)
+        self.assertEqual(agent._str_to_id, {})
+        self.assertEqual(agent.q_values, {})
 
 
 if __name__ == "__main__":
