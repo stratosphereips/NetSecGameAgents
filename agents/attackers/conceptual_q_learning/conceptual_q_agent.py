@@ -200,7 +200,7 @@ class QAgent(BaseAgent):
             }
             pickle.dump(data, f)
 
-    def load_q_table(self,filename):
+    def load_q_table(self, filename, load_training_state=False):
         """ Load the q table from disk """
         try:
             with open(filename, "rb") as f:
@@ -208,7 +208,9 @@ class QAgent(BaseAgent):
                 data = pickle.load(f)
                 self.q_values = _normalize_legacy_value(data["q_table"])
                 self._str_to_id = data["state_mapping"]
-                training_state = data.get("training_state")
+                training_state = (
+                    data.get("training_state") if load_training_state else None
+                )
                 if training_state:
                     self.completed_episodes = training_state.get(
                         "completed_episodes", 0
@@ -242,7 +244,7 @@ class QAgent(BaseAgent):
                         self._np_rng.bit_generator.state = training_state[
                             "np_rng_state"
                         ]
-                else:
+                elif load_training_state:
                     self._logger.warning(
                         "Checkpoint has no training state; episode, epsilon, and "
                         "RNG state will restart from the configured defaults."
@@ -596,7 +598,22 @@ if __name__ == '__main__':
     parser.add_argument("--logdir", help="Folder to store logs", default=path.join(path.dirname(path.abspath(__file__)), "logs"))
     parser.add_argument("--trajectoriesdir", help="Folder to store trajectories", default=path.join(path.dirname(path.abspath(__file__)), "trajectories"))
     parser.add_argument("--models_dir", help="Folder to store models", default=path.join(path.dirname(path.abspath(__file__)), "models"))
-    parser.add_argument("--previous_model", help="Load the previous model. If training, it will start from here. If testing, will use to test.", type=str)
+    parser.add_argument(
+        "--previous_model",
+        help=(
+            "Load Q-values as a warm start. Training and evaluation counters "
+            "reset unless --resume_training_state is set."
+        ),
+        type=str,
+    )
+    parser.add_argument(
+        "--resume_training_state",
+        help=(
+            "Restore episode, epsilon, RNG, best-score, and patience state "
+            "from --previous_model instead of starting a fresh run."
+        ),
+        action="store_true",
+    )
     parser.add_argument(
         "--testing",
         help="Test the agent without training. Accepts true/false.",
@@ -838,7 +855,10 @@ if __name__ == '__main__':
         # Load table
         agent._logger.info(f'Loading the previous model in file {args.previous_model}')
         try:
-            agent.load_q_table(args.previous_model)
+            agent.load_q_table(
+                args.previous_model,
+                load_training_state=args.resume_training_state,
+            )
         except FileNotFoundError:
             message = f'Problem loading the file: {args.previous_model}'
             agent._logger.info(message)
@@ -918,6 +938,7 @@ if __name__ == '__main__':
                     "epsilon_max_episodes": agent.epsilon_max_episodes,
                     "episodes": args.episodes,
                     "resumed_from_episode": agent.completed_episodes,
+                    "resume_training_state": args.resume_training_state,
                     "test_each": args.test_each,
                     "test_for": args.test_for,
                     "early_stop_threshold": args.early_stop_threshold,
