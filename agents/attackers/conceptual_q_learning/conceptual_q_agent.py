@@ -153,6 +153,7 @@ class QAgent(BaseAgent):
         self.completed_episodes = 0
         self.best_eval_win_rate = float("-inf")
         self.best_eval_episode = None
+        self.eval_threshold_streak = 0
         self._apm_limit = apm_limit
         if self._apm_limit:
             self.inter_action_interval = 60/apm_limit
@@ -191,6 +192,7 @@ class QAgent(BaseAgent):
                     "epsilon_max_episodes": self.epsilon_max_episodes,
                     "best_eval_win_rate": self.best_eval_win_rate,
                     "best_eval_episode": self.best_eval_episode,
+                    "eval_threshold_streak": self.eval_threshold_streak,
                     "rng_state": self._rng.getstate(),
                     "eval_rng_state": self._eval_rng.getstate(),
                     "np_rng_state": self._np_rng.bit_generator.state,
@@ -228,6 +230,9 @@ class QAgent(BaseAgent):
                     )
                     self.best_eval_episode = training_state.get(
                         "best_eval_episode", self.best_eval_episode
+                    )
+                    self.eval_threshold_streak = training_state.get(
+                        "eval_threshold_streak", self.eval_threshold_streak
                     )
                     if "rng_state" in training_state:
                         self._rng.setstate(training_state["rng_state"])
@@ -366,6 +371,14 @@ class QAgent(BaseAgent):
         self.logger.debug(f"Updating epsilon - new value:{new_eps}")
         return new_eps
     
+    def update_eval_threshold_streak(self, eval_win_rate, threshold):
+        """Track consecutive evaluations that reach the stop threshold."""
+        if eval_win_rate >= threshold:
+            self.eval_threshold_streak += 1
+        else:
+            self.eval_threshold_streak = 0
+        return self.eval_threshold_streak
+
     def remember_action(self, concept_action):
         """ 
         Mark the action as done, so it is not repeated
@@ -603,7 +616,13 @@ if __name__ == '__main__':
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=parse_bool)
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=2000, type=int)
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
-    parser.add_argument("--early_stop_threshold", help="Threshold for win rate for testing. If the value goes over this threshold, the training is stopped. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
+    parser.add_argument("--early_stop_threshold", help="Evaluation win-rate threshold for early stopping. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
+    parser.add_argument(
+        "--early_stop_patience",
+        help="Consecutive evaluations at or above the threshold before stopping.",
+        default=3,
+        type=int,
+    )
     parser.add_argument("--apm", help="Maximum actions per minute", default=1000000, type=int, required=False)
     parser.add_argument(
         "--record_trajectories",
@@ -746,6 +765,8 @@ if __name__ == '__main__':
         action="store_true",
     )
     args = parser.parse_args()
+    if args.early_stop_patience < 1:
+        parser.error("--early_stop_patience must be at least 1")
 
     action_generation_options = {
         "filter_scan_network": not args.no_filter_scan_network,
@@ -899,6 +920,8 @@ if __name__ == '__main__':
                     "resumed_from_episode": agent.completed_episodes,
                     "test_each": args.test_each,
                     "test_for": args.test_for,
+                    "early_stop_threshold": args.early_stop_threshold,
+                    "early_stop_patience": args.early_stop_patience,
                     "testing": args.testing,
                     "record_trajectories": args.record_trajectories,
                     "trajectories_dir": args.trajectoriesdir,
@@ -1180,6 +1203,12 @@ if __name__ == '__main__':
                         agent._logger.info(text)
                         print(text)
 
+                        eval_threshold_streak = (
+                            agent.update_eval_threshold_streak(
+                                eval_win_rate, args.early_stop_threshold
+                            )
+                        )
+
                         if eval_win_rate > best_eval_win_rate:
                             best_eval_win_rate = eval_win_rate
                             best_eval_episode = absolute_episode
@@ -1218,15 +1247,26 @@ if __name__ == '__main__':
                                 "eval_std_max_steps_steps": test_std_max_steps_steps,
                                 "best_eval_win_rate": best_eval_win_rate,
                                 "best_eval_episode": best_eval_episode,
+                                "eval_threshold_streak": eval_threshold_streak,
                                 "current_epsilon": agent.current_epsilon,
                                 "current_episode": absolute_episode,
                                 "q_table_size": len(agent.q_values),
                                 "unique_states": len(agent._str_to_id)
                             })
 
-                        if eval_win_rate >= args.early_stop_threshold:
-                            agent.logger.info(f'Early stopping. Evaluation win rate: {eval_win_rate}. Threshold: {args.early_stop_threshold}')
+                        if eval_threshold_streak >= args.early_stop_patience:
+                            agent.logger.info(
+                                f"Early stopping after {eval_threshold_streak} "
+                                f"consecutive evaluations at or above "
+                                f"{args.early_stop_threshold}%."
+                            )
                             early_stop = True
+                        elif eval_threshold_streak:
+                            agent.logger.info(
+                                f"Evaluation threshold reached "
+                                f"({eval_threshold_streak}/"
+                                f"{args.early_stop_patience} consecutive rounds)."
+                            )
 
                         observation = test_observation
                         concept_observation = test_concept_observation
