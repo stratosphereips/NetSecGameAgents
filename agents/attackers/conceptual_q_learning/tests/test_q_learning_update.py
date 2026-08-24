@@ -201,6 +201,45 @@ class TestConceptualQUpdate(unittest.TestCase):
         self.assertEqual(agent.completed_episodes, 1000)
 
 
+    def test_checkpoint_load_warm_starts_with_fresh_run_state(self):
+        source_agent = self.make_agent()
+        action = Action(
+            ActionType.FindServices,
+            parameters={"source_host": "host1", "target_host": "host2"},
+        )
+        source_agent.q_values[(7, action)] = 3.5
+        source_agent._str_to_id["known-state"] = 7
+        source_agent.completed_episodes = 1234
+        source_agent.current_epsilon = 0.42
+        source_agent.epsilon_start = 0.75
+        source_agent.best_eval_win_rate = 87.5
+        source_agent.best_eval_episode = 1200
+        source_agent.eval_threshold_streak = 2
+        source_agent._rng.random()
+
+        with TemporaryDirectory() as model_dir:
+            source_agent.store_q_table(model_dir, "checkpoint.pickle")
+            restored_agent = self.make_agent()
+            fresh_agent = self.make_agent()
+            expected_training_random = fresh_agent._rng.random()
+            with patch(
+                "agents.attackers.conceptual_q_learning.conceptual_q_agent._load_legacy_game_components_module"
+            ):
+                restored_agent.load_q_table(
+                    str(Path(model_dir, "checkpoint.pickle"))
+                )
+
+        self.assertEqual(restored_agent.q_values[(7, action)], 3.5)
+        self.assertEqual(restored_agent._str_to_id["known-state"], 7)
+        self.assertEqual(restored_agent.completed_episodes, 0)
+        self.assertEqual(restored_agent.current_epsilon, 0.9)
+        self.assertEqual(restored_agent.epsilon_start, 0.9)
+        self.assertEqual(restored_agent.best_eval_win_rate, float("-inf"))
+        self.assertIsNone(restored_agent.best_eval_episode)
+        self.assertEqual(restored_agent.eval_threshold_streak, 0)
+        self.assertEqual(restored_agent._rng.random(), expected_training_random)
+
+
     def test_checkpoint_restores_training_state(self):
         agent = self.make_agent()
         agent.completed_episodes = 1234
@@ -226,7 +265,8 @@ class TestConceptualQUpdate(unittest.TestCase):
                 "agents.attackers.conceptual_q_learning.conceptual_q_agent._load_legacy_game_components_module"
             ):
                 restored_agent.load_q_table(
-                    str(Path(model_dir, "checkpoint.pickle"))
+                    str(Path(model_dir, "checkpoint.pickle")),
+                    load_training_state=True,
                 )
 
         self.assertEqual(restored_agent.completed_episodes, 1234)
