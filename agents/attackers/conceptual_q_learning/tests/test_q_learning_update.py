@@ -210,6 +210,7 @@ class TestConceptualQUpdate(unittest.TestCase):
         agent.epsilon_max_episodes = 9000
         agent.best_eval_win_rate = 87.5
         agent.best_eval_episode = 1200
+        agent.eval_threshold_streak = 2
         agent._rng.random()
         agent._eval_rng.random()
         agent._np_rng.random()
@@ -235,9 +236,19 @@ class TestConceptualQUpdate(unittest.TestCase):
         self.assertEqual(restored_agent.epsilon_max_episodes, 9000)
         self.assertEqual(restored_agent.best_eval_win_rate, 87.5)
         self.assertEqual(restored_agent.best_eval_episode, 1200)
+        self.assertEqual(restored_agent.eval_threshold_streak, 2)
         self.assertEqual(restored_agent._rng.random(), expected_training_random)
         self.assertEqual(restored_agent._eval_rng.random(), expected_eval_random)
         self.assertEqual(restored_agent._np_rng.random(), expected_np_random)
+
+
+    def test_eval_threshold_streak_requires_consecutive_hits(self):
+        agent = self.make_agent()
+
+        self.assertEqual(agent.update_eval_threshold_streak(95.0, 95.0), 1)
+        self.assertEqual(agent.update_eval_threshold_streak(97.0, 95.0), 2)
+        self.assertEqual(agent.update_eval_threshold_streak(94.9, 95.0), 0)
+        self.assertEqual(agent.update_eval_threshold_streak(96.0, 95.0), 1)
 
 
 if __name__ == "__main__":
