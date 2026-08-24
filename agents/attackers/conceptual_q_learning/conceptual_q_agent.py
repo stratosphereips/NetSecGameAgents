@@ -633,11 +633,11 @@ if __name__ == '__main__':
     parser.add_argument("--store_actions", help="Store actions in the log file q_agents_actions.log.", default=False, type=parse_bool)
     parser.add_argument("--store_models_every", help="Store a model to disk every these number of episodes.", default=2000, type=int)
     parser.add_argument("--env_conf", help="Configuration file of the env. Only for logging purposes.", required=False, default='./env/netsecenv_conf.yaml', type=str)
-    parser.add_argument("--early_stop_threshold", help="Evaluation win-rate threshold for early stopping. Defaults to 95 (mean 95%% perc)", required=False, default=95, type=float)
+    parser.add_argument("--early_stop_threshold", help="Evaluation win-rate threshold in percentage points (use 100 for 100%).", required=False, default=95, type=float)
     parser.add_argument(
         "--early_stop_patience",
         help="Consecutive evaluations at or above the threshold before stopping.",
-        default=3,
+        default=1,
         type=int,
     )
     parser.add_argument("--apm", help="Maximum actions per minute", default=1000000, type=int, required=False)
