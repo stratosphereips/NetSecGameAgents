@@ -662,6 +662,12 @@ if __name__ == '__main__':
         "All flags are disabled by default, preserving the standard action generator.",
     )
     ablations.add_argument(
+        "--all_ablations",
+        "--all-ablations",
+        help="Enable all conceptual action-generation ablations together.",
+        action="store_true",
+    )
+    ablations.add_argument(
         "--no_filter_scan_network",
         "--no-filter-scan-network",
         help=(
@@ -785,28 +791,41 @@ if __name__ == '__main__':
     if args.early_stop_patience < 1:
         parser.error("--early_stop_patience must be at least 1")
 
+    all_ablations = args.all_ablations
     action_generation_options = {
-        "filter_scan_network": not args.no_filter_scan_network,
-        "filter_find_services": not args.no_filter_find_services,
-        "filter_exploit_service": not args.no_filter_exploit_service,
-        "filter_find_data": not args.no_filter_find_data,
-        "filter_exfiltrate_data": not args.no_filter_exfiltrate_data,
-        "allow_repeated_actions": args.allow_repeated_actions,
-        "single_source": args.single_source,
-        "allow_repeated_network_scans": args.allow_repeated_network_scans,
-        "allow_service_rescans": args.allow_service_rescans,
-        "include_local_services": args.include_local_services,
-        "allow_exploit_controlled_hosts": args.allow_exploit_controlled_hosts,
-        "allow_find_data_rescans": args.allow_find_data_rescans,
+        "filter_scan_network": not (all_ablations or args.no_filter_scan_network),
+        "filter_find_services": not (all_ablations or args.no_filter_find_services),
+        "filter_exploit_service": not (all_ablations or args.no_filter_exploit_service),
+        "filter_find_data": not (all_ablations or args.no_filter_find_data),
+        "filter_exfiltrate_data": not (
+            all_ablations or args.no_filter_exfiltrate_data
+        ),
+        "allow_repeated_actions": all_ablations or args.allow_repeated_actions,
+        "single_source": all_ablations or args.single_source,
+        "allow_repeated_network_scans": (
+            all_ablations or args.allow_repeated_network_scans
+        ),
+        "allow_service_rescans": all_ablations or args.allow_service_rescans,
+        "include_local_services": all_ablations or args.include_local_services,
+        "allow_exploit_controlled_hosts": (
+            all_ablations or args.allow_exploit_controlled_hosts
+        ),
+        "allow_find_data_rescans": (
+            all_ablations or args.allow_find_data_rescans
+        ),
         "prohibit_find_data_self_targeting": (
-            args.prohibit_find_data_self_targeting
+            all_ablations or args.prohibit_find_data_self_targeting
         ),
-        "include_logfile_exfiltration": args.include_logfile_exfiltration,
+        "include_logfile_exfiltration": (
+            all_ablations or args.include_logfile_exfiltration
+        ),
         "allow_duplicate_data_exfiltration": (
-            args.allow_duplicate_data_exfiltration
+            all_ablations or args.allow_duplicate_data_exfiltration
         ),
-        "exfiltrate_to_external_only": args.exfiltrate_to_external_only,
-        "ignore_firewall": args.ignore_firewall,
+        "exfiltrate_to_external_only": (
+            all_ablations or args.exfiltrate_to_external_only
+        ),
+        "ignore_firewall": all_ablations or args.ignore_firewall,
     }
 
     # Check that the directory for the logs exist
