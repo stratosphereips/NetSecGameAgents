@@ -49,6 +49,9 @@ none of the following flags, the agent uses the original action-generation
 behavior. The selected values are stored in the W&B run configuration under
 `action_generation_options`.
 
+Use `--all_ablations` to enable every conceptual action-generation ablation in
+one run. This is equivalent to passing all individual ablation flags below.
+
 ### Per-family conceptual-filter ablations
 
 | Flag | Effect |
